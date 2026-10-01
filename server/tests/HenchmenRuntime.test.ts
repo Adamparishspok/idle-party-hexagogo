@@ -154,7 +154,7 @@ describe('Henchmen runtime (PartyBattleManager via PlayerManager)', () => {
     expect(henchman.baseDamage).toBe(6);
   });
 
-  it('refuses a second hire — one henchman per party', async () => {
+  it('refuses a second hire of the same henchman', async () => {
     const { pm, partyId } = await setup();
     hire(pm);
 
@@ -186,6 +186,65 @@ describe('Henchmen runtime (PartyBattleManager via PlayerManager)', () => {
 
     expect(() => combatPlayers(pm, partyId)).not.toThrow();
     expect(combatPlayers(pm, partyId).map(p => p.username)).toEqual(['alice']);
+  });
+
+  function winBattle(pm: PlayerManager, partyId: string, drops: { itemId: string; chance: number }[] = []) {
+    const content = (pm.partyBattles as unknown as { content: ContentStore }).content;
+    (content as unknown as { getMonster: () => unknown }).getMonster = () => ({
+      id: 'goblin', name: 'Goblin', hp: 10, damage: 2, damageType: 'physical', xp: 40, goldMin: 100, goldMax: 100, drops,
+    });
+    const battles = pm.partyBattles as unknown as {
+      entries: Map<string, { battleTimer: { combatState: unknown } }>;
+      handleBattleEnd: (id: string, result: 'victory') => void;
+    };
+    battles.entries.get(partyId)!.battleTimer.combatState = {
+      players: [],
+      monsters: [{ id: 'goblin', name: 'Goblin', xp: 40, currentHp: 0, maxHp: 10, gridPosition: 4, damageType: 'physical' }],
+      finished: true,
+      result: 'victory',
+    };
+    battles.handleBattleEnd(partyId, 'victory');
+  }
+
+  it('gives the player the whole reward when no henchman is hired', async () => {
+    const { pm, partyId } = await setup();
+    const before = pm.getSessionByUsername('alice')!.getGold();
+
+    winBattle(pm, partyId);
+
+    expect(pm.getSessionByUsername('alice')!.getGold() - before).toBe(100);
+  });
+
+  it('splits gold with a hired henchman, whose share is lost', async () => {
+    const { pm, partyId } = await setup();
+    hire(pm);
+    const before = pm.getSessionByUsername('alice')!.getGold();
+
+    winBattle(pm, partyId);
+
+    expect(pm.getSessionByUsername('alice')!.getGold() - before).toBe(50);
+  });
+
+  it('discards a drop that lands on a henchman\'s share', async () => {
+    const { pm, partyId } = await setup();
+    hire(pm);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+    winBattle(pm, partyId, [{ itemId: 'trinket', chance: 1 }]);
+    random.mockRestore();
+
+    expect(pm.getSessionByUsername('alice')!.getInventoryCount('trinket')).toBe(0);
+  });
+
+  it('still lets the player win a drop when the roll lands on them', async () => {
+    const { pm, partyId } = await setup();
+    hire(pm);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    winBattle(pm, partyId, [{ itemId: 'trinket', chance: 1 }]);
+    random.mockRestore();
+
+    expect(pm.getSessionByUsername('alice')!.getInventoryCount('trinket')).toBe(1);
   });
 
   it('refuses dungeon entry while the party holds a henchman', async () => {

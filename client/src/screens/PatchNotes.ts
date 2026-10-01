@@ -1,5 +1,13 @@
 export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
+    version: '2026.09.30.3',
+    notes: [
+      'Your party can now hire more than one henchman, as long as each is someone different. They fill any seats your party has free.',
+      'Henchmen now take their share of a victory. Experience, gold and loot are split as if they were party members, but their share is lost, so friends are always the better company.',
+      'When your party has no room, the shop now asks which henchman should make way for the new one. Henchmen already with you show as "In party".',
+    ],
+  },
+  {
     version: '2026.09.30.2',
     notes: [
       'Crafting is now open from level 1. Head to the Craft tab as soon as you have the materials, instead of waiting for level 20.',

@@ -97,7 +97,7 @@ It is deliberately **not retroactive**. Content authored before the constraint m
 
 `HenchmanTypes.ts` defines `HenchmanDefinition` with `id`, `name`, optional `description`, `className`, `level`, `maxHp`, `baseDamage`, optional `damageType`, `skillIds`, `emoji` (required), and optional `artworkUrl`. Definitions live in `data/henchmen.json`, managed by `ContentStore`. **Dev-only seed**: `SEED_HENCHMEN` is only seeded when `NODE_ENV !== 'production'`.
 
-A party may hold only one henchman at a time (`MAX_HENCHMEN_PER_PARTY`) — see `social.md`.
+A party may hold several henchmen, each a different one, up to its free seats (`MAX_HENCHMEN_PER_PARTY`); henchmen take an undelivered share of victory rewards — see `social.md`.
 
 Henchmen are **vended through shops**, not through a content type of their own — a shop lists them in `henchmanIds`, and the shop is linked to a room by the existing `shopId?: string` on `WorldTileDefinition`. There is no henchmen-specific tile field.
 

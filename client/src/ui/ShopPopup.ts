@@ -1,8 +1,8 @@
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
 import type { ServerStateMessage } from '@idle-party-rpg/shared';
-import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer } from '@idle-party-rpg/shared';
-import { getUnequippedCount, listUnequippedEntries } from '@idle-party-rpg/shared';
+import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer, HiredHenchman } from '@idle-party-rpg/shared';
+import { getUnequippedCount, listUnequippedEntries, MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from '@idle-party-rpg/shared';
 import { renderItemIcon, escapeHtml } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
@@ -90,11 +90,15 @@ export class ShopPopup {
     this.notice = null;
   }
 
-  /** Name of the henchman the party already has, if any. */
-  private static currentHenchmanName(state: ServerStateMessage): string | null {
-    const hired = state.social?.party?.henchmen?.[0];
-    if (!hired) return null;
-    return hired.name ?? 'your henchman';
+  private static hiredHenchmen(state: ServerStateMessage): HiredHenchman[] {
+    return state.social?.party?.henchmen ?? [];
+  }
+
+  /** Whether one more henchman fits without anyone leaving. */
+  private static hasRoomForHire(state: ServerStateMessage): boolean {
+    const hired = ShopPopup.hiredHenchmen(state).length;
+    const members = state.social?.party?.members.length ?? 1;
+    return hired < MAX_HENCHMEN_PER_PARTY && members + hired < MAX_PARTY_SIZE;
   }
 
   private renderCurrentView(state: ServerStateMessage): void {
@@ -115,7 +119,8 @@ export class ShopPopup {
       shopId: shop.id,
       shopInv: shop.inventory,
       offers,
-      henchman: ShopPopup.currentHenchmanName(state),
+      hired: ShopPopup.hiredHenchmen(state).map(h => `${h.instanceId}:${h.name ?? ''}`),
+      room: ShopPopup.hasRoomForHire(state),
       gold: state.character?.gold ?? 0,
       inv: state.character?.inventory ?? {},
       eq: state.character?.equipment ?? {},
@@ -137,13 +142,12 @@ export class ShopPopup {
       }
       this.renderSellDetail(this.view.itemId, max, state.itemDefinitions ?? {}, state.setDefinitions ?? {}, state, shop);
     } else if (this.view.kind === 'replace') {
-      const current = ShopPopup.currentHenchmanName(state);
-      if (!current) {
+      if (ShopPopup.hiredHenchmen(state).length === 0) {
         this.view = { kind: 'grid' };
         this.renderGrid(state, shop);
         return;
       }
-      this.renderReplaceConfirm(this.view.henchmanId, current, state, shop);
+      this.renderReplaceConfirm(this.view.henchmanId, state, shop);
     }
   }
 
@@ -177,7 +181,7 @@ export class ShopPopup {
     const hireActive = this.mode === 'hire' ? ' active' : '';
 
     const listHtml = this.mode === 'hire'
-      ? `<div class="shop-hire-list" style="max-height:45vh;overflow-y:auto;">${this.renderHireList(offers, !!ShopPopup.currentHenchmanName(state))}</div>`
+      ? `<div class="shop-hire-list" style="max-height:45vh;overflow-y:auto;">${this.renderHireList(offers, state)}</div>`
       : `<div class="shop-items-grid">${this.mode === 'buy'
           ? this.renderBuyItems(shop, itemDefs, setDefs)
           : this.renderSellItems(char.inventory, char.equipment, itemDefs, setDefs)}</div>`;
@@ -221,7 +225,7 @@ export class ShopPopup {
       btn.addEventListener('click', () => {
         const henchmanId = (btn as HTMLElement).dataset.henchmanId;
         if (!henchmanId) return;
-        if (ShopPopup.currentHenchmanName(state)) {
+        if (!ShopPopup.hasRoomForHire(state) && ShopPopup.hiredHenchmen(state).length > 0) {
           this.view = { kind: 'replace', henchmanId };
           this.renderCurrentView(state);
           return;
@@ -302,11 +306,9 @@ export class ShopPopup {
     }).join('');
   }
 
-  /** Render the hire list. The combat archetype (className) is deliberately not shown. */
-  /** Confirm swapping the party's current henchman for a new one. */
+  /** Ask which hired henchman makes room for a new one. */
   private renderReplaceConfirm(
     henchmanId: string,
-    currentName: string,
     state: ServerStateMessage,
     shop: ShopDefinition,
   ): void {
@@ -317,9 +319,17 @@ export class ShopPopup {
       return;
     }
 
+    const choices = ShopPopup.hiredHenchmen(state)
+      .filter(h => h.henchmanId !== henchmanId)
+      .map(h => `
+        <button class="item-popup-btn item-popup-btn-primary shop-replace-confirm" data-instance-id="${escapeHtml(h.instanceId)}" style="display:block;width:100%;margin:4px 0;">
+          Replace ${escapeHtml(h.name ?? 'henchman')}
+        </button>`)
+      .join('');
+
     this.overlay.innerHTML = `
       <div class="shop-popup">
-        <div class="shop-header"><span class="shop-title">Replace your henchman?</span></div>
+        <div class="shop-header"><span class="shop-title">Make room for ${escapeHtml(offer.name)}?</span></div>
         <div class="shop-hire-row" style="display:flex;align-items:center;gap:8px;padding:8px 0;text-align:left;">
           <div class="shop-hire-portrait" style="position:relative;flex:0 0 auto;width:44px;height:44px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
             ${ShopPopup.henchmanPortrait(offer)}
@@ -329,29 +339,37 @@ export class ShopPopup {
             <div class="shop-hire-stats" style="font-size:12px;color:#ccc;">Lv ${offer.level} · ${offer.maxHp} HP · ${offer.baseDamage} DMG</div>
           </div>
         </div>
-        <div style="font-size:13px;color:#ccc;line-height:1.5;padding:4px 0 12px;">
-          ${escapeHtml(currentName)} will leave your party, and ${escapeHtml(offer.name)} will take their place in your formation.
+        <div style="font-size:13px;color:#ccc;line-height:1.5;padding:4px 0 8px;">
+          Your party has no room. Choose who leaves; ${escapeHtml(offer.name)} takes their place in your formation.
         </div>
-        <div style="display:flex;gap:8px;justify-content:center;">
-          <button class="item-popup-btn item-popup-btn-primary shop-replace-confirm">Replace</button>
+        ${choices}
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
           <button class="item-popup-btn item-popup-btn-secondary shop-replace-cancel">Cancel</button>
         </div>
       </div>
     `;
 
-    this.overlay.querySelector('.shop-replace-confirm')?.addEventListener('click', () => {
-      this.pendingHireId = henchmanId;
-      this.gameClient.sendHireHenchman(henchmanId, true);
-      this.view = { kind: 'grid' };
-      this.renderGrid(state, shop);
-    });
+    for (const btn of this.overlay.querySelectorAll('.shop-replace-confirm')) {
+      btn.addEventListener('click', () => {
+        const instanceId = (btn as HTMLElement).dataset.instanceId;
+        if (!instanceId) return;
+        this.pendingHireId = henchmanId;
+        this.gameClient.sendHireHenchman(henchmanId, instanceId);
+        this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+      });
+    }
     this.overlay.querySelector('.shop-replace-cancel')?.addEventListener('click', () => {
       this.view = { kind: 'grid' };
       this.renderGrid(state, shop);
     });
   }
 
-  private renderHireList(offers: HenchmanOffer[], hasHenchman: boolean): string {
+  /** Render the hire list. The combat archetype (className) is deliberately not shown. */
+  private renderHireList(offers: HenchmanOffer[], state: ServerStateMessage): string {
+    const hired = ShopPopup.hiredHenchmen(state);
+    const hiredIds = new Set(hired.map(h => h.henchmanId));
+    const actionLabel = ShopPopup.hasRoomForHire(state) || hired.length === 0 ? 'Hire' : 'Replace';
     if (offers.length === 0) {
       return '<div style="color:#888;text-align:center;padding:16px;">Nobody here is looking for work</div>';
     }
@@ -371,7 +389,9 @@ export class ShopPopup {
             ${descriptionHtml}
             <div class="shop-hire-stats" style="font-size:12px;color:#ccc;">Lv ${o.level} · ${o.maxHp} HP · ${o.baseDamage} DMG</div>
           </div>
-          <button class="item-popup-btn item-popup-btn-primary shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}">${hasHenchman ? 'Replace' : 'Hire'}</button>
+          ${hiredIds.has(o.henchmanId)
+            ? '<button class="item-popup-btn item-popup-btn-secondary" disabled>In party</button>'
+            : `<button class="item-popup-btn item-popup-btn-primary shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}">${actionLabel}</button>`}
         </div>
       `;
     }).join('');
