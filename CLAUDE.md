@@ -93,7 +93,7 @@ Everything in `data/` must be persisted behind a swappable store interface — n
 
 ### Content versioning
 
-When adding a new content type to the game, include it in `ContentSnapshot` (`server/src/game/VersionStore.ts`) and in `ContentStore.toSnapshot()` / `replaceAll()` so it ships in draft/publish/deploy snapshots.
+When adding a new content type to the game, include it in `ContentSnapshot` (`server/src/game/VersionStore.ts`) and in `ContentStore.toSnapshot()` / `replaceAll()` so it ships in draft/publish/deploy snapshots. It must also be readable with an API token — in the REST export routes and, where MCP can write it, an MCP read tool. When a content interface changes, update the MCP `get_content_schema` cheat sheet too. See `docs/architecture/mcp.md` → Data coverage.
 
 ### Seed data is not live content
 
