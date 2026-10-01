@@ -622,7 +622,13 @@ export class PartyBattleManager {
     if (result === 'victory') {
       const combat = entry.battleTimer.currentCombat;
       const members = Array.from(entry.members);
-      const partySize = members.length;
+      // Hired henchmen take a share of XP, gold and drops, and that share is lost.
+      const hires = this.getPartyHenchmen(partyId).flatMap(h => {
+        const def = this.content.getHenchman(h.henchmanId);
+        return def ? [def] : [];
+      });
+      const henchmanClasses = hires.map(def => def.className);
+      const shareCount = members.length + hires.length;
 
       // Compute total XP and gold once, then split
       const totalXp = combat
@@ -638,33 +644,29 @@ export class PartyBattleManager {
         }
       }
 
-      // Check for XP-bonus passives (e.g. Bard Inspiration) — sum flatValues
-      // across every passive effect of every equipped skill in the party.
+      // XP-bonus passives (e.g. Bard Inspiration) from every equipped skill in the party, henchmen included.
+      const partySkillIds = [
+        ...members.flatMap(u => this.getSession(u)?.getSkillLoadout()?.equippedSkills ?? []),
+        ...hires.flatMap(def => def.skillIds),
+      ];
       let xpMultiplier = 1;
-      for (const username of members) {
-        const session = this.getSession(username);
-        if (!session) continue;
-        const loadout = session.getSkillLoadout();
-        if (loadout) {
-          for (const skillId of loadout.equippedSkills) {
-            if (!skillId) continue;
-            const skill = this.content.getSkill(skillId);
-            if (!skill?.passiveEffects) continue;
-            for (const effect of skill.passiveEffects) {
-              if (effect.kind === 'xp_bonus') {
-                xpMultiplier += effect.flatValue ?? 0;
-              }
-            }
-          }
+      for (const skillId of partySkillIds) {
+        if (!skillId) continue;
+        for (const effect of this.content.getSkill(skillId)?.passiveEffects ?? []) {
+          if (effect.kind === 'xp_bonus') xpMultiplier += effect.flatValue ?? 0;
         }
       }
 
-      const splitXp = Math.ceil((totalXp * xpMultiplier) / partySize);
-      const splitGold = Math.ceil(totalGold / partySize);
+      const splitXp = Math.ceil((totalXp * xpMultiplier) / shareCount);
+      const splitGold = Math.ceil(totalGold / shareCount);
 
-      // Roll item drops once, randomly assign each to a party member
+      // Roll item drops once and give each to one random share; a henchman's share is discarded.
       const memberItems: Map<string, string[]> = new Map();
       for (const u of members) memberItems.set(u, []);
+      const shares: { username: string | null; className: string | undefined }[] = [
+        ...members.map(u => ({ username: u, className: this.getSession(u)?.getClassName() ?? undefined })),
+        ...henchmanClasses.map(className => ({ username: null, className })),
+      ];
 
       if (combat) {
         for (const m of combat.monsters) {
@@ -673,17 +675,13 @@ export class PartyBattleManager {
             const dropped = rollDrops(def.drops);
             for (const itemId of dropped) {
               const itemDef = this.content.getItem(itemId);
-              let eligible = members;
+              let eligible = shares;
               if (itemDef?.classRestriction && itemDef.classRestriction.length > 0) {
-                const matching = members.filter(u => {
-                  const s = this.getSession(u);
-                  const cn = s?.getClassName();
-                  return cn && itemDef.classRestriction!.includes(cn);
-                });
+                const matching = shares.filter(sh => sh.className && itemDef.classRestriction!.includes(sh.className));
                 if (matching.length > 0) eligible = matching;
               }
               const recipient = eligible[Math.floor(Math.random() * eligible.length)];
-              memberItems.get(recipient)!.push(itemId);
+              if (recipient.username) memberItems.get(recipient.username)!.push(itemId);
             }
           }
         }

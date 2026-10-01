@@ -1411,8 +1411,11 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        const replaceInstanceId = typeof msg.replaceInstanceId === 'string' ? msg.replaceInstanceId : undefined;
         const partyIdForHire = session.getPartyId();
-        const outgoing = partyIdForHire ? playerManager.parties.getHenchmen(partyIdForHire)[0] : undefined;
+        const outgoing = partyIdForHire && replaceInstanceId
+          ? playerManager.parties.getHenchmen(partyIdForHire).find(h => h.instanceId === replaceInstanceId)
+          : undefined;
         const outgoingName = outgoing
           ? gameLoop.contentStore.getHenchman(outgoing.henchmanId)?.name
           : undefined;
@@ -1422,7 +1425,7 @@ wss.on('connection', (ws) => {
           msg.henchmanId,
           session.getMapId(),
           (u) => playerManager.getSessionByUsername(u)?.getPartyId() ?? null,
-          msg.replace === true,
+          replaceInstanceId,
         );
         if (typeof result === 'string') {
           ws.send(JSON.stringify({ type: 'error', message: result }));
