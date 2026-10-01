@@ -322,7 +322,6 @@ export {
 
 // Crafting types
 export {
-  CRAFTING_UNLOCK_LEVEL,
   MAX_CRAFT_QUEUE,
   SEED_RECIPES,
   emptyCraftQueue,

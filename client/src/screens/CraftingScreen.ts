@@ -172,19 +172,6 @@ export class CraftingScreen implements Screen {
       this.container.innerHTML = `<div class="craft-screen"><div class="craft-locked"><h3>No character</h3><p>Pick a class first.</p></div></div>`;
       return;
     }
-    if (!c.unlocked) {
-      this.container.innerHTML = `
-        <div class="craft-screen">
-          <div class="craft-locked">
-            <h3>Crafting locked</h3>
-            <p>Reach level ${c.unlockLevel} to begin crafting.</p>
-            <p style="opacity:0.7;font-size:0.85em">Current Level: ${this.lastLevel}</p>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
     this.container.innerHTML = `
       <div class="craft-screen">
         ${this.renderSkillHeader(c)}

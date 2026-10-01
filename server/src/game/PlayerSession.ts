@@ -39,7 +39,6 @@ import {
   processCompletions,
   getActiveJobProgress,
   getVisibleRecipes,
-  CRAFTING_UNLOCK_LEVEL,
   addCraftXp,
   xpForCraftLevel,
   getCraftSkillName,
@@ -663,8 +662,6 @@ export class PlayerSession {
     if (!this.character) return undefined;
     const recipes = this.content.getAllRecipes();
     const visible = getVisibleRecipes(recipes, this.character.className);
-    const unlockLevel = CRAFTING_UNLOCK_LEVEL;
-    const unlocked = this.character.level >= unlockLevel;
 
     // Collect every item def referenced by visible recipes (ingredients + results), so the
     // client can show readable names even for items the player doesn't own yet.
@@ -680,8 +677,6 @@ export class PlayerSession {
     }
 
     return {
-      unlocked,
-      unlockLevel,
       recipes: visible,
       queue: { activeStartedAtMs: this.craftQueue.activeStartedAtMs, jobs: [...this.craftQueue.jobs] },
       activeProgress: getActiveJobProgress(recipes, this.craftQueue, now),
