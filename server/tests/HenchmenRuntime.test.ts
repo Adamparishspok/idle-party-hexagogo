@@ -225,6 +225,23 @@ describe('Henchmen runtime (PartyBattleManager via PlayerManager)', () => {
     expect(pm.getSessionByUsername('alice')!.getGold() - before).toBe(50);
   });
 
+  it('counts a henchman\'s Inspiration toward the party XP bonus', async () => {
+    const xpOf = (pm: PlayerManager) => (pm.getSessionByUsername('alice') as unknown as { character: { xp: number } }).character.xp;
+
+    const plain = await setup();
+    hire(plain.pm);
+    const plainBefore = xpOf(plain.pm);
+    winBattle(plain.pm, plain.partyId);
+
+    const bard = await setup({ [HENCH_ID]: makeHenchman({ className: 'Bard', skillIds: ['bard_inspiration'] }) });
+    hire(bard.pm);
+    const bardBefore = xpOf(bard.pm);
+    winBattle(bard.pm, bard.partyId);
+
+    expect(xpOf(plain.pm) - plainBefore).toBe(20);
+    expect(xpOf(bard.pm) - bardBefore).toBe(24);
+  });
+
   it('discards a drop that lands on a henchman\'s share', async () => {
     const { pm, partyId } = await setup();
     hire(pm);

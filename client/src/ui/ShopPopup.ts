@@ -323,7 +323,7 @@ export class ShopPopup {
       .filter(h => h.henchmanId !== henchmanId)
       .map(h => `
         <button class="item-popup-btn item-popup-btn-primary shop-replace-confirm" data-instance-id="${escapeHtml(h.instanceId)}" style="display:block;width:100%;margin:4px 0;">
-          Replace ${escapeHtml(h.name ?? 'henchman')}
+          Replace ${escapeHtml(h.name ?? 'henchman')}${h.level !== undefined ? ` · Lv ${h.level}` : ''}
         </button>`)
       .join('');
 
@@ -369,7 +369,8 @@ export class ShopPopup {
   private renderHireList(offers: HenchmanOffer[], state: ServerStateMessage): string {
     const hired = ShopPopup.hiredHenchmen(state);
     const hiredIds = new Set(hired.map(h => h.henchmanId));
-    const actionLabel = ShopPopup.hasRoomForHire(state) || hired.length === 0 ? 'Hire' : 'Replace';
+    const hasRoom = ShopPopup.hasRoomForHire(state);
+    const partyFull = !hasRoom && hired.length === 0;
     if (offers.length === 0) {
       return '<div style="color:#888;text-align:center;padding:16px;">Nobody here is looking for work</div>';
     }
@@ -391,7 +392,9 @@ export class ShopPopup {
           </div>
           ${hiredIds.has(o.henchmanId)
             ? '<button class="item-popup-btn item-popup-btn-secondary" disabled>In party</button>'
-            : `<button class="item-popup-btn item-popup-btn-primary shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}">${actionLabel}</button>`}
+            : partyFull
+              ? '<button class="item-popup-btn item-popup-btn-secondary" disabled title="Your party is full of players">Party full</button>'
+              : `<button class="item-popup-btn item-popup-btn-primary shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}">${hasRoom ? 'Hire' : 'Replace'}</button>`}
         </div>
       `;
     }).join('');

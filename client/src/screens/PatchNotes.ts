@@ -5,6 +5,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Your party can now hire more than one henchman, as long as each is someone different. They fill any seats your party has free.',
       'Henchmen now take their share of a victory. Experience, gold and loot are split as if they were party members, but their share is lost, so friends are always the better company.',
       'When your party has no room, the shop now asks which henchman should make way for the new one. Henchmen already with you show as "In party".',
+      'A henchman\'s own talents now count toward your party\'s experience bonus, so a bard you hire inspires the party just like a bard friend would.',
     ],
   },
   {

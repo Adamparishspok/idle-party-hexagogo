@@ -623,11 +623,12 @@ export class PartyBattleManager {
       const combat = entry.battleTimer.currentCombat;
       const members = Array.from(entry.members);
       // Hired henchmen take a share of XP, gold and drops, and that share is lost.
-      const henchmanClasses = this.getPartyHenchmen(partyId).flatMap(h => {
-        const className = this.content.getHenchman(h.henchmanId)?.className;
-        return className ? [className] : [];
+      const hires = this.getPartyHenchmen(partyId).flatMap(h => {
+        const def = this.content.getHenchman(h.henchmanId);
+        return def ? [def] : [];
       });
-      const shareCount = members.length + henchmanClasses.length;
+      const henchmanClasses = hires.map(def => def.className);
+      const shareCount = members.length + hires.length;
 
       // Compute total XP and gold once, then split
       const totalXp = combat
@@ -643,24 +644,16 @@ export class PartyBattleManager {
         }
       }
 
-      // Check for XP-bonus passives (e.g. Bard Inspiration) — sum flatValues
-      // across every passive effect of every equipped skill in the party.
+      // XP-bonus passives (e.g. Bard Inspiration) from every equipped skill in the party, henchmen included.
+      const partySkillIds = [
+        ...members.flatMap(u => this.getSession(u)?.getSkillLoadout()?.equippedSkills ?? []),
+        ...hires.flatMap(def => def.skillIds),
+      ];
       let xpMultiplier = 1;
-      for (const username of members) {
-        const session = this.getSession(username);
-        if (!session) continue;
-        const loadout = session.getSkillLoadout();
-        if (loadout) {
-          for (const skillId of loadout.equippedSkills) {
-            if (!skillId) continue;
-            const skill = this.content.getSkill(skillId);
-            if (!skill?.passiveEffects) continue;
-            for (const effect of skill.passiveEffects) {
-              if (effect.kind === 'xp_bonus') {
-                xpMultiplier += effect.flatValue ?? 0;
-              }
-            }
-          }
+      for (const skillId of partySkillIds) {
+        if (!skillId) continue;
+        for (const effect of this.content.getSkill(skillId)?.passiveEffects ?? []) {
+          if (effect.kind === 'xp_bonus') xpMultiplier += effect.flatValue ?? 0;
         }
       }
 
