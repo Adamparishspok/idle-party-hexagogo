@@ -2033,7 +2033,10 @@ html, body {
   color: var(--accent-gold);
   font-family: var(--pixel-font);
   font-size: 13px;
-  white-space: nowrap;
+  /* Gate rejections are full sentences — wrap rather than run off the map. */
+  white-space: normal;
+  max-width: min(90%, 30rem);
+  text-align: center;
   z-index: 200;
   pointer-events: none;
   animation: toast-fade 2s ease-out forwards;
@@ -4500,6 +4503,16 @@ html, body {
 .trade-status {
   font-size: 10px;
   color: var(--accent-gold);
+  text-align: center;
+}
+
+/* Shown when a confirm was rejected because the offer moved under it. */
+.trade-notice {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  padding: 6px 8px;
   text-align: center;
 }
 

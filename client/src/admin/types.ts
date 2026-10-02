@@ -6,6 +6,7 @@ import type {
   WorldData,
   SetDefinition,
   ShopDefinition,
+  HenchmanDefinition,
   TileTypeDefinition,
   RecipeDefinition,
   NpcDefinition,
@@ -31,6 +32,29 @@ export interface SessionRecord {
   timestamp: string;
 }
 
+/** Mirrors server/src/auth/AdminRoles.ts. */
+export type AdminRole = 'admin' | 'superadmin';
+
+/** GET /api/admin/me — who the dashboard is signed in as. */
+export interface AdminMe {
+  email: string;
+  username: string | null;
+  role: AdminRole;
+  isSuperAdmin: boolean;
+  via: 'session' | 'token';
+}
+
+/** An API token as the dashboard sees it. The secret itself is only ever shown once, at creation. */
+export interface ApiTokenData {
+  id: string;
+  label: string;
+  prefix: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  expired: boolean;
+}
+
 export interface AccountData {
   email: string;
   username: string | null;
@@ -44,6 +68,10 @@ export interface AccountData {
   hasReactivationRequest: boolean;
   reactivationRequest: string | null;
   sessionHistory: SessionRecord[];
+  /** Granted admin role, or null. Suspended admins keep their grant until it's cleared. */
+  role: AdminRole | null;
+  /** True when the role comes from ADMIN_EMAILS and can't be edited here. */
+  roleLocked: boolean;
 }
 
 export type AccountSortColumn = 'username' | 'email' | 'status' | 'level' | 'class' | 'created' | 'lastActive';
@@ -61,6 +89,7 @@ export interface ContentData {
   encounters: Record<string, EncounterDefinition>;
   sets: Record<string, SetDefinition>;
   shops: Record<string, ShopDefinition>;
+  henchmen: Record<string, HenchmanDefinition>;
   tileTypes: Record<string, TileTypeDefinition>;
   recipes: Record<string, RecipeDefinition>;
   npcs: Record<string, NpcDefinition>;
@@ -90,6 +119,7 @@ export type TabId =
   | 'items'
   | 'sets'
   | 'shops'
+  | 'henchmen'
   | 'recipes'
   | 'npcs'
   | 'quests'
@@ -101,12 +131,15 @@ export type TabId =
   | 'map'
   | 'versions'
   | 'skills'
-  | 'xp-table';
+  | 'xp-table'
+  | 'api-tokens';
 
 export interface TabDef {
   id: TabId;
   label: string;
   icon: string;
+  /** Renders in the sidebar's utility cluster at the bottom, alongside UI Size and Refresh. */
+  footer?: boolean;
 }
 
 export const TABS: TabDef[] = [
@@ -117,6 +150,7 @@ export const TABS: TabDef[] = [
   { id: 'items',      label: 'Items',      icon: '❖' },
   { id: 'sets',       label: 'Sets',       icon: '✦' },
   { id: 'shops',      label: 'Shops',      icon: '¤' },
+  { id: 'henchmen',   label: 'Henchmen',   icon: '♟' },
   { id: 'recipes',    label: 'Recipes',    icon: '⚒' },
   { id: 'npcs',       label: 'NPCs',       icon: '☺' },
   { id: 'quests',     label: 'Quests',     icon: '!' },
@@ -129,6 +163,7 @@ export const TABS: TabDef[] = [
   { id: 'versions',   label: 'Versions',   icon: '⧉' },
   { id: 'skills',     label: 'Skills',     icon: '✥' },
   { id: 'xp-table',   label: 'XP Table',   icon: '✨' },
+  { id: 'api-tokens', label: 'API Tokens', icon: '⚿', footer: true },
 ];
 
 export type UiSize = 'small' | 'medium' | 'large' | 'xlarge';

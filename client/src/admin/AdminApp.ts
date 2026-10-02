@@ -1,6 +1,7 @@
 import type { AdminContext } from './AdminContext';
 import type {
   AccountData,
+  AdminMe,
   ContentData,
   ContentVersion,
   OverviewData,
@@ -24,6 +25,7 @@ import { MonstersTab } from './tabs/MonstersTab';
 import { ItemsTab } from './tabs/ItemsTab';
 import { SetsTab } from './tabs/SetsTab';
 import { ShopsTab } from './tabs/ShopsTab';
+import { HenchmenTab } from './tabs/HenchmenTab';
 import { RecipesTab } from './tabs/RecipesTab';
 import { NpcsTab } from './tabs/NpcsTab';
 import { QuestsTab } from './tabs/QuestsTab';
@@ -36,12 +38,14 @@ import { MapsTab } from './tabs/MapsTab';
 import { VersionsTab } from './tabs/VersionsTab';
 import { SkillsTab } from './tabs/SkillsTab';
 import { XpTableTab } from './tabs/XpTableTab';
+import { ApiTokensTab } from './tabs/ApiTokensTab';
 
 export class AdminApp implements AdminContext {
   private container: HTMLElement;
   private activeTab: TabId = 'overview';
 
   // Shared state (read-only via AdminContext)
+  me: AdminMe | null = null;
   overview: OverviewData | null = null;
   accounts: AccountData[] = [];
   private inviteOnly = false;
@@ -58,6 +62,7 @@ export class AdminApp implements AdminContext {
     'items':      new ItemsTab(),
     'sets':       new SetsTab(),
     'shops':      new ShopsTab(),
+    'henchmen':   new HenchmenTab(),
     'recipes':    new RecipesTab(),
     'npcs':       new NpcsTab(),
     'quests':     new QuestsTab(),
@@ -70,6 +75,7 @@ export class AdminApp implements AdminContext {
     'versions':   new VersionsTab(),
     'skills':     new SkillsTab(),
     'xp-table':   new XpTableTab(),
+    'api-tokens': new ApiTokensTab(),
   };
 
   constructor() {
@@ -94,12 +100,14 @@ export class AdminApp implements AdminContext {
     }
 
     try {
-      const [overview, accountsData, versionsData, inviteListData] = await Promise.all([
+      const [me, overview, accountsData, versionsData, inviteListData] = await Promise.all([
+        fetchAdmin<AdminMe>('/api/admin/me'),
         fetchAdmin<OverviewData>('/api/admin/overview'),
         fetchAdmin<{ accounts: AccountData[] }>('/api/admin/accounts'),
         fetchAdmin<{ versions: ContentVersion[]; activeVersionId: string | null }>('/api/admin/versions'),
         fetchAdmin<{ inviteOnly: boolean }>('/api/admin/invite-list'),
       ]);
+      this.me = me;
       this.overview = overview;
       this.accounts = accountsData.accounts;
       this.versions = versionsData.versions;
@@ -219,12 +227,15 @@ export class AdminApp implements AdminContext {
   }
 
   private renderShell(): void {
-    const sidebarItems = this.visibleTabs().map(t => `
+    const sidebarBtn = (t: TabDef) => `
       <button class="admin-sidebar-btn${t.id === this.activeTab ? ' active' : ''}" data-tab="${t.id}">
         <span class="admin-sidebar-icon">${t.icon}</span>
         <span class="admin-sidebar-label">${t.label}</span>
       </button>
-    `).join('');
+    `;
+    const visible = this.visibleTabs();
+    const sidebarItems = visible.filter(t => !t.footer).map(sidebarBtn).join('');
+    const sidebarFooterItems = visible.filter(t => t.footer).map(sidebarBtn).join('');
 
     this.container.innerHTML = `
       <div class="admin-shell">
@@ -240,6 +251,7 @@ export class AdminApp implements AdminContext {
           <nav class="admin-sidebar" id="admin-sidebar">
             ${sidebarItems}
             <div class="admin-sidebar-spacer"></div>
+            ${sidebarFooterItems}
             ${this.renderUiSizeSelector()}
             <button class="admin-sidebar-btn" id="admin-refresh">
               <span class="admin-sidebar-icon">↻</span>
