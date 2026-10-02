@@ -20,17 +20,37 @@ import { JsonFileStore } from './game/JsonFileStore.js';
 import { AccountStore } from './auth/AccountStore.js';
 import { TokenStore } from './auth/TokenStore.js';
 import { InviteListStore } from './auth/InviteListStore.js';
+import { ApiTokenStore } from './auth/ApiTokenStore.js';
 import { createAuthRoutes } from './auth/authRoutes.js';
 import { createAdminRoutes } from './admin/adminRoutes.js';
 import { createMcpRouter } from './mcp/McpEndpoint.js';
+import { TRADE_NONCE_MISMATCH } from './game/social/TradeSystem.js';
+import { AssetStore } from './game/AssetStore.js';
 import swaggerUi from 'swagger-ui-express';
 import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
-import type { ClassName, ItemDefinition } from '@idle-party-rpg/shared';
-import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass } from '@idle-party-rpg/shared';
+import type { ClassName, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
+import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
 import { getVapidPublicKey } from './game/social/BrowserPushNotificationDriver.js';
 import { isEmailConfigured } from './auth/EmailService.js';
+
+/**
+ * Render an unmet room entry requirement as the wire message. Item gates keep
+ * carrying `itemId`/`itemName` so the payload stays shaped the way it was
+ * before gates generalized beyond equipped items.
+ */
+function toMoveBlockedMessage(failure: RoomEntryFailure): ServerMoveBlockedMessage {
+  return {
+    type: 'move_blocked',
+    requirement: failure.kind,
+    reason: failure.reason,
+    missingPlayers: failure.missingPlayers,
+    ...(failure.itemId !== undefined ? { itemId: failure.itemId, itemName: failure.itemName } : {}),
+    ...(failure.questId !== undefined ? { questId: failure.questId, questName: failure.questName } : {}),
+    ...(failure.minLevel !== undefined ? { minLevel: failure.minLevel } : {}),
+  };
+}
 
 const app = express();
 const server = createServer(app);
@@ -41,6 +61,8 @@ const sessionStore = new JsonSessionStore('data/sessions');
 const accountStore = new AccountStore();
 const tokenStore = new TokenStore();
 const inviteListStore = new InviteListStore();
+const apiTokenStore = new ApiTokenStore();
+const assetStore = new AssetStore();
 const gameLoop = new GameLoop(store);
 // playerManager is set during init(), use gameLoop.playerManager after init
 let playerManager: typeof gameLoop.playerManager;
@@ -68,6 +90,10 @@ app.use(cors({
   origin: process.env.APP_URL ?? 'http://localhost:3000',
   credentials: true,
 }));
+// MCP carries base64 PNG uploads, which blow past the 100 KB default. This must
+// precede the global parser — body-parser marks the request as read, so the
+// generic parser below then no-ops for /mcp instead of re-reading it.
+app.use('/mcp', express.json({ limit: '2mb' }));
 app.use(express.json());
 
 // Device token: persistent cookie that survives logout for duplicate detection
@@ -90,9 +116,12 @@ app.use((req, res, next) => {
 
 app.use(sessionMiddleware);
 
+// --- Admin auth (session cookie or API token, both resolved to an admin role) ---
+import { createAdminAuth } from './admin/adminMiddleware.js';
+const adminAuth = createAdminAuth({ accountStore, apiTokenStore });
+
 // --- Swagger ---
-import { adminMiddleware } from './admin/adminMiddleware.js';
-app.use('/api-docs/admin', adminMiddleware, swaggerUi.serveFiles(adminSwaggerSpec), swaggerUi.setup(adminSwaggerSpec));
+app.use('/api-docs/admin', adminAuth.requireAdmin, swaggerUi.serveFiles(adminSwaggerSpec), swaggerUi.setup(adminSwaggerSpec));
 app.use('/api-docs/game', (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!req.session?.username) { res.status(401).json({ error: 'Not authenticated' }); return; }
   next();
@@ -160,13 +189,21 @@ app.use('/api/admin', createAdminRoutes({
   playerManager: () => playerManager,
   accountStore,
   inviteListStore,
+  apiTokenStore,
+  adminAuth,
   contentStore: () => gameLoop.contentStore,
   versionStore: () => gameLoop.versionStore,
+  assetStore,
   rebuildGrid: () => gameLoop.rebuildGridAndRelocate(),
   deployVersion: (versionId) => gameLoop.deployVersion(versionId),
 }));
 
-app.use('/mcp', createMcpRouter({ contentStore: () => gameLoop.contentStore, versionStore: () => gameLoop.versionStore }));
+app.use('/mcp', createMcpRouter({
+  contentStore: () => gameLoop.contentStore,
+  versionStore: () => gameLoop.versionStore,
+  assetStore,
+  adminAuth,
+}));
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -177,21 +214,12 @@ app.get('/health', (_req, res) => {
 });
 
 // --- Static files (drop PNGs into the matching data/<dir>/ to serve real art) ---
-app.use('/item-artwork', express.static(path.resolve('data/item-artwork')));
-app.use('/class-icons', express.static(path.resolve('data/class-icons')));
-app.use('/slot-icons', express.static(path.resolve('data/slot-icons')));
-app.use('/nav-icons', express.static(path.resolve('data/nav-icons')));
-app.use('/logo-artwork', express.static(path.resolve('data/logo-artwork')));
-app.use('/monster-artwork', express.static(path.resolve('data/monster-artwork')));
-app.use('/class-artwork', express.static(path.resolve('data/class-artwork')));
-app.use('/tile-artwork', express.static(path.resolve('data/tile-artwork')));
-app.use('/tile-type-artwork', express.static(path.resolve('data/tile-type-artwork')));
-app.use('/parchment-artwork', express.static(path.resolve('data/parchment-artwork')));
-app.use('/combat-bg-artwork', express.static(path.resolve('data/combat-bg-artwork')));
-app.use('/room-bg-artwork', express.static(path.resolve('data/room-bg-artwork')));
-app.use('/shop-artwork', express.static(path.resolve('data/shop-artwork')));
-app.use('/set-artwork', express.static(path.resolve('data/set-artwork')));
-app.use('/zone-artwork', express.static(path.resolve('data/zone-artwork')));
+// Mounts are derived from the shared asset registry so the served kinds can't
+// drift from the uploadable ones — adding a kind is one row in ASSET_KIND_INFO.
+for (const kind of ASSET_KINDS) {
+  const info = ASSET_KIND_INFO[kind];
+  app.use(info.mount, express.static(path.resolve(info.dir)));
+}
 
 /*
  * Shipped default UI art, committed to the repo under assets/.
@@ -333,14 +361,8 @@ wss.on('connection', (ws) => {
 
         const moveResult = playerManager.partyBattles.handleMove(partyId, msg.col, msg.row);
         if (!moveResult.success) {
-          if (moveResult.missingItemId) {
-            const itemDef = gameLoop.contentStore.getItem(moveResult.missingItemId);
-            ws.send(JSON.stringify({
-              type: 'move_blocked',
-              itemName: itemDef?.name ?? moveResult.missingItemId,
-              itemId: moveResult.missingItemId,
-              missingPlayers: moveResult.missingPlayers,
-            }));
+          if (moveResult.blocked) {
+            ws.send(JSON.stringify(toMoveBlockedMessage(moveResult.blocked)));
           } else {
             ws.send(JSON.stringify({ type: 'error', message: 'Invalid move' }));
           }
@@ -429,9 +451,15 @@ wss.on('connection', (ws) => {
           }
         }
 
-        const error = playerManager.handleEnterTransition(username, msg.tileId);
-        if (error) {
-          ws.send(JSON.stringify({ type: 'error', message: error }));
+        const transitionResult = playerManager.handleEnterTransition(username, msg.tileId);
+        if (!transitionResult.success) {
+          // An unmet gate reuses move_blocked so it surfaces in the same toast
+          // as a blocked move; structural failures stay on the error channel.
+          if (transitionResult.blocked) {
+            ws.send(JSON.stringify(toMoveBlockedMessage(transitionResult.blocked)));
+          } else {
+            ws.send(JSON.stringify({ type: 'error', message: transitionResult.error }));
+          }
         }
         return;
       }
@@ -606,17 +634,9 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        // Find the tile the player is on and check for a shop
-        const pos = session.getPosition();
-        const world = gameLoop.contentStore.getWorld();
-        const tile = world.tiles.find(t => t.col === pos.col && t.row === pos.row);
-        if (!tile?.shopId) {
-          ws.send(JSON.stringify({ type: 'error', message: 'No shop here' }));
-          return;
-        }
-        const shop = gameLoop.contentStore.getShop(tile.shopId);
+        const shop = session.getCurrentShop();
         if (!shop) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Shop not found' }));
+          ws.send(JSON.stringify({ type: 'error', message: 'No shop here' }));
           return;
         }
 
@@ -1129,12 +1149,13 @@ wss.on('connection', (ws) => {
             }
           }
         } else if (channelType === 'tile') {
-          // All players on the same tile
+          // All players in the same room on the same map
           const pos = session.getPosition();
+          const mapId = session.getMapId();
           for (const [u, s] of Array.from(playerManager['sessions'] as Map<string, any>)) {
             if (u === username) continue;
             const otherPos = s.getPosition();
-            if (otherPos.col === pos.col && otherPos.row === pos.row) {
+            if (s.getMapId() === mapId && otherPos.col === pos.col && otherPos.row === pos.row) {
               recipients.push({ username: u, send: (m: any) => playerManager.sendChatToPlayer(u, m) });
             }
           }
@@ -1371,11 +1392,10 @@ wss.on('connection', (ws) => {
       }
 
       if (msg.type === 'set_party_grid_position' && typeof msg.position === 'number') {
-        const result = playerManager.parties.setGridPosition(
-          username,
-          msg.position,
-          (u) => playerManager.getSessionByUsername(u)?.getPartyId() ?? null,
-        );
+        const getPartyId = (u: string) => playerManager.getSessionByUsername(u)?.getPartyId() ?? null;
+        const result = msg.henchmanInstanceId
+          ? playerManager.parties.setHenchmanGridPosition(username, msg.henchmanInstanceId, msg.position, getPartyId)
+          : playerManager.parties.setGridPosition(username, msg.position, getPartyId);
         if (typeof result === 'string') {
           ws.send(JSON.stringify({ type: 'error', message: result }));
           return;
@@ -1388,6 +1408,82 @@ wss.on('connection', (ws) => {
             for (const m of party.members) {
               playerManager.sendStateToPlayer(m.username);
             }
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'hire_henchman' && typeof msg.henchmanId === 'string') {
+        const session = playerManager.getSessionByUsername(username);
+        if (!session) return;
+
+        const shop = session.getCurrentShop();
+        if (!shop?.henchmanIds?.includes(msg.henchmanId)) {
+          ws.send(JSON.stringify({ type: 'error', message: 'That henchman is not for hire here.' }));
+          return;
+        }
+        const def = gameLoop.contentStore.getHenchman(msg.henchmanId);
+        if (!def) {
+          ws.send(JSON.stringify({ type: 'error', message: 'That henchman is no longer available.' }));
+          return;
+        }
+
+        const replaceInstanceId = typeof msg.replaceInstanceId === 'string' ? msg.replaceInstanceId : undefined;
+        const partyIdForHire = session.getPartyId();
+        const outgoing = partyIdForHire && replaceInstanceId
+          ? playerManager.parties.getHenchmen(partyIdForHire).find(h => h.instanceId === replaceInstanceId)
+          : undefined;
+        const outgoingName = outgoing
+          ? gameLoop.contentStore.getHenchman(outgoing.henchmanId)?.name
+          : undefined;
+
+        const result = playerManager.parties.hireHenchman(
+          username,
+          msg.henchmanId,
+          session.getMapId(),
+          (u) => playerManager.getSessionByUsername(u)?.getPartyId() ?? null,
+          replaceInstanceId,
+        );
+        if (typeof result === 'string') {
+          ws.send(JSON.stringify({ type: 'error', message: result }));
+          return;
+        }
+
+        const partyId = session.getPartyId();
+        if (partyId) {
+          playerManager.partyBattles.restartBattle(partyId);
+          const party = playerManager.parties.getParty(partyId);
+          for (const m of party?.members ?? []) {
+            const s = playerManager.getSessionByUsername(m.username);
+            if (outgoingName) s?.addLogEntry(`${outgoingName} leaves the party.`, 'move');
+            s?.addLogEntry(`${def.name} joins the party.`, 'move');
+            playerManager.sendStateToPlayer(m.username);
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'dismiss_henchman' && typeof msg.instanceId === 'string') {
+        const result = playerManager.parties.dismissHenchman(
+          username,
+          msg.instanceId,
+          (u) => playerManager.getSessionByUsername(u)?.getPartyId() ?? null,
+        );
+        if (typeof result === 'string') {
+          ws.send(JSON.stringify({ type: 'error', message: result }));
+          return;
+        }
+
+        // No handlePartyLeave/notify here — both assume a real account.
+        const name = gameLoop.contentStore.getHenchman(result.henchmanId)?.name ?? 'Your henchman';
+        const session = playerManager.getSessionByUsername(username);
+        const partyId = session?.getPartyId();
+        if (partyId) {
+          playerManager.partyBattles.restartBattle(partyId);
+          const party = playerManager.parties.getParty(partyId);
+          for (const m of party?.members ?? []) {
+            playerManager.getSessionByUsername(m.username)?.addLogEntry(`${name} leaves the party.`, 'move');
+            playerManager.sendStateToPlayer(m.username);
           }
         }
         return;
@@ -1549,15 +1645,28 @@ wss.on('connection', (ws) => {
       if (msg.type === 'confirm_trade' && typeof msg.tradeId === 'string') {
         console.log(`[Trade] ${username} confirming trade ${msg.tradeId}`);
         const partner = playerManager.trades.getTradePartner(msg.tradeId, username);
+        // A missing nonce is treated as a stale one — an old or hand-rolled client
+        // gets the same "review the updated offer" rejection as a replayed frame.
+        const nonce = typeof msg.nonce === 'string' ? msg.nonce : '';
         const result = playerManager.trades.confirmTrade(
           msg.tradeId,
           username,
+          nonce,
           (u, itemId, qty) => playerManager.hasItemInInventory(u, itemId, qty),
           (u, itemId) => playerManager.getSessionByUsername(u)?.getInventoryCount(itemId) ?? 0,
         );
 
         if (typeof result === 'string') {
-          ws.send(JSON.stringify({ type: 'error', message: result }));
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: result,
+            // Tagged so the trade modal can explain the rejection rather than
+            // looking like a dead button.
+            ...(result === TRADE_NONCE_MISMATCH ? { code: 'trade_nonce_mismatch' } : {}),
+          }));
+          // Re-sync so a client that rejected on a stale nonce repaints with the
+          // current offer (and its current nonce) instead of retrying the old one.
+          playerManager.sendStateToPlayer(username);
           return;
         }
 
@@ -1758,8 +1867,10 @@ async function start() {
   console.log(`[Startup] AccountStore loaded in ${(performance.now() - t0).toFixed(1)}ms`);
 
   await inviteListStore.load();
+  await apiTokenStore.load();
 
   tokenStore.start();
+  apiTokenStore.startFlush();
   sessionStore.startReap();
 
   const t1 = performance.now();
@@ -1776,6 +1887,7 @@ async function start() {
 async function shutdown(signal: string) {
   console.log(`\n${signal} received — shutting down...`);
   tokenStore.stop();
+  await apiTokenStore.stopFlush();
   sessionStore.stopReap();
   await gameLoop.shutdown();
   process.exit(0);

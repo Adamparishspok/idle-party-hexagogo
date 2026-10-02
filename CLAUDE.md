@@ -50,12 +50,13 @@ npm run typecheck    # tsc --build (all packages)
 Use `Glob`/`Grep`/`ls` to navigate the source tree — no point duplicating it here. For deeper context on specific subsystems, read the topic docs on demand:
 
 - [`docs/architecture/combat.md`](docs/architecture/combat.md) — combat engine, classes, skill system, damage types, DoT/Ignite/Shield Bash/Martyr invariants, combat log, HP bars, battle state machines.
-- [`docs/architecture/content.md`](docs/architecture/content.md) — `ContentStore`, parameterized shared functions, zones, monsters, walls, items, `InventoryView`, sets, dungeons, shops, world map, fog of war, item-gated tiles, tile types, `WorldCache`, content versioning.
+- [`docs/architecture/content.md`](docs/architecture/content.md) — `ContentStore`, parameterized shared functions, zones, monsters, walls, items, `InventoryView`, sets, dungeons, shops, world map, fog of war, item-gated tiles, tile types, `WorldCache`, artwork & imagery (`ASSET_KIND_INFO`), content versioning.
 - [`docs/architecture/social.md`](docs/architecture/social.md) — Social tab sub-tabs (Party/Guild/Leaderboard, with Chat as a global pop-out from the Chat nav button), user popup, View Player, async trades, gift mailbox, social badges, `ClientSocialState`.
 - [`docs/architecture/notifications.md`](docs/architecture/notifications.md) — pluggable notification framework: event registry, `NotificationService` dispatcher, channel drivers (in-app/browser push/email), preferences, inbox persistence, PWA/service worker/Web Push.
 - [`docs/architecture/auth.md`](docs/architecture/auth.md) — magic-link auth flow, WS session-cookie auth, `_dt` device fingerprinting, account deactivation/appeals.
 - [`docs/architecture/client.md`](docs/architecture/client.md) — multi-screen DOM shell, `GameClient` subscriber pattern, three.js world map + DOM overlay split, RoomView, ChatPopout, bottom nav structure, CharItems merged tab, persistent XP bar, image-everywhere convention, ModalStack, browser tab resume, hex coordinates, A* pathfinding, visual style, UI state persistence.
 - [`docs/architecture/admin-dashboard.md`](docs/architecture/admin-dashboard.md) — World Manager layout, density tokens, modal forms, per-tab notes.
+- [`docs/architecture/mcp.md`](docs/architecture/mcp.md) — MCP content-authoring server: transport, bearer-token auth, `DraftEditor`, tool catalog (read/notes/write/assets/validate), design notes, guardrails.
 - [`docs/architecture/persistence.md`](docs/architecture/persistence.md) — `PlayerSaveData` schema, `GameStateStore`/`JsonFileStore`, swappable-store data folder convention.
 
 For game design background see `ideas/skill-trees.md`, `ideas/encounters.md`, `ideas/equipment_update_v1.md`, `ideas/backlog-2026-april.md`, `ideas/ui-overhaul-may-2026.md`.
@@ -94,7 +95,13 @@ Everything in `data/` must be persisted behind a swappable store interface — n
 
 ### Content versioning
 
-When adding a new content type to the game, include it in `ContentSnapshot` (`server/src/game/VersionStore.ts`) and in `ContentStore.toSnapshot()` / `replaceAll()` so it ships in draft/publish/deploy snapshots.
+When adding a new content type to the game, include it in `ContentSnapshot` (`server/src/game/VersionStore.ts`) and in `ContentStore.toSnapshot()` / `replaceAll()` so it ships in draft/publish/deploy snapshots. It must also be readable with an API token — in the REST export routes and, where MCP can write it, an MCP read tool. When a content interface changes, update the MCP `get_content_schema` cheat sheet too. See `docs/architecture/mcp.md` → Data coverage.
+
+### Seed data is not live content
+
+The game is content-managed: `ContentStore.load()` seeds defaults **only** when no data files exist at all. After first boot, each server's content is whatever lives in its own `data/`, authored through the World Manager and MCP and shipped via draft → publish → deploy. Different live servers can hold entirely different content.
+
+So never infer what the game contains from the source tree. Grepping the repo tells you what a *fresh* world starts with and what this checkout happens to hold — it does not tell you what any running server has. Claims like "nothing references X, so no live content is affected" are unsupportable; say "the seed defaults don't reference X" and treat the real blast radius as unknown. This matters most when writing issues, PR descriptions, or anything where a severity or priority depends on what operators actually authored.
 
 ### UI terminology
 
@@ -110,3 +117,22 @@ In all user-facing text (UI labels, error messages, combat log), refer to hex ti
 - **Class layout**: properties → constructor → public methods → private methods.
 - **Error handling**: defensive checks with early returns.
 - **Tests**: aim for coverage on all non-rendering logic (systems, utils, pathfinding, server).
+- **Comments**: the code is the explanation. Comment only what the code cannot say itself.
+
+### Comments
+
+Default to **no comment**. A comment is a failure to make the code self-descriptive — reach for a clearer name, a smaller function, or a named constant first. Design rationale, feature descriptions and "why we chose this" belong in `docs/architecture/*.md`, not in the source.
+
+**Delete on sight:**
+- Anything restating what the next line does (`// Add to new party's battle`).
+- Design rationale, history, or the reasoning behind an approach.
+- Narrative explanation of how a feature works — that is what the topic docs are for.
+- Section banners and decorative dividers inside a function.
+- Multi-sentence paragraphs. If it takes a paragraph, it belongs in a doc.
+
+**Worth keeping**, and only as one terse line:
+- A landmine, where the obvious edit is the wrong one (`// keep-when-absent: an absent key means keep, not clear`).
+- A constraint imposed from outside the file that the reader cannot see (a protocol quirk, a browser bug, an ordering requirement).
+- `TODO`/`FIXME` with enough context to act on.
+
+JSDoc on an exported symbol is fine when it says something the signature does not — one or two lines, not an essay. If a reviewer needs the full story, link the doc: `See docs/architecture/social.md`.

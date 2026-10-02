@@ -1,8 +1,8 @@
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
 import type { ServerStateMessage } from '@idle-party-rpg/shared';
-import type { ShopDefinition, ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
-import { getUnequippedCount, listUnequippedEntries } from '@idle-party-rpg/shared';
+import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer, HiredHenchman } from '@idle-party-rpg/shared';
+import { getUnequippedCount, listUnequippedEntries, MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from '@idle-party-rpg/shared';
 import { renderItemIcon, escapeHtml } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
@@ -11,12 +11,16 @@ export class ShopPopup {
   private overlay: HTMLElement;
   private gameClient: GameClient;
   private worldCache: WorldCache;
-  private mode: 'buy' | 'sell' = 'buy';
+  /** `hire` only exists while the room's shop offers henchmen. */
+  private mode: 'buy' | 'sell' | 'hire' = 'buy';
   /** View context — what's open inside the shop popup right now. */
-  private view: { kind: 'grid' } | { kind: 'buy'; itemId: string; price: number; qty: number } | { kind: 'sell'; itemId: string; qty: number } = { kind: 'grid' };
+  private view: { kind: 'grid' } | { kind: 'buy'; itemId: string; price: number; qty: number } | { kind: 'sell'; itemId: string; qty: number } | { kind: 'replace'; henchmanId: string } = { kind: 'grid' };
   private notice: string | null = null;
   private noticeTimer: number | null = null;
   private unsubscribeState: (() => void) | null = null;
+  /** Henchman id of a hire awaiting a server answer, so only its refusal shows. */
+  private pendingHireId: string | null = null;
+  private unsubscribeError: (() => void) | null = null;
   /** Hash of the inputs that drove the most recent render. State ticks
    *  whose inputs match this skip the re-render entirely so item-artwork
    *  <img> elements aren't recreated and don't flicker the initials placeholder. */
@@ -38,7 +42,8 @@ export class ShopPopup {
   show(state: ServerStateMessage): void {
     const shop = state.shopDefinition;
     if (!shop) return;
-    this.mode = 'buy';
+    const hasOffers = (state.henchmanOffers?.length ?? 0) > 0;
+    this.mode = shop.inventory.length === 0 && hasOffers ? 'hire' : 'buy';
     this.view = { kind: 'grid' };
     this.notice = null;
     this.renderCurrentView(state);
@@ -50,7 +55,20 @@ export class ShopPopup {
     this.unsubscribeState = this.gameClient.subscribe(s => {
       if (this.overlay.style.display === 'none') return;
       if (!s.shopDefinition) { this.hide(); return; }
+      // A state tick means the hire landed — a refusal arrives as an error first.
+      this.pendingHireId = null;
       this.renderCurrentView(s);
+    });
+
+    // A hire refusal arrives as an `error`, not a state change; only claim one while a hire is outstanding.
+    this.unsubscribeError?.();
+    this.unsubscribeError = this.gameClient.onServerError((message) => {
+      if (this.overlay.style.display === 'none') return;
+      if (!this.pendingHireId) return;
+      this.pendingHireId = null;
+      this.setNotice(message);
+      const s = this.gameClient.lastState;
+      if (s) this.renderCurrentView(s);
     });
   }
 
@@ -60,6 +78,8 @@ export class ShopPopup {
     release(this.overlay);
     this.unsubscribeState?.();
     this.unsubscribeState = null;
+    this.unsubscribeError?.();
+    this.unsubscribeError = null;
     // Reset the render-cache so the next time the popup opens it
     // re-renders fresh (player may have visited a different shop).
     this.lastRenderKey = '';
@@ -70,9 +90,23 @@ export class ShopPopup {
     this.notice = null;
   }
 
+  private static hiredHenchmen(state: ServerStateMessage): HiredHenchman[] {
+    return state.social?.party?.henchmen ?? [];
+  }
+
+  /** Whether one more henchman fits without anyone leaving. */
+  private static hasRoomForHire(state: ServerStateMessage): boolean {
+    const hired = ShopPopup.hiredHenchmen(state).length;
+    const members = state.social?.party?.members.length ?? 1;
+    return hired < MAX_HENCHMEN_PER_PARTY && members + hired < MAX_PARTY_SIZE;
+  }
+
   private renderCurrentView(state: ServerStateMessage): void {
     const shop = state.shopDefinition;
     if (!shop) return;
+
+    const offers = state.henchmanOffers ?? [];
+    if (this.mode === 'hire' && offers.length === 0) this.mode = 'buy';
 
     // Skip re-render if nothing the popup cares about changed. State ticks
     // arrive once per second and were re-creating the img elements every
@@ -84,6 +118,9 @@ export class ShopPopup {
       notice: this.notice,
       shopId: shop.id,
       shopInv: shop.inventory,
+      offers,
+      hired: ShopPopup.hiredHenchmen(state).map(h => `${h.instanceId}:${h.name ?? ''}`),
+      room: ShopPopup.hasRoomForHire(state),
       gold: state.character?.gold ?? 0,
       inv: state.character?.inventory ?? {},
       eq: state.character?.equipment ?? {},
@@ -104,6 +141,13 @@ export class ShopPopup {
         return;
       }
       this.renderSellDetail(this.view.itemId, max, state.itemDefinitions ?? {}, state.setDefinitions ?? {}, state, shop);
+    } else if (this.view.kind === 'replace') {
+      if (ShopPopup.hiredHenchmen(state).length === 0) {
+        this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+        return;
+      }
+      this.renderReplaceConfirm(this.view.henchmanId, state, shop);
     }
   }
 
@@ -124,22 +168,27 @@ export class ShopPopup {
     }, 3500);
   }
 
-  /** Render the main grid view (buy or sell item list). */
+  /** Render the main grid view (buy / sell item list, or the hire list). */
   private renderGrid(state: ServerStateMessage, shop: ShopDefinition): void {
     const char = state.character;
     if (!char) return;
     const itemDefs = state.itemDefinitions ?? {};
     const setDefs = state.setDefinitions ?? {};
+    const offers = state.henchmanOffers ?? [];
 
     const buyActive = this.mode === 'buy' ? ' active' : '';
     const sellActive = this.mode === 'sell' ? ' active' : '';
+    const hireActive = this.mode === 'hire' ? ' active' : '';
 
-    let itemsHtml = '';
-    if (this.mode === 'buy') {
-      itemsHtml = this.renderBuyItems(shop, itemDefs, setDefs);
-    } else {
-      itemsHtml = this.renderSellItems(char.inventory, char.equipment, itemDefs, setDefs);
-    }
+    const listHtml = this.mode === 'hire'
+      ? `<div class="shop-hire-list" style="max-height:45vh;overflow-y:auto;">${this.renderHireList(offers, state)}</div>`
+      : `<div class="shop-items-grid">${this.mode === 'buy'
+          ? this.renderBuyItems(shop, itemDefs, setDefs)
+          : this.renderSellItems(char.inventory, char.equipment, itemDefs, setDefs)}</div>`;
+
+    const hireToggle = offers.length > 0
+      ? `<button class="shop-toggle-btn${hireActive}" data-mode="hire">Hire</button>`
+      : '';
 
     const noticeHtml = this.notice ? `<div class="shop-notice">${escapeHtml(this.notice)}</div>` : '';
 
@@ -153,8 +202,9 @@ export class ShopPopup {
         <div class="shop-toggle">
           <button class="shop-toggle-btn${buyActive}" data-mode="buy">Buy</button>
           <button class="shop-toggle-btn${sellActive}" data-mode="sell">Sell</button>
+          ${hireToggle}
         </div>
-        <div class="shop-items-grid">${itemsHtml}</div>
+        ${listHtml}
         <div style="margin-top:12px;text-align:center;">
           <button class="item-popup-btn item-popup-btn-secondary shop-close-btn">Close</button>
         </div>
@@ -164,8 +214,24 @@ export class ShopPopup {
     // Wire toggle
     for (const btn of this.overlay.querySelectorAll('.shop-toggle-btn')) {
       btn.addEventListener('click', () => {
-        this.mode = (btn as HTMLElement).dataset.mode as 'buy' | 'sell';
+        this.mode = (btn as HTMLElement).dataset.mode as 'buy' | 'sell' | 'hire';
         this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+      });
+    }
+
+    // Wire hire buttons
+    for (const btn of this.overlay.querySelectorAll('.shop-hire-btn')) {
+      btn.addEventListener('click', () => {
+        const henchmanId = (btn as HTMLElement).dataset.henchmanId;
+        if (!henchmanId) return;
+        if (!ShopPopup.hasRoomForHire(state) && ShopPopup.hiredHenchmen(state).length > 0) {
+          this.view = { kind: 'replace', henchmanId };
+          this.renderCurrentView(state);
+          return;
+        }
+        this.pendingHireId = henchmanId;
+        this.gameClient.sendHireHenchman(henchmanId);
         this.renderGrid(state, shop);
       });
     }
@@ -238,6 +304,110 @@ export class ShopPopup {
       });
       return html.replace(/<\/div>$/, `<span class="shop-item-price">${value}g</span></div>`);
     }).join('');
+  }
+
+  /** Ask which hired henchman makes room for a new one. */
+  private renderReplaceConfirm(
+    henchmanId: string,
+    state: ServerStateMessage,
+    shop: ShopDefinition,
+  ): void {
+    const offer = (state.henchmanOffers ?? []).find(o => o.henchmanId === henchmanId);
+    if (!offer) {
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+      return;
+    }
+
+    const choices = ShopPopup.hiredHenchmen(state)
+      .filter(h => h.henchmanId !== henchmanId)
+      .map(h => `
+        <button class="item-popup-btn item-popup-btn-primary shop-replace-confirm" data-instance-id="${escapeHtml(h.instanceId)}" style="display:block;width:100%;margin:4px 0;">
+          Replace ${escapeHtml(h.name ?? 'henchman')}${h.level !== undefined ? ` · Lv ${h.level}` : ''}
+        </button>`)
+      .join('');
+
+    this.overlay.innerHTML = `
+      <div class="shop-popup">
+        <div class="shop-header"><span class="shop-title">Make room for ${escapeHtml(offer.name)}?</span></div>
+        <div class="shop-hire-row" style="display:flex;align-items:center;gap:8px;padding:8px 0;text-align:left;">
+          <div class="shop-hire-portrait" style="position:relative;flex:0 0 auto;width:44px;height:44px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
+            ${ShopPopup.henchmanPortrait(offer)}
+          </div>
+          <div class="shop-hire-info" style="flex:1;min-width:0;">
+            <div class="shop-hire-name" style="font-size:15px;">${escapeHtml(offer.name)}</div>
+            <div class="shop-hire-stats" style="font-size:12px;color:#ccc;">Lv ${offer.level} · ${offer.maxHp} HP · ${offer.baseDamage} DMG</div>
+          </div>
+        </div>
+        <div style="font-size:13px;color:#ccc;line-height:1.5;padding:4px 0 8px;">
+          Your party has no room. Choose who leaves; ${escapeHtml(offer.name)} takes their place in your formation.
+        </div>
+        ${choices}
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
+          <button class="item-popup-btn item-popup-btn-secondary shop-replace-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    for (const btn of this.overlay.querySelectorAll('.shop-replace-confirm')) {
+      btn.addEventListener('click', () => {
+        const instanceId = (btn as HTMLElement).dataset.instanceId;
+        if (!instanceId) return;
+        this.pendingHireId = henchmanId;
+        this.gameClient.sendHireHenchman(henchmanId, instanceId);
+        this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+      });
+    }
+    this.overlay.querySelector('.shop-replace-cancel')?.addEventListener('click', () => {
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+    });
+  }
+
+  /** Render the hire list. The combat archetype (className) is deliberately not shown. */
+  private renderHireList(offers: HenchmanOffer[], state: ServerStateMessage): string {
+    const hired = ShopPopup.hiredHenchmen(state);
+    const hiredIds = new Set(hired.map(h => h.henchmanId));
+    const hasRoom = ShopPopup.hasRoomForHire(state);
+    const partyFull = !hasRoom && hired.length === 0;
+    if (offers.length === 0) {
+      return '<div style="color:#888;text-align:center;padding:16px;">Nobody here is looking for work</div>';
+    }
+
+    return offers.map(o => {
+      const description = o.description?.trim();
+      const descriptionHtml = description
+        ? `<div class="shop-hire-desc" style="font-size:12px;color:#999;line-height:1.4;">${escapeHtml(description)}</div>`
+        : '';
+      return `
+        <div class="shop-hire-row" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left;">
+          <div class="shop-hire-portrait" style="position:relative;flex:0 0 auto;width:44px;height:44px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
+            ${ShopPopup.henchmanPortrait(o)}
+          </div>
+          <div class="shop-hire-info" style="flex:1;min-width:0;">
+            <div class="shop-hire-name" style="font-size:15px;">${escapeHtml(o.name)}</div>
+            ${descriptionHtml}
+            <div class="shop-hire-stats" style="font-size:12px;color:#ccc;">Lv ${o.level} · ${o.maxHp} HP · ${o.baseDamage} DMG</div>
+          </div>
+          ${hiredIds.has(o.henchmanId)
+            ? '<button class="item-popup-btn item-popup-btn-secondary" disabled>In party</button>'
+            : partyFull
+              ? '<button class="item-popup-btn item-popup-btn-secondary" disabled title="Your party is full of players">Party full</button>'
+              : `<button class="item-popup-btn item-popup-btn-primary shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}">${hasRoom ? 'Hire' : 'Replace'}</button>`}
+        </div>
+      `;
+    }).join('');
+  }
+
+  /** Photo layered over an emoji fallback, so a missing or broken image still renders a portrait. */
+  private static henchmanPortrait(offer: HenchmanOffer): string {
+    const emoji = `<span class="shop-hire-emoji" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px;">${escapeHtml(offer.emoji)}</span>`;
+    if (!offer.artworkUrl) return emoji;
+    const img = `<img class="shop-hire-img" style="opacity:0;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;image-rendering:pixelated;"`
+      + ` src="${escapeHtml(offer.artworkUrl)}" alt="${escapeHtml(offer.name)}"`
+      + ` onload="this.style.opacity='1'" onerror="this.style.display='none'" loading="lazy" decoding="async" />`;
+    return `${emoji}${img}`;
   }
 
   /** Render a buy detail view inside the shop popup container. */

@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps } from '@idle-party-rpg/shared';
+import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
 import { toolResult, errorMessage } from './mcpResult.js';
@@ -18,6 +19,7 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
   const zoneIds = new Set(snapshot.zones.map(z => z.id));
   const encounterIds = new Set((snapshot.encounters ?? []).map(e => e.id));
   const shopIds = new Set((snapshot.shops ?? []).map(s => s.id));
+  const henchmanIds = new Set((snapshot.henchmen ?? []).map(h => h.id));
   const npcIds = new Set((snapshot.npcs ?? []).map(n => n.id));
   const questIds = new Set((snapshot.quests ?? []).map(q => q.id));
   const dungeonIds = new Set((snapshot.dungeons ?? []).map(d => d.id));
@@ -25,6 +27,22 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
   const skillIds = new Set((snapshot.skills ?? []).map(s => s.id));
   const mapIds = new Set(snapshot.world.maps.map(m => m.id));
   const tileById = new Map(snapshot.world.tiles.map(t => [t.id, t]));
+
+  /** Referential + range checks for a room/transition entry gate. */
+  const checkRoomRequirements = (reqs: RoomEntryRequirements | undefined, label: string): void => {
+    if (!reqs) return;
+    if (reqs.requiredItemId && !itemIds.has(reqs.requiredItemId)) {
+      problems.push(`${label} entryRequirements.requiredItemId references unknown item '${reqs.requiredItemId}'.`);
+    }
+    (reqs.requiredQuestIds ?? []).forEach((questId, index) => {
+      if (!questIds.has(questId)) {
+        problems.push(`${label} entryRequirements.requiredQuestIds references unknown quest '${questId}' (index ${index}).`);
+      }
+    });
+    if (reqs.minLevel !== undefined && (!Number.isFinite(reqs.minLevel) || reqs.minLevel < 1)) {
+      problems.push(`${label} entryRequirements.minLevel must be at least 1.`);
+    }
+  };
 
   // --- Zones ---
   for (const zone of snapshot.zones) {
@@ -35,7 +53,7 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
     });
   }
 
-  // --- Tiles: encounter table, zone/type/shop/npc/dungeon/requiredItemId, mapId ---
+  // --- Tiles: encounter table, zone/type/shop/npc/dungeon, entry gates, mapId ---
   for (const tile of snapshot.world.tiles) {
     (tile.encounterTable ?? []).forEach((entry, index) => {
       if (!encounterIds.has(entry.encounterId)) {
@@ -63,11 +81,13 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
     if (!mapIds.has(tile.mapId)) {
       problems.push(`Room '${tile.name}' (${tile.id}) references unknown map '${tile.mapId}'.`);
     }
+    checkRoomRequirements(tile.entryRequirements, `Room '${tile.name}' (${tile.id})`);
     (tile.transitions ?? []).forEach((transition, index) => {
       const target = tileById.get(transition.tileId);
       if (!target || target.mapId !== transition.mapId) {
         problems.push(`Room '${tile.name}' (${tile.id}) transition ${index} targets unknown room '${transition.tileId}' on map '${transition.mapId}'.`);
       }
+      checkRoomRequirements(transition.entryRequirements, `Room '${tile.name}' (${tile.id}) transition ${index}`);
     });
   }
 
@@ -123,6 +143,7 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
     if (tileType.requiredItemId && !itemIds.has(tileType.requiredItemId)) {
       problems.push(`Tile type '${tileType.id}' requiredItemId references unknown item '${tileType.requiredItemId}'.`);
     }
+    checkRoomRequirements(tileType.entryRequirements, `Tile type '${tileType.id}'`);
   }
 
   // --- Shops ---
@@ -132,6 +153,30 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
         problems.push(`Shop '${shop.id}' inventory references unknown item '${entry.itemId}' (index ${index}).`);
       }
     });
+    // keep-when-absent: an absent `henchmen` key means unknown, not empty.
+    if (snapshot.henchmen !== undefined) {
+      (shop.henchmanIds ?? []).forEach((hid, index) => {
+        if (!henchmanIds.has(hid)) {
+          problems.push(`Shop '${shop.id}' henchmanIds references unknown henchman '${hid}' (index ${index}).`);
+        }
+      });
+    }
+  }
+
+  // --- Zones ---
+  for (const { zone, mapIds } of findZonesSpanningMaps(snapshot.world.tiles)) {
+    problems.push(`Zone '${zone}' spans ${mapIds.length} maps (${mapIds.join(', ')}). A zone must belong to exactly one map — split it so each map has its own zone.`);
+  }
+
+  // --- Henchmen ---
+  if (snapshot.skills !== undefined) {
+    for (const henchman of snapshot.henchmen ?? []) {
+      henchman.skillIds.forEach((skillId, index) => {
+        if (!skillIds.has(skillId)) {
+          problems.push(`Henchman '${henchman.id}' skillIds references unknown skill '${skillId}' (index ${index}).`);
+        }
+      });
+    }
   }
 
   // --- Recipes ---

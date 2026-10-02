@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { WebSocket } from 'ws';
 import { offsetToCube, cubeDistance, cubeToKey } from '@idle-party-rpg/shared';
-import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, NotificationEntry } from '@idle-party-rpg/shared';
+import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure } from '@idle-party-rpg/shared';
 import { PlayerSession } from './PlayerSession.js';
 import type { WorldGrids } from './WorldGrids.js';
 import type { GameStateStore, PlayerSaveData } from './GameStateStore.js';
@@ -73,6 +73,10 @@ export class PlayerManager {
       (members) => {
         this.cancelInvitesOnMove(members);
       },
+    );
+    this.partyBattles.setHenchmenCallbacks(
+      (partyId) => this.parties.getHenchmen(partyId),
+      (partyId, mapId) => this.parties.dismissHenchmenOffMap(partyId, mapId),
     );
   }
 
@@ -195,7 +199,8 @@ export class PlayerManager {
           if (member) partyInfo = { role: member.role, gridPosition: member.gridPosition };
         }
       }
-      const saveData = session.toSaveData(movementData ?? undefined, partyInfo, dungeonData);
+      const henchmen = partyId ? this.parties.getHenchmen(partyId) : [];
+      const saveData = session.toSaveData(movementData ?? undefined, partyInfo, dungeonData, henchmen);
       await saveStore.saveAll([saveData]);
     }
 
@@ -384,6 +389,24 @@ export class PlayerManager {
     return Array.from(this.playerConnections.keys());
   }
 
+  private validHenchmen(saved: HiredHenchman[], partyMapId: string): HiredHenchman[] {
+    return saved.filter(h => h.mapId === partyMapId && this.content.getHenchman(h.henchmanId));
+  }
+
+  private resolveHenchmen(henchmen: HiredHenchman[] | undefined): HiredHenchman[] {
+    if (!henchmen?.length) return [];
+    return henchmen.map(h => {
+      const def = this.content.getHenchman(h.henchmanId);
+      return {
+        ...h,
+        name: def?.name ?? 'Unknown henchman',
+        emoji: def?.emoji ?? '❓',
+        artworkUrl: def?.artworkUrl,
+        level: def?.level,
+      };
+    });
+  }
+
   /** Build ClientSocialState for a player. */
   getSocialState(username: string): ClientSocialState {
     const session = this.sessions.get(username);
@@ -398,7 +421,7 @@ export class PlayerManager {
       outgoingFriendRequests: this.friends.getOutgoingRequests(username),
       guild: guildData?.info ?? null,
       guildMembers: guildData?.members ?? [],
-      party: partyData,
+      party: partyData && { ...partyData, henchmen: this.resolveHenchmen(partyData.henchmen) },
       pendingInvites: this.parties.getPendingInvites(username),
       outgoingPartyInvites: this.parties.getOutgoingInvites(username),
       onlinePlayers: this.getOnlinePlayers(),
@@ -519,6 +542,10 @@ export class PlayerManager {
 
     // Add to new party's battle
     this.partyBattles.addMember(partyId, username);
+
+    const joiner = this.sessions.get(username);
+    const tile = this.partyBattles.getTile(partyId);
+    if (joiner && tile) joiner.switchMapGrid(tile);
   }
 
   /** Handle a player leaving/being kicked from a party. Creates new solo party at current position. */
@@ -579,16 +606,19 @@ export class PlayerManager {
 
   /**
    * Handle a map-transition request. The whole party travels together through
-   * the transition on its current room. Returns an error string on failure, or
-   * null on success.
+   * the transition on its current room. On failure the result carries an error
+   * string, plus `blocked` when the refusal was an unmet entry requirement
+   * rather than a structural problem.
    */
-  handleEnterTransition(username: string, targetTileId: string): string | null {
+  handleEnterTransition(
+    username: string,
+    targetTileId: string,
+  ): { success: true } | { success: false; error: string; blocked?: RoomEntryFailure } {
     const session = this.sessions.get(username);
-    if (!session) return 'No session.';
+    if (!session) return { success: false, error: 'No session.' };
     const partyId = session.getPartyId();
-    if (!partyId) return 'No party.';
-    const result = this.partyBattles.enterTransition(partyId, targetTileId);
-    return result.success ? null : result.error;
+    if (!partyId) return { success: false, error: 'No party.' };
+    return this.partyBattles.enterTransition(partyId, targetTileId);
   }
 
   /** Check if two players are on the same tile (uses party positions). */
@@ -671,7 +701,8 @@ export class PlayerManager {
         }
       }
 
-      data.push(session.toSaveData(movementData ?? undefined, partyInfo, dungeonData));
+      const henchmen = partyId ? this.parties.getHenchmen(partyId) : [];
+      data.push(session.toSaveData(movementData ?? undefined, partyInfo, dungeonData, henchmen));
     }
     return data;
   }
@@ -710,6 +741,8 @@ export class PlayerManager {
       const tile = this.grids.get(saveMapId)?.getTile(offsetToCube(data.position));
       if (!tile) {
         console.warn(`[PlayerManager] Moved "${data.username}" to start tile (old position ${saveMapId}:${data.position.col},${data.position.row} no longer exists)`);
+        // dungeonRun.entrance is a bare (col,row) against the old map — it cannot survive.
+        data.dungeonRun = undefined;
         data.position = { col: startPos.col, row: startPos.row };
         data.mapId = defaultMapId;
         data.target = null;
@@ -813,6 +846,11 @@ export class PlayerManager {
         this.partyBattles.restoreDungeonRun(party.id, ownerData.dungeonRun);
       }
 
+      // Every member's save mirrors the roster — read only the owner's or they duplicate.
+      if (ownerData.partyHenchmen?.length) {
+        this.parties.restoreHenchmen(party.id, this.validHenchmen(ownerData.partyHenchmen, partyMapId));
+      }
+
       console.log(`[PlayerManager] Restored party "${savedPartyId}" with ${members.length} members`);
     }
 
@@ -846,6 +884,11 @@ export class PlayerManager {
       if (data.dungeonRun) {
         const partyId = this.sessions.get(data.username)?.getPartyId();
         if (partyId) this.partyBattles.restoreDungeonRun(partyId, data.dungeonRun);
+      }
+
+      if (data.partyHenchmen?.length) {
+        const partyId = this.sessions.get(data.username)?.getPartyId();
+        if (partyId) this.parties.restoreHenchmen(partyId, this.validHenchmen(data.partyHenchmen, soloMapId));
       }
     }
 
@@ -882,8 +925,17 @@ export class PlayerManager {
   }
 
   /**
-   * After a deploy, find all parties on unreachable tiles and relocate them.
+   * After a deploy, find all parties on unreachable tiles — or standing in a
+   * room whose entry requirements they no longer meet — and relocate them.
    * Returns the number of parties relocated.
+   *
+   * The reachability sweep only runs on the map that holds the world start
+   * tile. It walks the grid from that start, which is only a meaningful notion
+   * of "reachable" where players actually spawn and walk; on any other map a
+   * room is reached through a transition, possibly one-way, so a party can sit
+   * somewhere perfectly legitimate that no walk from that map's own start tile
+   * would ever find. Uprooting them would be worse than leaving them be.
+   * Revisiting this properly is issue #374.
    */
   relocateDisplacedParties(grids: WorldGrids, content: ContentStore): number {
     const world = content.getWorld();
@@ -899,10 +951,37 @@ export class PlayerManager {
       let targetMapId = currentMapId;
       let bestTile: HexTile | null = null;
 
+      // A content change can gate the room a party is already standing in.
+      // There is no "nearest room they qualify for" worth computing — the
+      // neighbours are usually gated the same way — so send them to the world
+      // start tile, the one room guaranteed to be ungated.
+      const gateFailure = this.partyBattles.checkPartyRoomEntry(partyId, tile);
+      if (gateFailure) {
+        targetMapId = defaultMapId;
+        bestTile = this.defaultGrid().getTile(offsetToCube(world.startTile)) ?? null;
+        if (bestTile) {
+          this.relocatePartyTo(partyId, bestTile, targetMapId, currentMapId,
+            `The world changed — ${gateFailure.reason} Your party was moved to the starting room.`,
+            'world_room_gated');
+          relocated++;
+          continue;
+        }
+      }
+
       if (!grid) {
         // The party's whole map was deleted — drop them at the default map's start.
         targetMapId = defaultMapId;
         bestTile = this.defaultGrid().getTile(offsetToCube(world.startTile)) ?? null;
+      } else if (currentMapId !== defaultMapId) {
+        // Off the start tile's map, reachability isn't decidable from one grid
+        // alone — see the note on this method. Existence still is.
+        if (grid.getTile(tile.coord)) continue;
+        const meta = world.maps.find(m => m.id === currentMapId);
+        bestTile = grid.getTile(offsetToCube(meta?.startTile ?? world.startTile)) ?? null;
+        if (!bestTile) {
+          targetMapId = defaultMapId;
+          bestTile = this.defaultGrid().getTile(offsetToCube(world.startTile)) ?? null;
+        }
       } else {
         // Reachability is computed within the party's own map.
         const meta = world.maps.find(m => m.id === currentMapId);
@@ -924,25 +1003,47 @@ export class PlayerManager {
       }
 
       if (!bestTile) continue;
-      const mapChanged = targetMapId !== currentMapId;
-      this.partyBattles.relocateParty(partyId, bestTile, targetMapId);
-
-      // Unlock the area for all members and log.
-      const members = this.partyBattles.getMembers(partyId);
-      if (members) {
-        for (const username of members) {
-          const session = this.sessions.get(username);
-          if (!session) continue;
-          if (mapChanged) session.switchMapGrid(bestTile);
-          else session.forceUnlockTileArea(bestTile);
-          session.addLogEntry('World updated — relocated to a safe room.', 'move');
-        }
-      }
+      this.relocatePartyTo(partyId, bestTile, targetMapId, currentMapId,
+        'World updated — relocated to a safe room.');
 
       relocated++;
     }
 
     return relocated;
+  }
+
+  /**
+   * Move a party to `tile`, re-seat every member's fog of war, and tell them
+   * why. Passing `eventKey` also raises a notification — used when the move is
+   * something a player would be surprised by on next login, like being sent
+   * back to the start because a room they were standing in became gated.
+   */
+  private relocatePartyTo(
+    partyId: string,
+    tile: HexTile,
+    targetMapId: string,
+    currentMapId: string,
+    logMessage: string,
+    eventKey?: string,
+  ): void {
+    const mapChanged = targetMapId !== currentMapId;
+    this.partyBattles.relocateParty(partyId, tile, targetMapId);
+
+    const members = this.partyBattles.getMembers(partyId);
+    if (!members) return;
+    for (const username of members) {
+      const session = this.sessions.get(username);
+      if (!session) continue;
+      if (mapChanged) session.switchMapGrid(tile);
+      else session.forceUnlockTileArea(tile);
+      session.addLogEntry(logMessage, 'move');
+      if (eventKey) {
+        this.notify.notify(username, eventKey, {
+          title: 'Your party was moved',
+          body: logMessage,
+        });
+      }
+    }
   }
 
   /**

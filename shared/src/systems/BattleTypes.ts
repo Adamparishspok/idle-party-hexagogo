@@ -1,6 +1,7 @@
 import type { EquipSlot, ItemDefinition } from './ItemTypes.js';
 import type { SetDefinition } from './SetTypes.js';
 import type { ShopDefinition } from './ShopTypes.js';
+import type { HenchmanOffer } from './HenchmanTypes.js';
 import type { RecipeDefinition, CraftQueueState, ActiveJobProgress } from './CraftingTypes.js';
 import type { PartyGridPosition } from './SocialTypes.js';
 import type {
@@ -16,6 +17,7 @@ import type {
 import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
+import type { RoomEntryFailureKind } from './RoomRequirements.js';
 
 
 export type BattleTimerState = 'battle' | 'result';
@@ -25,7 +27,7 @@ export type PartyState = 'idle' | 'moving' | 'in_battle';
 export const RESULT_PAUSE = 600;      // ms to show victory/defeat before movement
 export const MOVE_DURATION = 400;     // ms for tile movement (client animation)
 export const RUN_AVAILABLE_ROUNDS = 5; // rounds before "Run" becomes available
-export const GAME_VERSION = '2026.07.28.1'; // Keep in sync with PATCH_NOTES in client
+export const GAME_VERSION = '2026.09.30.3'; // Keep in sync with PATCH_NOTES in client
 
 // --- Protocol types (server → client, client → server) ---
 
@@ -48,6 +50,8 @@ export interface ClientPlayerCombatant {
   className: string;
   /** Remaining stun turns (0 or undefined = not stunned). */
   stunTurns?: number;
+  /** Set for hired henchmen — the client must not offer player-only actions on them. */
+  henchman?: boolean;
 }
 
 export interface ClientMonsterState {
@@ -169,6 +173,8 @@ export interface ServerStateMessage {
   setDefinitions?: Record<string, SetDefinition>;
   /** Shop definition for the player's current room (if any). */
   shopDefinition?: ShopDefinition;
+  /** Henchmen the current room's shop offers for hire. */
+  henchmanOffers?: HenchmanOffer[];
   /** Crafting state: visible recipes, queue, and progress on the active job. */
   crafting?: ClientCraftingState;
   /** Active quests the player has accepted (with live progress / status). */
@@ -192,8 +198,6 @@ export interface ServerStateMessage {
 }
 
 export interface ClientCraftingState {
-  unlocked: boolean;
-  unlockLevel: number;
   recipes: RecipeDefinition[];
   queue: CraftQueueState;
   activeProgress: ActiveJobProgress | null;
@@ -245,6 +249,31 @@ export interface ServerEquipBlockedMessage {
   blockedBySlot: EquipSlot;
 }
 
+/**
+ * A move or a map transition was refused because the party doesn't meet a
+ * room's entry requirements. `requirement`/`reason` describe the gate; the
+ * kind-specific fields carry the details for clients that want to format
+ * their own message. The item fields predate the generalized gate and stay
+ * populated for item gates.
+ */
+export interface ServerMoveBlockedMessage {
+  type: 'move_blocked';
+  /** Which kind of requirement was unmet. */
+  requirement: RoomEntryFailureKind;
+  /** Player-facing sentence naming the unmet requirement. */
+  reason: string;
+  /** Party members who don't satisfy it. */
+  missingPlayers: string[];
+  /** Item gates only. */
+  itemId?: string;
+  itemName?: string;
+  /** Quest gates only. */
+  questId?: string;
+  questName?: string;
+  /** Level gates only. */
+  minLevel?: number;
+}
+
 export interface ClientEquipSkillMessage {
   type: 'equip_skill';
   skillId: string;
@@ -256,18 +285,25 @@ export interface ClientUnequipSkillMessage {
   slotIndex: number;
 }
 
+/**
+ * Machine-readable tag on an `error` message, for the cases a screen needs to react
+ * to rather than just log. Most errors carry no code.
+ */
+export type ServerErrorCode = 'trade_nonce_mismatch';
+
 export type ServerMessage =
   | ServerStateMessage
   | ServerSocialStateMessage
   | ServerChatMessageMessage
   | ServerSyncChatMessage
   | ServerEquipBlockedMessage
+  | ServerMoveBlockedMessage
   | ServerTradeProposedMessage
   | ServerTradeCancelledMessage
   | ServerTradeCompletedMessage
   | ServerNotificationMessage
   | PlayerProfileMessage
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string; code?: ServerErrorCode };
 
 export interface ClientViewPlayerMessage {
   type: 'view_player';

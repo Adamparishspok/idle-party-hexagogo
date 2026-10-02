@@ -23,6 +23,7 @@ import {
   EQUIP_SLOTS,
   isTwoHandedEquipped,
   getOwnedItemIds,
+  getEquippedItemIds,
   hasItemEquipped as inventoryHasItemEquipped,
   getZone,
   setAppliesToClass,
@@ -38,13 +39,14 @@ import {
   processCompletions,
   getActiveJobProgress,
   getVisibleRecipes,
-  CRAFTING_UNLOCK_LEVEL,
   addCraftXp,
   xpForCraftLevel,
   getCraftSkillName,
   emptyNotificationPreferences,
 } from '@idle-party-rpg/shared';
 import type {
+  HiredHenchman,
+  HenchmanOffer,
   ServerStateMessage,
   ServerBattleState,
   ServerPartyState,
@@ -364,7 +366,7 @@ export class PlayerSession {
     }
 
     // Shop items (so client has defs for buyable items)
-    const shop = this.getCurrentShopDefinition();
+    const shop = this.getCurrentShop();
     if (shop) {
       for (const si of shop.inventory) {
         if (!defs[si.itemId]) {
@@ -408,22 +410,43 @@ export class PlayerSession {
     return result;
   }
 
-  /** Get the shop definition for the player's current tile, if any. */
-  private getCurrentShopDefinition(): ShopDefinition | undefined {
-    const pos = this.getPosition();
-    const world = this.content.getWorld();
-    const tile = world.tiles.find(t => t.col === pos.col && t.row === pos.row);
-    if (!tile?.shopId) return undefined;
-    return this.content.getShop(tile.shopId);
+  /** Shop for the player's current room. Resolve rooms by GUID — col/row repeat across maps. */
+  getCurrentShop(): ShopDefinition | undefined {
+    const tileId = this.getCurrentTile?.()?.id;
+    if (!tileId) return undefined;
+    const tileDef = this.content.getTileById(tileId);
+    if (!tileDef?.shopId) return undefined;
+    return this.content.getShop(tileDef.shopId);
   }
 
-  /** Get the NPC definition for the player's current tile, if any. */
+  getHenchmanOffers(): HenchmanOffer[] {
+    const shop = this.getCurrentShop();
+    if (!shop?.henchmanIds?.length) return [];
+    const offers: HenchmanOffer[] = [];
+    for (const id of shop.henchmanIds) {
+      const def = this.content.getHenchman(id);
+      if (!def) continue;
+      offers.push({
+        henchmanId: def.id,
+        name: def.name,
+        description: def.description,
+        emoji: def.emoji,
+        artworkUrl: def.artworkUrl,
+        level: def.level,
+        maxHp: def.maxHp,
+        baseDamage: def.baseDamage,
+      });
+    }
+    return offers;
+  }
+
+  /** NPC definition for the player's current room, if any. */
   private getCurrentNpc(): import('@idle-party-rpg/shared').NpcDefinition | undefined {
-    const pos = this.getPosition();
-    const world = this.content.getWorld();
-    const tile = world.tiles.find(t => t.col === pos.col && t.row === pos.row);
-    if (!tile?.npcId) return undefined;
-    return this.content.getNpc(tile.npcId);
+    const tileId = this.getCurrentTile?.()?.id;
+    if (!tileId) return undefined;
+    const tileDef = this.content.getTileById(tileId);
+    if (!tileDef?.npcId) return undefined;
+    return this.content.getNpc(tileDef.npcId);
   }
 
   /** Quest data block for the state message: active progress, completed history, defs, offered IDs. */
@@ -621,7 +644,8 @@ export class PlayerSession {
       social: this.getSocialState?.(),
       itemDefinitions: this.getOwnedItemDefinitions(setDefs),
       setDefinitions: setDefs,
-      shopDefinition: this.getCurrentShopDefinition(),
+      shopDefinition: this.getCurrentShop(),
+      henchmanOffers: this.getHenchmanOffers(),
       crafting: this.getCraftingState(),
       activeQuests: questBlock.activeQuests,
       completedQuests: questBlock.completedQuests,
@@ -638,8 +662,6 @@ export class PlayerSession {
     if (!this.character) return undefined;
     const recipes = this.content.getAllRecipes();
     const visible = getVisibleRecipes(recipes, this.character.className);
-    const unlockLevel = CRAFTING_UNLOCK_LEVEL;
-    const unlocked = this.character.level >= unlockLevel;
 
     // Collect every item def referenced by visible recipes (ingredients + results), so the
     // client can show readable names even for items the player doesn't own yet.
@@ -655,8 +677,6 @@ export class PlayerSession {
     }
 
     return {
-      unlocked,
-      unlockLevel,
       recipes: visible,
       queue: { activeStartedAtMs: this.craftQueue.activeStartedAtMs, jobs: [...this.craftQueue.jobs] },
       activeProgress: getActiveJobProgress(recipes, this.craftQueue, now),
@@ -1075,7 +1095,7 @@ export class PlayerSession {
     dungeonId: string;
     currentFloorIndex: number;
     entrance: { col: number; row: number };
-  } | null): PlayerSaveData {
+  } | null, partyHenchmen?: HiredHenchman[]): PlayerSaveData {
     const pos = movementData?.position ?? this.getPosition();
 
     return {
@@ -1114,6 +1134,7 @@ export class PlayerSession {
       completedQuests: this.quests.toSaveData().completed,
       weeklyCompletions: this.quests.toSaveData().weeklyCompletions,
       dungeonRun: dungeonRun ?? undefined,
+      partyHenchmen: partyHenchmen?.length ? partyHenchmen : undefined,
       clearedDungeons: [...this.clearedDungeons],
       notifications: this.getNotifications ? this.getNotifications() : this.initialNotifications,
       notificationPreferences: this.notificationPreferences,
@@ -1265,6 +1286,12 @@ export class PlayerSession {
   hasItemEquipped(itemId: string): boolean {
     if (!this.character) return false;
     return inventoryHasItemEquipped(itemId, this.character.equipment);
+  }
+
+  /** Every item ID currently equipped — used to evaluate room entry gates. */
+  getEquippedItemIds(): Set<string> {
+    if (!this.character) return new Set();
+    return getEquippedItemIds(this.character.equipment);
   }
 
   /** Get item IDs locked by the current tile and remaining path (required for traversal). */
