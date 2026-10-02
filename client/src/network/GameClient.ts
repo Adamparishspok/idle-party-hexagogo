@@ -1,4 +1,5 @@
-import type { ServerStateMessage, ServerEquipBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription } from '@idle-party-rpg/shared';
+import type { ServerStateMessage, ServerEquipBlockedMessage,
+  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode } from '@idle-party-rpg/shared';
 
 const RECONNECT_DELAY = 2000;
 
@@ -10,9 +11,10 @@ type WorldUpdateListener = () => void;
 type EquipBlockedListener = (msg: ServerEquipBlockedMessage) => void;
 type SuspensionListener = () => void;
 type ResumeListener = () => void;
-type MoveBlockedListener = (msg: { itemName: string; itemId: string; missingPlayers: string[] }) => void;
+type MoveBlockedListener = (msg: ServerMoveBlockedMessage) => void;
 type PlayerProfileListener = (profile: PlayerProfileMessage) => void;
 type NotificationListener = (notification: NotificationEntry) => void;
+type ServerErrorListener = (message: string, code?: ServerErrorCode) => void;
 
 export class GameClient {
   private ws: WebSocket | null = null;
@@ -32,6 +34,7 @@ export class GameClient {
   private resumeListeners = new Set<ResumeListener>();
   private playerProfileListeners = new Set<PlayerProfileListener>();
   private notificationListeners = new Set<NotificationListener>();
+  private serverErrorListeners = new Set<ServerErrorListener>();
 
   /** Pending connect resolve — set during connect() call. */
   private connectResolve?: (result: { success: boolean; error?: string }) => void;
@@ -221,6 +224,13 @@ export class GameClient {
         }
       } else if (msg.type === 'error') {
         console.warn('[GameClient] server error:', msg.message);
+        for (const listener of this.serverErrorListeners) {
+          try {
+            listener(msg.message, msg.code);
+          } catch (err) {
+            console.error('[GameClient] error in server-error listener:', err);
+          }
+        }
       }
     };
 
@@ -486,8 +496,13 @@ export class GameClient {
     this.sendRaw({ type: 'kick_party_member', username });
   }
 
-  sendSetPartyGridPosition(position: number): void {
-    this.sendRaw({ type: 'set_party_grid_position', position });
+  /** Moves the sender, or the named henchman when `henchmanInstanceId` is given. */
+  sendSetPartyGridPosition(position: number, henchmanInstanceId?: string): void {
+    this.sendRaw({
+      type: 'set_party_grid_position',
+      position,
+      ...(henchmanInstanceId ? { henchmanInstanceId } : {}),
+    });
   }
 
   sendPromotePartyLeader(username: string): void {
@@ -508,6 +523,17 @@ export class GameClient {
 
   sendDeclinePartyInvite(partyId: string): void {
     this.sendRaw({ type: 'decline_party_invite', partyId });
+  }
+
+  // --- Henchmen ---
+
+  /** Hire a henchman from the current room's shop; a refusal comes back as an `error` message. */
+  sendHireHenchman(henchmanId: string, replaceInstanceId?: string): void {
+    this.sendRaw({ type: 'hire_henchman', henchmanId, ...(replaceInstanceId ? { replaceInstanceId } : {}) });
+  }
+
+  sendDismissHenchman(instanceId: string): void {
+    this.sendRaw({ type: 'dismiss_henchman', instanceId });
   }
 
   // --- Chat ---
@@ -542,6 +568,13 @@ export class GameClient {
     return () => { this.worldUpdateListeners.delete(listener); };
   }
 
+  /** Subscribe to server `error` messages. `code` is set only for errors a screen
+   *  is expected to react to (see ServerErrorCode). */
+  onServerError(listener: ServerErrorListener): () => void {
+    this.serverErrorListeners.add(listener);
+    return () => { this.serverErrorListeners.delete(listener); };
+  }
+
   // --- Trade ---
 
   sendProposeTrade(targetUsername: string, items: TradeOfferItem[]): void {
@@ -554,8 +587,10 @@ export class GameClient {
     this.sendRaw({ type: 'counter_trade', tradeId, items });
   }
 
-  sendConfirmTrade(tradeId: string): void {
-    this.sendRaw({ type: 'confirm_trade', tradeId });
+  /** `nonce` must be the one from the offer the player is looking at — the server
+   *  rejects a confirm whose nonce no longer matches the current offer. */
+  sendConfirmTrade(tradeId: string, nonce: string): void {
+    this.sendRaw({ type: 'confirm_trade', tradeId, nonce });
   }
 
   sendCancelTrade(tradeId: string): void {
@@ -590,5 +625,6 @@ export class GameClient {
     this.worldUpdateListeners.clear();
     this.resumeListeners.clear();
     this.notificationListeners.clear();
+    this.serverErrorListeners.clear();
   }
 }

@@ -1,6 +1,6 @@
 import type { GameClient } from '../network/GameClient';
 import type { ChatLocalStore } from '../network/ChatLocalStore';
-import type { ServerStateMessage, ClientSocialState, ChatMessage, ChatChannelType, PlayerListEntry, PlayerProfileMessage, TradeOfferItem, TradeState, ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
+import type { ServerStateMessage, ClientSocialState, ChatMessage, ChatChannelType, PlayerListEntry, PlayerProfileMessage, TradeOfferItem, TradeState, ItemDefinition, SetDefinition, HiredHenchman, OtherPlayerState } from '@idle-party-rpg/shared';
 import { MAX_PARTY_SIZE, classIconHtml, serverIconHtml, getItemEffectText, listUnequippedEntries, getEquippedItemIds } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import type { WorldCache } from '../network/WorldCache';
@@ -75,6 +75,22 @@ export class SocialScreen implements Screen {
    * while the user is choosing items.
    */
   private lastTradeRenderKey = '';
+  /**
+   * Offer version the Confirm button is currently armed against. Compared against
+   * the incoming one on each paint: if it moved while Confirm was on screen, the
+   * button is withheld (see `tradeAwaitingReview`) rather than silently re-armed,
+   * which is what would let a partner swap items in during the read-then-click
+   * window. The server rejects any confirm that does not carry the live nonce.
+   */
+  private tradeConfirmNonce: string | null = null;
+  /** One-off warning shown in the trade modal, e.g. after a stale-nonce rejection. */
+  private tradeNotice: string | null = null;
+  /** True when the last paint actually put a live Confirm button on screen. */
+  private tradeConfirmArmed = false;
+  /** Set when the offer moved while Confirm was armed — blocks confirm until acknowledged. */
+  private tradeAwaitingReview = false;
+  /** State subscription that lives as long as the trade modal, not the screen. */
+  private unsubTradeModal?: () => void;
 
   // Gift modal
   private giftModalEl: HTMLElement | null = null;
@@ -87,6 +103,9 @@ export class SocialScreen implements Screen {
   private gridDragGhost: HTMLElement | null = null;
   private gridDragHoverCell: HTMLElement | null = null;
   private gridAnimating = false;
+  private gridDragHenchmanId: string | null = null;
+  private gridPickedUpHenchmanId: string | null = null;
+  private canManageHenchmen = false;
 
   // Structural change detection keys — only re-render when these change
   private lastRenderedUsersKey = '';
@@ -117,6 +136,14 @@ export class SocialScreen implements Screen {
     // On tab resume, trigger incremental sync (no clearing)
     this.gameClient.onResume(() => {
       this.gameClient.sendSyncChat(this.chatStore.getLatestId());
+    });
+
+    // A confirm rejected on a stale nonce means the partner's offer moved. The
+    // re-synced state repaints the new offer; this explains why nothing happened.
+    this.gameClient.onServerError((_message, code) => {
+      if (code !== 'trade_nonce_mismatch' || !this.tradeModalEl) return;
+      this.tradeNotice = 'That offer changed before your confirmation went through. Review the updated offer below, then confirm again.';
+      this.updateTradeModal();
     });
   }
 
@@ -223,6 +250,11 @@ export class SocialScreen implements Screen {
       if (btn.matches('.social-transfer-btn') && username) { this.gameClient.sendTransferPartyOwnership(username); return; }
       if (btn.matches('.social-kick-btn') && username) { this.gameClient.sendKickPartyMember(username); return; }
       if (btn.matches('.social-party-leave-btn')) { this.gameClient.sendLeaveParty(); return; }
+      if (btn.matches('.social-dismiss-henchman-btn')) {
+        const instanceId = btn.getAttribute('data-henchman-instance');
+        if (instanceId) this.gameClient.sendDismissHenchman(instanceId);
+        return;
+      }
       if (btn.matches('.social-accept-invite') && partyId) { this.gameClient.sendAcceptPartyInvite(partyId); return; }
       if (btn.matches('.social-decline-invite') && partyId) { this.gameClient.sendDeclinePartyInvite(partyId); return; }
       if (btn.matches('.social-nearby-invite') && username) {
@@ -314,9 +346,11 @@ export class SocialScreen implements Screen {
           this.flashGridCell(cell);
         }
       } else {
-        // Empty cell → animate self to that position
-        this.animateGridMove(pos);
-        this.gameClient.sendSetPartyGridPosition(pos);
+        // Empty cell → move the held henchman there, else self
+        const henchmanInstanceId = this.canManageHenchmen ? this.gridPickedUpHenchmanId : null;
+        this.setGridPickedUp(null);
+        this.animateGridMove(pos, henchmanInstanceId);
+        this.gameClient.sendSetPartyGridPosition(pos, henchmanInstanceId ?? undefined);
       }
     });
 
@@ -548,11 +582,12 @@ export class SocialScreen implements Screen {
     const pendingInvites = social.pendingInvites ?? [];
     const outgoing = social.outgoingPartyInvites ?? [];
     const sameTile = (this.lastState?.otherPlayers ?? [])
-      .filter(p => p.col === this.lastState?.party.col && p.row === this.lastState?.party.row)
+      .filter(p => this.isInMyRoom(p))
       .map(p => p.username).sort();
     const key = JSON.stringify({
       partyId: party?.id ?? null,
       members: (party?.members ?? []).map(m => `${m.username}:${m.role}:${m.gridPosition}`),
+      henchmen: (party?.henchmen ?? []).map(h => `${h.instanceId}:${h.name ?? ''}:${h.gridPosition}`),
       pending: pendingInvites.map(i => `${i.partyId}:${i.inviterUsername}`),
       outgoing,
       sameTile,
@@ -561,6 +596,17 @@ export class SocialScreen implements Screen {
       this.lastRenderedPartyKey = key;
       this.renderPartyPanel();
     }
+  }
+
+  // ── Same-room helper ─────────────────────────────────────────
+
+  /** Same room means same map too; `mapId` is optional on the wire, so absent counts as ours. */
+  private isInMyRoom(p: OtherPlayerState): boolean {
+    const state = this.lastState;
+    if (!state) return false;
+    return p.col === state.party.col
+      && p.row === state.party.row
+      && (!p.mapId || p.mapId === state.currentMapId);
   }
 
   // ── Class icon helper ────────────────────────────────────────
@@ -603,7 +649,7 @@ export class SocialScreen implements Screen {
     // If opened from tile modal, use tile coords for a reliable same-room check
     const sameRoom = tileCol !== undefined && tileRow !== undefined
       ? (myCol === tileCol && myRow === tileRow)
-      : otherPlayers.some(p => p.username === username && p.col === myCol && p.row === myRow);
+      : otherPlayers.some(p => p.username === username && this.isInMyRoom(p));
 
     // Build header with relationship labels
     const isFriend = friends.has(username);
@@ -651,13 +697,14 @@ export class SocialScreen implements Screen {
     if (!isPartyMember) {
       const selfMember = social.party?.members.find(m => m.username === selfUsername);
       const isLeaderOrOwner = selfMember?.role === 'owner' || selfMember?.role === 'leader';
-      const partyFull = (social.party?.members.length ?? 1) >= MAX_PARTY_SIZE;
+      const seatsUsed = this.partySeatsUsed(social.party);
+      const partyFull = seatsUsed >= MAX_PARTY_SIZE;
       const alreadyInvited = (social.outgoingPartyInvites ?? []).includes(username);
 
       if (!isLeaderOrOwner) {
         items.push(`<button class="user-popup-item disabled" disabled title="Only the party owner or a leader can invite">Invite to Party</button>`);
       } else if (partyFull) {
-        items.push(`<button class="user-popup-item disabled" disabled title="Party is full (${MAX_PARTY_SIZE}/${MAX_PARTY_SIZE})">Invite to Party</button>`);
+        items.push(`<button class="user-popup-item disabled" disabled title="Party is full (${seatsUsed}/${MAX_PARTY_SIZE}) — hired henchmen take a seat too">Invite to Party</button>`);
       } else if (alreadyInvited) {
         items.push(`<button class="user-popup-item disabled" disabled title="Already invited to your party">Invited to Party</button>`);
       } else if (!sameRoom) {
@@ -859,10 +906,8 @@ export class SocialScreen implements Screen {
     // Build filter sets
     const guildMembers = new Set((social.guildMembers ?? []).map(m => m.username));
     const otherPlayers = this.lastState?.otherPlayers ?? [];
-    const myCol = this.lastState?.party.col;
-    const myRow = this.lastState?.party.row;
     const myZone = this.lastState?.zoneName ?? '';
-    const roomPlayers = new Set(otherPlayers.filter(p => p.col === myCol && p.row === myRow).map(p => p.username));
+    const roomPlayers = new Set(otherPlayers.filter(p => this.isInMyRoom(p)).map(p => p.username));
     const zonePlayers = new Set(otherPlayers.filter(p => p.zone === myZone).map(p => p.username));
 
     // Filter
@@ -1127,6 +1172,24 @@ export class SocialScreen implements Screen {
 
   // ── Party Panel ─────────────────────────────────────────────
 
+  /** Members plus henchmen — a henchman takes a seat against MAX_PARTY_SIZE. */
+  private partySeatsUsed(party: ClientSocialState['party']): number {
+    if (!party) return 0;
+    return party.members.length + (party.henchmen?.length ?? 0);
+  }
+
+  /** Authored photo when there is one, emoji when there isn't or the photo fails to load. */
+  private henchmanPortrait(h: HiredHenchman): string {
+    const emoji = `<span class="social-henchman-emoji"${h.artworkUrl ? ' style="display:none;"' : ''}>${this.escapeHtml(h.emoji ?? '🗡️')}</span>`;
+    if (!h.artworkUrl) return emoji;
+    const onerror = `this.style.display='none';this.nextElementSibling.style.display='inline';`;
+    return `<img class="icon-inline icon-class" src="${this.escapeHtml(h.artworkUrl)}" alt="${this.escapeHtml(h.name ?? 'Henchman')}" onerror="${onerror}" loading="lazy" />${emoji}`;
+  }
+
+  private henchmanName(h: HiredHenchman): string {
+    return this.escapeHtml(h.name ?? 'Henchman');
+  }
+
   private renderPartyPanel(): void {
     const social = this.lastSocial;
     if (!social) {
@@ -1146,10 +1209,15 @@ export class SocialScreen implements Screen {
     const selfRole = selfMember?.role ?? 'member';
     const isOwner = selfRole === 'owner';
     const isLeaderOrOwner = selfRole === 'owner' || selfRole === 'leader';
+    this.canManageHenchmen = isLeaderOrOwner;
     const isSolo = party.members.length === 1;
     const onlineSet = new Set(social.onlinePlayers ?? []);
     const memberMap = new Map(party.members.map(m => [m.gridPosition, m]));
     const partyMembers = new Set(party.members.map(m => m.username));
+    const henchmen = party.henchmen ?? [];
+    const henchmanMap = new Map(henchmen.map(h => [h.gridPosition, h]));
+    const seatsUsed = this.partySeatsUsed(party);
+    const isAlone = isSolo && henchmen.length === 0;
 
     // Pending invites for this player
     const pendingInvites = social.pendingInvites ?? [];
@@ -1170,7 +1238,7 @@ export class SocialScreen implements Screen {
 
     // Same-tile players (not already in our party)
     const sameTilePlayers = (this.lastState?.otherPlayers ?? [])
-      .filter(p => p.col === this.lastState?.party.col && p.row === this.lastState?.party.row)
+      .filter(p => this.isInMyRoom(p))
       .filter(p => !partyMembers.has(p.username))
       .map(p => p.username)
       .sort();
@@ -1199,9 +1267,11 @@ export class SocialScreen implements Screen {
     let gridHtml = '<div class="social-party-grid">';
     for (let i = 0; i < 9; i++) {
       const member = memberMap.get(i as any);
+      const henchman = member ? undefined : henchmanMap.get(i as any);
       const row = Math.floor(i / 3);
       const rowLabel = row === 0 ? 'Front' : row === 1 ? 'Mid' : 'Back';
-      gridHtml += `<div class="social-party-cell${member ? ' occupied' : ''}" data-pos="${i}" title="${rowLabel} row">`;
+      const henchmanAttr = henchman ? ` data-henchman-instance="${this.escapeHtml(henchman.instanceId)}"` : '';
+      gridHtml += `<div class="social-party-cell${member || henchman ? ' occupied' : ''}" data-pos="${i}"${henchmanAttr} title="${rowLabel} row">`;
       if (member) {
         const isOnline = onlineSet.has(member.username);
         gridHtml += `<span class="social-status-dot ${isOnline ? 'online' : 'offline'}"></span>`;
@@ -1211,6 +1281,10 @@ export class SocialScreen implements Screen {
         if (roleBadge) {
           gridHtml += `<span class="social-badge ${badgeClass}">${roleBadge}</span>`;
         }
+      } else if (henchman) {
+        const levelHtml = henchman.level !== undefined ? ` <span class="social-user-level">Lv ${henchman.level}</span>` : '';
+        gridHtml += `<span class="social-party-cell-name">${this.henchmanPortrait(henchman)} ${this.henchmanName(henchman)}${levelHtml}</span>`;
+        gridHtml += '<span class="social-badge" title="Henchman — a hire, not a player">H</span>';
       } else {
         gridHtml += '<span class="social-party-cell-empty">Empty</span>';
       }
@@ -1244,16 +1318,30 @@ export class SocialScreen implements Screen {
       return actions.join('');
     };
 
+    const henchmenHtml = henchmen.map(h => `
+      <div class="social-user-row" data-henchman-instance="${this.escapeHtml(h.instanceId)}">
+        ${this.henchmanPortrait(h)}
+        ${h.level !== undefined ? `<span class="social-user-level">Lv ${h.level}</span><span class="social-user-sep">—</span>` : ''}
+        <span class="social-user-name">${this.henchmanName(h)}</span>
+        <span class="social-user-badges">
+          <span class="social-badge">Henchman</span>
+        </span>
+        <div class="social-user-actions">
+          ${isLeaderOrOwner ? `<button class="social-action-btn remove-friend social-dismiss-henchman-btn" data-henchman-instance="${this.escapeHtml(h.instanceId)}">Dismiss</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+
     this.panelContainer.innerHTML = `
       ${invitesHtml}
-      ${isSolo ? '<div class="social-empty">You\'re all alone. Invite someone to your party!</div>' : ''}
+      ${isAlone ? '<div class="social-empty">You\'re all alone. Invite someone to your party!</div>' : ''}
       ${gridHtml}
       ${!isSolo ? `
         <div class="social-party-actions">
           <button class="social-action-btn remove-friend social-party-leave-btn">Leave Party</button>
         </div>
       ` : ''}
-      <div class="social-group-header">Members (${party.members.length}/${MAX_PARTY_SIZE})</div>
+      <div class="social-group-header">Party (${seatsUsed}/${MAX_PARTY_SIZE})</div>
       <div class="social-user-list">
         ${party.members.map(m => `
           <div class="social-user-row" data-username="${this.escapeHtml(m.username)}">
@@ -1268,9 +1356,15 @@ export class SocialScreen implements Screen {
             </div>
           </div>
         `).join('')}
+        ${henchmenHtml}
       </div>
       ${nearbyHtml}
     `;
+
+    if (this.gridPickedUpHenchmanId && !henchmen.some(h => h.instanceId === this.gridPickedUpHenchmanId)) {
+      this.gridPickedUpHenchmanId = null;
+    }
+    this.paintGridPickedUp();
   }
 
   // ── Chat Panel ───────────────────────────────────────────────
@@ -1443,6 +1537,7 @@ export class SocialScreen implements Screen {
    * resume it; otherwise start composing a new proposal.
    */
   openTradeModal(targetUsername: string): void {
+    this.refreshStateForTrade();
     const selfUsername = this.lastState?.username ?? '';
     const existing = (this.lastSocial?.proposedTrades ?? []).find(t => {
       const a = t.initiator.username;
@@ -1462,6 +1557,7 @@ export class SocialScreen implements Screen {
 
   /** Open the trade modal for an existing trade, identified by trade ID. */
   openExistingTrade(tradeId: string): void {
+    this.refreshStateForTrade();
     this.tradeActiveId = tradeId;
     this.tradeTargetUsername = null;
     this.tradeSelectedItems = new Map();
@@ -1469,7 +1565,23 @@ export class SocialScreen implements Screen {
     this.renderTradeModal();
   }
 
+  /**
+   * Pull the latest state before opening the modal. Both entry points can fire
+   * while this screen is deactivated — the Items screen's "Proposed Trades" rows
+   * call `openExistingTrade` without a screen switch — and `lastSocial` is frozen
+   * at the last activation in that case. Same idiom as `showUserPopup`.
+   */
+  private refreshStateForTrade(): void {
+    const freshState = this.gameClient.lastState;
+    if (!freshState) return;
+    this.lastState = freshState;
+    this.lastSocial = freshState.social ?? null;
+  }
+
   private snapshotInventoryForTrade(): void {
+    this.tradeNotice = null;
+    this.tradeAwaitingReview = false;
+    this.tradeConfirmArmed = false;
     const inv = this.lastState?.character?.inventory ?? {};
     this.tradeInventorySnapshot = { ...inv };
     this.lastTradeRenderKey = '';
@@ -1486,6 +1598,20 @@ export class SocialScreen implements Screen {
       this.tradeModalEl.remove();
       this.tradeModalEl = null;
     }
+    this.unsubTradeModal?.();
+
+    // The modal outlives this screen's own subscription: it is opened from the
+    // Items screen while SocialScreen is deactivated, and the whole nonce
+    // recovery path depends on the modal seeing the server's re-synced state.
+    // Subscribing per-modal (rather than per-screen) keeps it live either way;
+    // updateTradeModal is render-key gated, so the overlap when the screen is
+    // also active costs nothing.
+    this.unsubTradeModal = this.gameClient.subscribe((state) => {
+      if (!this.tradeModalEl) return;
+      this.lastState = state;
+      this.lastSocial = state.social ?? null;
+      this.updateTradeModal();
+    });
 
     const overlay = document.createElement('div');
     overlay.className = 'trade-modal-overlay';
@@ -1516,9 +1642,19 @@ export class SocialScreen implements Screen {
         return;
       }
 
+      if (btn.matches('.trade-modal-review-btn')) {
+        // The player has now seen the new offer — arm Confirm against it.
+        this.tradeAwaitingReview = false;
+        this.tradeNotice = null;
+        this.updateTradeModal();
+        return;
+      }
+
       if (btn.matches('.trade-modal-confirm-btn')) {
         const trade = this.getActiveTrade();
-        if (trade) this.gameClient.sendConfirmTrade(trade.id);
+        if (!trade) return;
+        this.tradeNotice = null;
+        this.gameClient.sendConfirmTrade(trade.id, this.tradeConfirmNonce ?? trade.nonce);
         return;
       }
 
@@ -1558,7 +1694,13 @@ export class SocialScreen implements Screen {
         } else if (this.tradeTargetUsername) {
           this.gameClient.sendProposeTrade(this.tradeTargetUsername, items);
         }
-        // Clear local selection — server response will repaint with the new state
+        // Clear local selection — server response will repaint with the new state.
+        // The review gate is deliberately NOT cleared here: a counter can be
+        // rejected (the picker renders from a frozen snapshot, so the server may
+        // reject it) or dropped on a closed socket, and neither case repaints.
+        // Clearing it optimistically would leave a stale "Review Updated Offer"
+        // button that the next routine tick silently turns into a live Confirm.
+        // It clears in updateTradeModal once Confirm is genuinely off screen.
         this.tradeSelectedItems = new Map();
         return;
       }
@@ -1579,6 +1721,27 @@ export class SocialScreen implements Screen {
 
     const trade = this.getActiveTrade();
     const selfUsername = this.lastState?.username ?? '';
+
+    // The read-then-click window. If a live Confirm button was already on screen
+    // for one offer and the partner has since changed it, re-arming the button
+    // with the new nonce would let them swap items in while the player is
+    // reaching for Confirm — the server would see a matching nonce and swap.
+    // Instead, hold Confirm back until the player acknowledges the new offer.
+    const confirmOnScreen = !!trade && trade.status === 'countered' && trade.lastUpdatedBy !== selfUsername;
+    if (!confirmOnScreen) {
+      // Nothing to gate while Confirm is off screen — e.g. this player's own
+      // counter landed. Reset so the partner's next counter starts clean.
+      this.tradeAwaitingReview = false;
+      this.tradeNotice = null;
+    } else if (trade && this.tradeConfirmArmed
+      && this.tradeConfirmNonce !== null && trade.nonce !== this.tradeConfirmNonce) {
+      this.tradeAwaitingReview = true;
+      this.tradeNotice = 'Their offer changed while you were looking at it. Check the new offer, then confirm.';
+    }
+    this.tradeConfirmArmed = confirmOnScreen && !this.tradeAwaitingReview;
+    // Bind confirm to the offer version on screen right now.
+    this.tradeConfirmNonce = trade?.nonce ?? null;
+
     const itemDefs = this.lastState?.itemDefinitions ?? {};
     const skillDefs = this.worldCache.getSkillContent().skills;
     // Inventory comes from the frozen snapshot, not live state. The picker
@@ -1674,6 +1837,9 @@ export class SocialScreen implements Screen {
     const hasSelection = selItems.length > 0;
 
     let html = `<div class="trade-modal-header">Trade with ${this.escapeHtml(targetUsername)}</div>`;
+    if (this.tradeNotice) {
+      html += `<div class="trade-notice">${this.escapeHtml(this.tradeNotice)}</div>`;
+    }
 
     if (!trade) {
       // Composing a new proposal
@@ -1697,7 +1863,9 @@ export class SocialScreen implements Screen {
         <div class="trade-picker-label">Counter with:</div>
         ${renderPicker()}
         <div class="trade-actions">
-          <button class="social-action-btn add-friend trade-modal-confirm-btn">Confirm Trade</button>
+          ${this.tradeAwaitingReview
+            ? '<button class="social-action-btn trade-modal-review-btn">Review Updated Offer</button>'
+            : '<button class="social-action-btn add-friend trade-modal-confirm-btn">Confirm Trade</button>'}
           <button class="social-action-btn add-friend trade-send-btn"${hasSelection ? '' : ' disabled'}>Counter</button>
           <button class="social-action-btn remove-friend trade-modal-cancel-btn">Cancel Trade</button>
           <button class="social-action-btn trade-modal-close-btn">Close</button>
@@ -1761,8 +1929,9 @@ export class SocialScreen implements Screen {
       .map(([id, qty]) => `${id}:${qty}`)
       .sort()
       .join(',');
+    const noticeStr = `${this.tradeNotice ?? ''}|${this.tradeAwaitingReview ? 'review' : ''}`;
     if (!trade) {
-      return `new|${this.tradeTargetUsername ?? ''}|${selStr}`;
+      return `new|${this.tradeTargetUsername ?? ''}|${selStr}|${noticeStr}`;
     }
     const offerStr = (items: TradeOfferItem[]): string =>
       items.map(i => `${i.itemId}:${i.quantity}`).sort().join(',');
@@ -1770,13 +1939,18 @@ export class SocialScreen implements Screen {
       trade.id,
       trade.status,
       trade.lastUpdatedBy,
+      // Rotates on every offer change, so a stale paint can never be skipped.
+      trade.nonce,
       offerStr(trade.initiator.items),
       offerStr(trade.target?.items ?? []),
       selStr,
+      noticeStr,
     ].join('|');
   }
 
   dismissTradeModal(): void {
+    this.unsubTradeModal?.();
+    this.unsubTradeModal = undefined;
     if (this.tradeModalEl) {
       release(this.tradeModalEl);
       this.tradeModalEl.remove();
@@ -1787,6 +1961,10 @@ export class SocialScreen implements Screen {
     this.tradeTargetUsername = null;
     this.tradeInventorySnapshot = null;
     this.lastTradeRenderKey = '';
+    this.tradeConfirmNonce = null;
+    this.tradeNotice = null;
+    this.tradeAwaitingReview = false;
+    this.tradeConfirmArmed = false;
   }
 
   // ── Gift Modal ────────────────────────────────────────────────
@@ -1948,15 +2126,35 @@ export class SocialScreen implements Screen {
     }, { once: true });
   }
 
-  /** Animate the current player's cell tilting and sliding toward targetPos. */
-  private animateGridMove(targetPos: number): void {
-    const party = this.lastSocial?.party;
-    const selfUsername = this.lastState?.username;
-    if (!party || !selfUsername) return;
-    const self = party.members.find(m => m.username === selfUsername);
-    if (!self || self.gridPosition === undefined) return;
+  /** Pick a henchman up for tap-to-move, or put down whatever is held (null). */
+  private setGridPickedUp(instanceId: string | null): void {
+    this.gridPickedUpHenchmanId = instanceId;
+    this.paintGridPickedUp();
+  }
 
-    const srcPos = self.gridPosition as number;
+  private paintGridPickedUp(): void {
+    for (const cell of this.panelContainer.querySelectorAll<HTMLElement>('.social-party-cell[data-henchman-instance]')) {
+      const held = cell.getAttribute('data-henchman-instance') === this.gridPickedUpHenchmanId;
+      cell.classList.toggle('grid-picked-up', held);
+      cell.style.boxShadow = held ? '0 0 8px var(--accent-gold)' : '';
+      cell.style.borderColor = held ? 'var(--accent-gold)' : '';
+    }
+  }
+
+  /** Animate a cell tilting and sliding toward targetPos — the current player's, or a henchman's when named. */
+  private animateGridMove(targetPos: number, henchmanInstanceId?: string | null): void {
+    const party = this.lastSocial?.party;
+    if (!party) return;
+    let srcPos: number | undefined;
+    if (henchmanInstanceId) {
+      srcPos = (party.henchmen ?? []).find(h => h.instanceId === henchmanInstanceId)?.gridPosition;
+    } else {
+      const selfUsername = this.lastState?.username;
+      if (!selfUsername) return;
+      srcPos = party.members.find(m => m.username === selfUsername)?.gridPosition;
+    }
+    if (srcPos === undefined) return;
+
     const grid = this.panelContainer.querySelector('.social-party-grid');
     if (!grid) return;
     const sourceCell = grid.querySelector(`.social-party-cell[data-pos="${srcPos}"]`) as HTMLElement | null;
@@ -1991,10 +2189,16 @@ export class SocialScreen implements Screen {
       // Optimistic UI: swap cell contents so player appears at new position immediately
       const srcHtml = sourceCell.innerHTML;
       const srcOccupied = sourceCell.classList.contains('occupied');
+      const srcHench = sourceCell.getAttribute('data-henchman-instance');
+      const tgtHench = targetCell.getAttribute('data-henchman-instance');
       sourceCell.innerHTML = targetCell.innerHTML;
       sourceCell.classList.toggle('occupied', targetCell.classList.contains('occupied'));
       targetCell.innerHTML = srcHtml;
       targetCell.classList.toggle('occupied', srcOccupied);
+      if (tgtHench) sourceCell.setAttribute('data-henchman-instance', tgtHench);
+      else sourceCell.removeAttribute('data-henchman-instance');
+      if (srcHench) targetCell.setAttribute('data-henchman-instance', srcHench);
+      else targetCell.removeAttribute('data-henchman-instance');
       this.gridAnimating = false;
     }, { once: true });
   }
@@ -2009,16 +2213,22 @@ export class SocialScreen implements Screen {
     if (!party || !selfUsername) return;
 
     const member = party.members.find(m => m.gridPosition === pos);
-    if (!member || member.username !== selfUsername) return; // can only drag self
+    if (member && member.username !== selfUsername) return; // can only drag self
+    const henchman = member ? undefined : (party.henchmen ?? []).find(h => h.gridPosition === pos);
+    if (!member && !henchman) return;
+    if (henchman && !this.canManageHenchmen) return;
 
     e.preventDefault();
     this.gridDragging = true;
     this.gridDragSourcePos = pos;
+    this.gridDragHenchmanId = henchman?.instanceId ?? null;
 
     // Create ghost
     const ghost = document.createElement('div');
     ghost.className = 'party-drag-ghost';
-    ghost.innerHTML = `${this.classIcon(this.getPlayerClassName(selfUsername))} ${this.escapeHtml(selfUsername)}`;
+    ghost.innerHTML = henchman
+      ? `${this.henchmanPortrait(henchman)} ${this.henchmanName(henchman)}`
+      : `${this.classIcon(this.getPlayerClassName(selfUsername))} ${this.escapeHtml(selfUsername)}`;
     document.body.appendChild(ghost);
     this.gridDragGhost = ghost;
 
@@ -2061,6 +2271,8 @@ export class SocialScreen implements Screen {
   private onGridDragEnd(e: MouseEvent | TouchEvent): void {
     if (!this.gridDragging) return;
     this.gridDragging = false;
+    const draggedHenchmanId = this.gridDragHenchmanId;
+    this.gridDragHenchmanId = null;
 
     // Remove ghost
     if (this.gridDragGhost) {
@@ -2083,15 +2295,23 @@ export class SocialScreen implements Screen {
     if (!cell) { this.gridDragSourcePos = null; return; }
 
     const pos = parseInt(cell.getAttribute('data-pos')!, 10);
-    if (isNaN(pos) || pos === this.gridDragSourcePos) { this.gridDragSourcePos = null; return; }
+    if (isNaN(pos)) { this.gridDragSourcePos = null; return; }
+
+    if (pos === this.gridDragSourcePos) {
+      // Tap handled here, not in the click handler: onGridDragStart's preventDefault eats the synthetic touch click.
+      this.setGridPickedUp(draggedHenchmanId && draggedHenchmanId !== this.gridPickedUpHenchmanId ? draggedHenchmanId : null);
+      this.gridDragSourcePos = null;
+      return;
+    }
 
     if (cell.classList.contains('occupied')) {
-      // Dropped on another player → flash red
+      // Dropped on another occupant → flash red
       this.flashGridCell(cell);
     } else {
       // Dropped on empty cell → animate then move
-      this.animateGridMove(pos);
-      this.gameClient.sendSetPartyGridPosition(pos);
+      this.setGridPickedUp(null);
+      this.animateGridMove(pos, draggedHenchmanId);
+      this.gameClient.sendSetPartyGridPosition(pos, draggedHenchmanId ?? undefined);
     }
 
     this.gridDragSourcePos = null;
