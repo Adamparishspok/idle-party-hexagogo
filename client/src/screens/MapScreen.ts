@@ -36,7 +36,7 @@ export class MapScreen implements Screen {
 
     this.gameClient.onMoveBlocked((msg) => {
       const names = msg.missingPlayers.join(', ');
-      this.showMoveToast(`${msg.itemName} required! Missing: ${names}`);
+      this.showMoveToast(names ? `${msg.reason} Missing: ${names}` : msg.reason);
     });
   }
 
@@ -165,6 +165,7 @@ export class MapScreen implements Screen {
       const playerOnTile = state && state.party.col === tileInfo.col && state.party.row === tileInfo.row;
       this.roomView!.hasShop = !!(playerOnTile && state?.shopDefinition);
       const tileDef = this.worldCache.getTile(tileInfo.col, tileInfo.row);
+      this.roomView!.roomId = tileDef?.id ?? null;
       this.roomView!.npc = (playerOnTile && tileDef?.npcId)
         ? (this.worldCache.getNpc(tileDef.npcId) ?? null)
         : null;

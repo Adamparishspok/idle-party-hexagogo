@@ -1,33 +1,188 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import multer from 'multer';
-import fs from 'fs/promises';
-import path from 'path';
 import type { PlayerManager } from '../game/PlayerManager.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
-import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, DEFAULT_MAP_ID } from '@idle-party-rpg/shared';
-import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType } from '@idle-party-rpg/shared';
-import { adminMiddleware } from './adminMiddleware.js';
+import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
+import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements } from '@idle-party-rpg/shared';
+import type { AdminAuth } from './adminMiddleware.js';
+import type { ApiTokenStore, ApiTokenRecord } from '../auth/ApiTokenStore.js';
+import { isApiTokenExpired } from '../auth/ApiTokenStore.js';
+import { grantedAdminRole, isAdminRole, isEnvSuperAdmin } from '../auth/AdminRoles.js';
 import { DraftEditor, toRecord } from '../game/DraftEditor.js';
+import { AssetValidationError, MAX_ASSET_BYTES } from '../game/AssetStore.js';
+import type { AssetStore } from '../game/AssetStore.js';
+import { registerAssetRoutes, assetUploadErrorHandler } from './assetRoutes.js';
 
-const artworkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 } });
+/**
+ * Coerce an untrusted room/transition entry gate from a request body, dropping
+ * anything malformed. Returns undefined when nothing survives, so an empty
+ * gate is never persisted.
+ */
+function normalizeRoomRequirements(raw: unknown): RoomEntryRequirements | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as { minLevel?: unknown; requiredItemId?: unknown; requiredQuestIds?: unknown };
+  const out: RoomEntryRequirements = {};
+  const minLevel = Number(r.minLevel);
+  if (Number.isFinite(minLevel) && minLevel >= 1) out.minLevel = Math.floor(minLevel);
+  if (typeof r.requiredItemId === 'string' && r.requiredItemId) out.requiredItemId = r.requiredItemId;
+  const questIds = Array.isArray(r.requiredQuestIds)
+    ? r.requiredQuestIds.filter((q): q is string => typeof q === 'string' && !!q)
+    : [];
+  if (questIds.length > 0) out.requiredQuestIds = questIds;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+const artworkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ASSET_BYTES } });
 
 interface AdminRouteOptions {
   playerManager: () => PlayerManager;
   accountStore: AccountStore;
   inviteListStore: InviteListStore;
+  apiTokenStore: ApiTokenStore;
+  adminAuth: AdminAuth;
   contentStore: () => ContentStore;
   versionStore: () => VersionStore;
+  assetStore: AssetStore;
   rebuildGrid: () => number;
   deployVersion: (versionId: string) => Promise<{ success: boolean; error?: string; relocated?: number }>;
 }
 
-export function createAdminRoutes({ playerManager: getPlayerManager, accountStore, inviteListStore, contentStore: getContentStore, versionStore: getVersionStore, rebuildGrid, deployVersion }: AdminRouteOptions): Router {
+/** An API token as the dashboard sees it — everything except the secret, which only exists once. */
+function toPublicToken(record: ApiTokenRecord) {
+  return {
+    id: record.id,
+    label: record.label,
+    prefix: record.prefix,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    lastUsedAt: record.lastUsedAt,
+    expired: isApiTokenExpired(record),
+  };
+}
+
+/**
+ * Normalizes an expiry from the dashboard's date picker (`YYYY-MM-DD`, taken to mean "through the
+ * end of that day") or a full ISO timestamp. Returns an error message for anything unusable.
+ */
+function parseExpiry(raw: unknown): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, value: null };
+  if (typeof raw !== 'string') return { ok: false, error: 'Expiry must be a date string' };
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: true, value: null };
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+  const parsed = Date.parse(dateOnly ? `${trimmed}T23:59:59.999Z` : trimmed);
+  if (Number.isNaN(parsed)) return { ok: false, error: 'Invalid expiry date' };
+  if (parsed <= Date.now()) return { ok: false, error: 'Expiry must be in the future' };
+  return { ok: true, value: new Date(parsed).toISOString() };
+}
+
+export function createAdminRoutes({ playerManager: getPlayerManager, accountStore, inviteListStore, apiTokenStore, adminAuth, contentStore: getContentStore, versionStore: getVersionStore, assetStore, rebuildGrid, deployVersion }: AdminRouteOptions): Router {
   const router = Router();
-  router.use(adminMiddleware);
+  router.use(adminAuth.requireAdmin);
   const draftEditor = new DraftEditor(getVersionStore(), getContentStore);
+
+  /** Shared body of the deprecated artwork upload aliases — validation lives in the store. */
+  async function writeAssetFromRequest(req: Request, res: Response, kind: string, id: string): Promise<void> {
+    if (!isManagedAssetKind(kind)) {
+      const reason = isDeferredAssetKind(kind)
+        ? `The "${kind}" artwork kind is not managed through this API yet.`
+        : `Unknown artwork kind: ${kind}`;
+      res.status(400).json({ error: reason });
+      return;
+    }
+    if (!req.file) { res.status(400).json({ error: 'No file uploaded.' }); return; }
+    try {
+      await assetStore.write(kind, id, req.file.buffer);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(err instanceof AssetValidationError ? 400 : 500)
+        .json({ error: err instanceof Error ? err.message : 'Failed to save artwork.' });
+    }
+  }
+
+  /** Who the dashboard is talking to, and what it's allowed to show them. */
+  router.get('/me', (req, res) => {
+    const principal = req.adminPrincipal!;
+    res.json({
+      email: principal.email,
+      username: accountStore.findByEmail(principal.email)?.username ?? null,
+      role: principal.role,
+      isSuperAdmin: principal.role === 'superadmin',
+      via: principal.via,
+    });
+  });
+
+  /**
+   * Grant or clear an account's admin role. Super admins only, and only from a browser session —
+   * an API token must never be able to escalate its own owner's privileges.
+   */
+  router.put('/accounts/:email/role', adminAuth.requireSuperAdmin, adminAuth.requireSession, async (req, res) => {
+    // req.params is already percent-decoded by Express — decoding again throws URIError on an
+    // email containing a literal '%', which an async handler turns into a process-killing rejection.
+    const email = req.params.email.trim().toLowerCase();
+    const { role } = req.body ?? {};
+    if (role !== null && !isAdminRole(role)) {
+      res.status(400).json({ error: 'Role must be "admin", "superadmin", or null' });
+      return;
+    }
+    const account = accountStore.findByEmail(email);
+    if (!account) {
+      res.status(404).json({ error: `Account for "${email}" not found` });
+      return;
+    }
+    if (isEnvSuperAdmin(email)) {
+      res.status(400).json({ error: 'This account is a super admin via ADMIN_EMAILS and can only be changed in the server environment.' });
+      return;
+    }
+    if (email === req.adminPrincipal!.email) {
+      res.status(400).json({ error: "You can't change your own role." });
+      return;
+    }
+    await accountStore.setRole(email, role);
+    console.log(`[Admin] ${req.adminPrincipal!.label} set role "${role ?? 'none'}" for "${email}"`);
+    res.json({ success: true, email, role });
+  });
+
+  /**
+   * API tokens — bearer credentials for the MCP server and the REST admin API. Always scoped to
+   * the caller: an admin can only ever see, create, or revoke their own. Session-only for the same
+   * reason as role changes — a leaked token can't mint itself a longer-lived replacement.
+   */
+  router.get('/api-tokens', adminAuth.requireSession, (req, res) => {
+    res.json({ tokens: apiTokenStore.listForEmail(req.adminPrincipal!.email).map(toPublicToken) });
+  });
+
+  router.post('/api-tokens', adminAuth.requireSession, async (req, res) => {
+    const email = req.adminPrincipal!.email;
+    const { label } = req.body ?? {};
+    if (!label || typeof label !== 'string' || !label.trim()) {
+      res.status(400).json({ error: 'A label is required' });
+      return;
+    }
+    const trimmedLabel = label.trim().slice(0, 60);
+    const expiry = parseExpiry(req.body?.expiresAt);
+    if (!expiry.ok) {
+      res.status(400).json({ error: expiry.error });
+      return;
+    }
+    const { record, token } = await apiTokenStore.create(email, trimmedLabel, expiry.value);
+    // The plaintext secret is returned exactly once — it is not recoverable afterwards.
+    res.json({ success: true, token, created: toPublicToken(record), tokens: apiTokenStore.listForEmail(email).map(toPublicToken) });
+  });
+
+  router.delete('/api-tokens/:id', adminAuth.requireSession, async (req, res) => {
+    const email = req.adminPrincipal!.email;
+    const revoked = await apiTokenStore.revoke(req.params.id, email);
+    if (!revoked) {
+      res.status(404).json({ error: 'Token not found' });
+      return;
+    }
+    res.json({ success: true, tokens: apiTokenStore.listForEmail(email).map(toPublicToken) });
+  });
 
   router.get('/overview', (_req, res) => {
     const pm = getPlayerManager();
@@ -59,6 +214,10 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
         hasReactivationRequest: !!a.reactivationRequest,
         reactivationRequest: a.reactivationRequest ?? null,
         sessionHistory: a.sessionHistory ?? [],
+        // The granted role, not the effective one — a suspended admin still shows as an admin
+        // here, since reactivating them restores it. Authorization uses resolveAdminRole().
+        role: grantedAdminRole(a.email, accountStore),
+        roleLocked: isEnvSuperAdmin(a.email),
       };
     });
     res.json({ accounts });
@@ -81,7 +240,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     res.json({ duplicates });
   });
 
-  /** Invite-only beta gate: INVITE_ONLY env var + admin-managed allow list (ADMIN_EMAILS is always allowed). */
+  /** Invite-only beta gate: INVITE_ONLY env var + admin-managed allow list (admins are always allowed). */
   router.get('/invite-list', (_req, res) => {
     res.json({
       inviteOnly: process.env.INVITE_ONLY === 'true',
@@ -105,7 +264,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   });
 
   router.delete('/invite-list/:email', async (req, res) => {
-    const email = decodeURIComponent(req.params.email).trim().toLowerCase();
+    const email = req.params.email.trim().toLowerCase();
     await inviteListStore.remove(email);
     res.json({ success: true, emails: inviteListStore.getAll() });
   });
@@ -148,6 +307,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       encounters: content.getAllEncounters(),
       sets: content.getAllSets(),
       shops: content.getAllShops(),
+      henchmen: content.getAllHenchmen(),
       tileTypes: content.getAllTileTypes(),
       recipes: content.getAllRecipes(),
       npcs: content.getAllNpcs(),
@@ -163,7 +323,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   /** Add or update a world tile. Supports ?versionId= for draft editing. */
   router.put('/world/tile', async (req, res) => {
     const versionId = req.query.versionId as string | undefined;
-    const { col, row, type, zone, name, encounterTable, shopId, npcId, dungeonId, requiredItemId, transitions } = req.body;
+    const { col, row, type, zone, name, encounterTable, shopId, npcId, dungeonId, requiredItemId, entryRequirements, transitions } = req.body;
     if (col == null || row == null || !type || !zone || !name) {
       res.status(400).json({ error: 'Missing required fields: col, row, type, zone, name' });
       return;
@@ -173,7 +333,11 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const tileTransitions = Array.isArray(transitions)
       ? transitions
           .filter((t: { mapId?: unknown; tileId?: unknown }) => t && t.mapId && t.tileId)
-          .map((t: { mapId: string; tileId: string }) => ({ mapId: t.mapId, tileId: t.tileId }))
+          .map((t: { mapId: string; tileId: string; entryRequirements?: unknown }) => ({
+            mapId: t.mapId,
+            tileId: t.tileId,
+            entryRequirements: normalizeRoomRequirements(t.entryRequirements),
+          }))
       : undefined;
     const tileTransitionsOrUndef = tileTransitions && tileTransitions.length > 0 ? tileTransitions : undefined;
 
@@ -191,7 +355,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const tileEncounterTable = Array.isArray(encounterTable) && encounterTable.length > 0 ? encounterTable : undefined;
     // Which map this tile belongs to. Clients that predate multi-map omit it → default map.
     const tileMapId = (req.body.mapId as string) || DEFAULT_MAP_ID;
-    const tileInput = { mapId: tileMapId, col, row, type, zone, name, encounterTable: tileEncounterTable, shopId: shopId || undefined, npcId: npcId || undefined, dungeonId: dungeonId || undefined, requiredItemId: requiredItemId || undefined, transitions: tileTransitionsOrUndef };
+    const tileInput = { mapId: tileMapId, col, row, type, zone, name, encounterTable: tileEncounterTable, shopId: shopId || undefined, npcId: npcId || undefined, dungeonId: dungeonId || undefined, requiredItemId: requiredItemId || undefined, entryRequirements: normalizeRoomRequirements(entryRequirements), transitions: tileTransitionsOrUndef };
 
     if (versionId) {
       const result = await draftEditor.upsertTile(versionId, tileInput);
@@ -199,7 +363,8 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       res.json({ success: true, world: result.world });
     } else {
       const content = getContentStore();
-      await content.addOrUpdateTile({ id: '', ...tileInput });
+      const result = await content.addOrUpdateTile({ id: '', ...tileInput });
+      if (!result.success) { res.status(400).json({ error: result.error }); return; }
       const relocated = rebuildGrid();
       res.json({ success: true, world: content.getWorld(), relocated });
     }
@@ -473,81 +638,50 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     }
   });
 
-  /** Upload artwork for an item. PNG only, square dimensions. */
+  /** Deprecated item-specific artwork upload. Superseded by `/assets/item/:id`. */
   router.post('/items/:id/artwork', artworkUpload.single('artwork'), async (req, res) => {
-    if (!req.file) { res.status(400).json({ error: 'No file uploaded.' }); return; }
-    if (req.file.mimetype !== 'image/png') { res.status(400).json({ error: 'Only PNG files are accepted.' }); return; }
-
-    // Validate PNG is square by reading IHDR chunk
-    // PNG structure: 8-byte signature, then IHDR chunk: 4 bytes length + 4 bytes 'IHDR' + 4 bytes width + 4 bytes height
-    // So width is at offset 16 and height is at offset 20
-    const buf = req.file.buffer;
-    if (buf.length < 24) { res.status(400).json({ error: 'Invalid PNG file.' }); return; }
-    const pngWidth = buf.readUInt32BE(16);
-    const pngHeight = buf.readUInt32BE(20);
-    if (pngWidth !== pngHeight) { res.status(400).json({ error: `Image must be square. Got ${pngWidth}x${pngHeight}.` }); return; }
-
-    const artworkDir = path.resolve('data/item-artwork');
-    await fs.mkdir(artworkDir, { recursive: true });
-    await fs.writeFile(path.join(artworkDir, `${req.params.id}.png`), buf);
-    res.json({ success: true });
+    await writeAssetFromRequest(req, res, 'item', req.params.id);
   });
 
-  /** Delete artwork for an item. */
+  /** Deprecated item-specific artwork delete. Superseded by `/assets/item/:id`. */
   router.delete('/items/:id/artwork', async (req, res) => {
-    const artworkPath = path.resolve('data/item-artwork', `${req.params.id}.png`);
     try {
-      await fs.unlink(artworkPath);
+      await assetStore.remove('item', req.params.id);
       res.json({ success: true });
     } catch {
-      res.json({ success: true }); // Already doesn't exist, that's fine
+      res.json({ success: true }); // A malformed id can't name a real file either.
     }
   });
 
-  // ── Generic CRM artwork upload/delete ──────────────────────
-  // Single endpoint handles every content kind so new content types don't
-  // need their own bespoke routes. The admin client posts to
-  // `/api/admin/artwork/:kind/:id` with a PNG file.
-  /** Map of allowed kinds → on-disk folder. New kinds just add a row here. */
-  const ARTWORK_KINDS: Record<string, string> = {
-    item: 'data/item-artwork',
-    monster: 'data/monster-artwork',
-    set: 'data/set-artwork',
-    shop: 'data/shop-artwork',
-    zone: 'data/zone-artwork',
-    'tile-type': 'data/tile-type-artwork',
-    parchment: 'data/parchment-artwork',
-  };
+  // ── Assets (imagery) ───────────────────────────────────────
+  // Every kind of artwork the game serves lives under `/api/admin/assets`,
+  // described by the shared ASSET_KIND_INFO registry. See assetRoutes.ts.
+  registerAssetRoutes(router, { contentStore: getContentStore, assetStore });
 
-  /** Validate + write a square PNG into the appropriate kind folder. */
+  /**
+   * Deprecated aliases for the pre-registry artwork endpoints. The admin UI
+   * has moved to `/api/admin/assets/:kind/:id`; these stay so an older client
+   * build (or a bookmarked script) doesn't break mid-deploy.
+   */
   router.post('/artwork/:kind/:id', artworkUpload.single('artwork'), async (req, res) => {
-    const dir = ARTWORK_KINDS[req.params.kind];
-    if (!dir) { res.status(400).json({ error: `Unknown artwork kind: ${req.params.kind}` }); return; }
-    if (!req.file) { res.status(400).json({ error: 'No file uploaded.' }); return; }
-    if (req.file.mimetype !== 'image/png') { res.status(400).json({ error: 'Only PNG files are accepted.' }); return; }
-
-    // Validate PNG is square via the IHDR chunk (offset 16 width, 20 height).
-    const buf = req.file.buffer;
-    if (buf.length < 24) { res.status(400).json({ error: 'Invalid PNG file.' }); return; }
-    const w = buf.readUInt32BE(16);
-    const h = buf.readUInt32BE(20);
-    if (w !== h) { res.status(400).json({ error: `Image must be square. Got ${w}x${h}.` }); return; }
-
-    const artworkDir = path.resolve(dir);
-    await fs.mkdir(artworkDir, { recursive: true });
-    await fs.writeFile(path.join(artworkDir, `${req.params.id}.png`), buf);
-    res.json({ success: true });
+    await writeAssetFromRequest(req, res, req.params.kind, req.params.id);
   });
 
   router.delete('/artwork/:kind/:id', async (req, res) => {
-    const dir = ARTWORK_KINDS[req.params.kind];
-    if (!dir) { res.status(400).json({ error: `Unknown artwork kind: ${req.params.kind}` }); return; }
-    const artworkPath = path.resolve(dir, `${req.params.id}.png`);
+    if (!isManagedAssetKind(req.params.kind)) {
+      const reason = isDeferredAssetKind(req.params.kind)
+        ? `The "${req.params.kind}" artwork kind is not managed through this API yet.`
+        : `Unknown artwork kind: ${req.params.kind}`;
+      res.status(400).json({ error: reason });
+      return;
+    }
     try {
-      await fs.unlink(artworkPath);
+      await assetStore.remove(req.params.kind, req.params.id);
       res.json({ success: true });
-    } catch {
-      res.json({ success: true }); // Already doesn't exist, that's fine
+    } catch (err) {
+      // A bad id is the only failure mode here, and it means the file can't exist.
+      res.status(err instanceof AssetValidationError ? 400 : 500)
+        .json({ error: err instanceof Error ? err.message : 'Failed to remove artwork.' });
     }
   });
 
@@ -665,6 +799,61 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
         return;
       }
       res.json({ success: true, shops: content.getAllShops() });
+    }
+  });
+
+  // ── Henchman endpoints ──────────────────────────────────
+
+  /** List all henchmen. */
+  router.get('/henchmen', (_req, res) => {
+    const content = getContentStore();
+    res.json({ henchmen: content.getAllHenchmen() });
+  });
+
+  /** Add or update a henchman. Supports ?versionId= for draft editing. */
+  router.put('/henchmen/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    const henchman = req.body;
+    if (!henchman.id || !henchman.name || !henchman.className || !henchman.emoji
+        || typeof henchman.level !== 'number' || typeof henchman.maxHp !== 'number'
+        || typeof henchman.baseDamage !== 'number') {
+      res.status(400).json({ error: 'Missing required fields: id, name, className, level, maxHp, baseDamage, emoji' });
+      return;
+    }
+    if (!ALL_CLASS_NAMES.includes(henchman.className as ClassName)) {
+      res.status(400).json({ error: `Invalid class. Valid classes: ${ALL_CLASS_NAMES.join(', ')}` });
+      return;
+    }
+    if (!Array.isArray(henchman.skillIds)) henchman.skillIds = [];
+
+    if (versionId) {
+      const result = await draftEditor.upsertHenchman(versionId, henchman);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, henchmen: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      await content.addOrUpdateHenchman(henchman);
+      res.json({ success: true, henchmen: content.getAllHenchmen() });
+    }
+  });
+
+  /** Delete a henchman. Supports ?versionId= for draft editing. */
+  router.delete('/henchmen/:id', async (req, res) => {
+    const henchmanId = req.params.id;
+    const versionId = req.query.versionId as string | undefined;
+
+    if (versionId) {
+      const result = await draftEditor.deleteHenchman(versionId, henchmanId);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, henchmen: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      const result = await content.deleteHenchman(henchmanId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, henchmen: content.getAllHenchmen() });
     }
   });
 
@@ -997,8 +1186,8 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   router.put('/tile-types/:id', async (req, res) => {
     const versionId = req.query.versionId as string | undefined;
     const tileTypeId = req.params.id;
-    const { name, icon, color, traversable, requiredItemId } = req.body as {
-      name?: string; icon?: string; color?: string; traversable?: boolean; requiredItemId?: string;
+    const { name, icon, color, traversable, requiredItemId, entryRequirements } = req.body as {
+      name?: string; icon?: string; color?: string; traversable?: boolean; requiredItemId?: string; entryRequirements?: unknown;
     };
 
     if (!name || typeof name !== 'string') {
@@ -1021,6 +1210,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       color,
       traversable,
       requiredItemId: requiredItemId || undefined,
+      entryRequirements: normalizeRoomRequirements(entryRequirements),
     };
 
     if (versionId) {
@@ -1243,7 +1433,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const encountersRecord = toRecord(snapshot.encounters ?? []);
     const setsRecord = toRecord(snapshot.sets ?? []);
     const shopsRecord = toRecord(snapshot.shops ?? []);
-    // Old snapshots predate tile types/recipes/skills/design notes — seed from live content so
+    // Old snapshots predate tile types/recipes/skills/design notes/henchmen — seed from live content so
     // admin shows what's actually in-game. A present-but-empty array means the draft genuinely has none.
     const tileTypesRecord = snapshot.tileTypes && snapshot.tileTypes.length > 0
       ? toRecord(snapshot.tileTypes)
@@ -1260,6 +1450,9 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const designNotesRecord = snapshot.designNotes !== undefined
       ? toRecord(snapshot.designNotes)
       : getContentStore().getAllDesignNotes();
+    const henchmenRecord = snapshot.henchmen !== undefined
+      ? toRecord(snapshot.henchmen)
+      : getContentStore().getAllHenchmen();
     const skillSlotSchedulesRecord: Record<string, SkillSlot[]> = {};
     if (snapshot.skillSlotSchedules !== undefined) {
       for (const entry of snapshot.skillSlotSchedules) skillSlotSchedulesRecord[entry.className] = entry.slots;
@@ -1268,7 +1461,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       const liveSchedules = getContentStore().getAllSkillSlotSchedules();
       for (const [cn, sl] of Object.entries(liveSchedules)) skillSlotSchedulesRecord[cn] = sl;
     }
-    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
+    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
   });
 
   /** Rename a draft version. */
@@ -1361,6 +1554,11 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     }
     res.json({ success: true, relocated: result.relocated });
   });
+
+  // Last, so it sees errors thrown by every upload route above — including the
+  // deprecated artwork aliases, which would otherwise return an HTML error page
+  // for an oversized PNG instead of the `{ error }` envelope.
+  router.use(['/assets', '/artwork', '/items'], assetUploadErrorHandler);
 
   return router;
 }

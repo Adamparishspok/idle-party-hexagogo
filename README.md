@@ -46,10 +46,42 @@ sudo bash setup-prod.sh
 
 The script will:
 1. Validate that node (22+), npm, nginx, and git are installed
-2. Prompt for domain, session secret, AWS SES credentials, and other config
+2. Prompt for instance name, domain, session secret, AWS SES credentials, and other config
 3. Clone the repo to `/opt/idle-party-rpg` and build
 4. Install and start a systemd service (`idle-party-rpg`)
 5. Configure nginx as a reverse proxy with WebSocket support
+6. Optionally issue a Let's Encrypt certificate with certbot — skip it if TLS
+   terminates upstream (e.g. behind the Cloudflare proxy). Use `--certbot` /
+   `--no-certbot` to answer that up front.
+
+### Running Multiple Instances
+
+Several independent games can share one server, each on its own domain. Pass
+`--instance NAME` to install a sibling alongside the primary:
+
+```bash
+sudo bash setup-prod.sh --instance game2
+```
+
+Every instance gets its own install directory, `.env`, `data/` folder, systemd
+unit, and nginx site — so players, accounts, and CMS content are fully separate:
+
+| | Primary | `--instance game2` |
+|---|---|---|
+| Install dir | `/opt/idle-party-rpg` | `/opt/idle-party-rpg-game2` |
+| Service | `idle-party-rpg` | `idle-party-rpg-game2` |
+| nginx site | `ipr-site.conf` | `ipr-site-game2.conf` |
+| Game data | `/opt/idle-party-rpg/data/` | `/opt/idle-party-rpg-game2/data/` |
+
+The install directory name is the source of truth — `deploy/sync-nginx.sh` and the
+deploy workflow both derive the service and nginx site names from it, so nothing
+else needs configuring.
+
+Each instance needs its own `PORT` (the script scans sibling installs, suggests
+the next free one, and refuses a collision) and its own `APP_URL`, which drives
+both magic-link redirects and the CORS origin. `SESSION_SECRET` should be distinct
+per instance. The SES credentials can be shared. Note that magic-link emails are
+branded "Idle Party RPG" regardless of instance — only the link URL differs.
 
 ### Environment Variables
 
@@ -62,19 +94,27 @@ The script will:
 | `AWS_SECRET_ACCESS_KEY` | AWS credentials for SES | Yes |
 | `AWS_REGION` | AWS region (default: us-east-1) | No |
 | `SES_FROM_EMAIL` | Email sender address | Yes |
-| `MCP_TOKENS` | Comma-separated bearer tokens for the MCP content-authoring endpoint (`label:token` or plain `token`; unset = endpoint disabled) | No |
+| `ADMIN_EMAILS` | Comma-separated emails that are automatically **super admins** — the bootstrap set for the World Manager. Super admins grant `admin`/`superadmin` to everyone else from the dashboard. | Yes |
+| `INVITE_ONLY` | `true` restricts sign-in to admins plus the admin-managed invite list | No |
 
 ### After Setup
 
 ```bash
 sudo systemctl status idle-party-rpg   # check service
 journalctl -u idle-party-rpg -f        # follow logs
-sudo certbot --nginx -d yourdomain.com # add HTTPS
 ```
+
+For a named instance, append the instance name to the unit
+(`systemctl status idle-party-rpg-game2`).
+
+If you skipped certbot, point the domain at the server and terminate TLS upstream.
+With Cloudflare: an A record for the domain with the proxy enabled, SSL/TLS mode
+**Full**, and **WebSockets** enabled under Network (the game runs over a WS
+connection). nginx serves plain HTTP on `:80` behind the proxy.
 
 ## Auto-Deploy
 
-Pushes to `main` automatically deploy via GitHub Actions. The workflow SSHs into the server, pulls the latest code, builds, and restarts the service.
+Pushes to `main` automatically deploy via GitHub Actions. The workflow SSHs into the server, then for **every** instance it finds under `/opt/idle-party-rpg*` it pulls the latest code, builds, syncs nginx, and restarts that instance's service. A new instance is picked up automatically — no workflow change needed. If one instance fails, the rest still deploy and the job reports the failure at the end.
 
 **Required GitHub Secrets** (Settings → Secrets and variables → Actions):
 
@@ -130,6 +170,7 @@ Publishing a draft creates an **immutable snapshot** of all content at that poin
 - [x] Server-driven map state (per-player fog of war, room names, tile discovery)
 - [x] Multiple regions/zones with border transitions
 - [x] Multi-map / interior maps (rooms link to a room on another map via a transition; one HexGrid per map; admin authoring) — overworld map-select still to come (#168)
+- [x] Room entry requirements (gate a room or a map transition on an equipped item, a minimum level, and/or completed quests — every party member must qualify)
 
 ### Combat
 Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both sides. Party combat is shared — all members fight the same monsters together on a 3x3 grid with position-based targeting. Combat ends when all monsters die (victory) or all players reach 0 HP (defeat). Encounters are zone-aware — each zone defines its own encounter table.
@@ -150,7 +191,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Inventory tab (merged Char + Items — hero card, equipped gear, skill loadout, stat card, inventory grid)
 - [x] Class system (5 classes: Knight, Archer, Priest, Mage, Bard — weak solo, strong together)
 - [x] Damage types (physical/magical on monsters, Knight reduces physical, Priest reduces magical)
-- [ ] Henchmen (hireable NPCs for solo players)
+- [x] Henchmen (hireable NPCs for solo players)
 - [x] Party formation and management (always in a party, join, leave, kick, 3x3 grid, max 5 members)
 - [x] Party roles (owner > leader > member, promote/demote, transfer ownership)
 - [x] Party movement (owner/leader controls unified group movement)
@@ -186,7 +227,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [ ] Town interactions (shops, inns, etc.)
 - [ ] Currency system
 - [x] Item/equipment system (4 items, 4 equip slots, inventory with stacking)
-- [x] Trading between players (asynchronous multi-item trades, no same-room requirement, persists across server restarts)
+- [x] Trading between players (asynchronous multi-item trades, no same-room requirement, persists across server restarts, per-trade confirm nonce)
 - [x] Item gifting (mailbox-based, accept/deny, declined gifts return to sender)
 
 ### Crafting
@@ -236,7 +277,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Mobile-first responsive design
 - [x] Pixel/retro RPG visual style (Silkscreen + Pixelify Sans)
 - [x] Combat cards with portrait + name + HP bar; per-zone backgrounds; lunge/hit/dodge animations
-- [x] Image-everywhere convention (`/<kind>-artwork/{id}.png` with placeholder fallback) for items, monsters, classes, tiles, sets, shops, zones, rooms
+- [x] Image-everywhere convention (`<mount>/{id}.png` with placeholder fallback) across all 17 asset kinds — items, monsters, classes, rooms, room types, sets, shops, zones, NPCs, henchmen, map parchment, combat/room backdrops, the splash logo, and the class/slot/nav icon sets — all declared once in a shared registry
 - [x] Nav bar battle status indicators (pulse/flash on combat events)
 - [x] Server unavailable / offline screen with retry
 - [x] Desktop font scaling (larger fonts on desktop via media query)
@@ -255,7 +296,9 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Quest editor (Quests tab; NPCs tab links quests to NPCs)
 - [x] Recipe editor (Recipes tab — author/edit crafting recipes without touching JSON)
 - [x] Skill tree editor (skills as versioned content — composable effect options, editable unlock levels, per-class slot schedules, item/set skill grants)
-- [x] CRM artwork upload pipeline (items / monsters / sets / shops / zones / tile types share one upload endpoint + UI)
+- [x] CRM artwork upload pipeline (15 of the 17 asset kinds share one upload API; items / monsters / zones / tile types / map parchment also have an in-modal uploader)
+- [ ] Set and shop artwork management (deferred — set art has no render site, and shop art is fetched by zone id rather than shop id)
+- [x] Asset coverage report (which content is still missing artwork, accounting for fallback chains, plus orphaned files)
 - [x] Game designer access only
 
 ### AI-Assisted Content (MCP)
@@ -263,6 +306,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] MCP write tools, draft-version-scoped only (#298)
 - [x] Design notes — versioned markdown design context alongside AI-authored draft content
 - [x] validate_draft — referential-integrity sweep before publish
+- [x] Imagery tools — list asset kinds, upload/delete PNGs, and a coverage report showing which content is still missing art (artwork is live and unversioned, so these write directly rather than into a draft)
 
 ### Infrastructure
 - [x] Monorepo structure (client/, server/)
