@@ -210,17 +210,17 @@ describe('RoomView modal pipeline', () => {
   it('current room makes exactly the first action the gold primary and wires each action', () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);
-    const onShop = vi.fn();
-    const onTransition = vi.fn();
-    const view = new RoomView(parent, () => {}, undefined, onShop, undefined, undefined, onTransition);
-    view.hasShop = true;
-    view.transitions = [{ tileId: 'tile-9', name: 'The Deep' }];
+    const onAction = vi.fn();
+    const view = new RoomView(parent, () => {}, undefined, onAction);
+    const shop: RoomAction = { kind: 'shop', icon: '🪙', name: 'General Store', targetId: 'store' };
+    const exit: RoomAction = { kind: 'travel', icon: '🌀', name: 'The Deep', targetId: 'tile-9' };
+    view.actions = [shop, exit];
     view.show(makeInfo({ isCurrentTile: true }));
     const gold = parent.querySelectorAll('.rv-place__actions .gc-btn--gold');
     expect(gold.length).toBe(1);
     expect(gold[0].classList.contains('room-view-action-shop')).toBe(true);
-    (parent.querySelector('.room-view-action-transition') as HTMLElement).click();
-    expect(onTransition).toHaveBeenCalledWith('tile-9');
+    (parent.querySelector('.room-view-action-travel') as HTMLElement).click();
+    expect(onAction).toHaveBeenCalledWith(exit);
   });
 
   it('escapes room and zone names', () => {

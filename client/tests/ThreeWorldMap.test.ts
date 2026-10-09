@@ -97,9 +97,13 @@ describe('ThreeWorldMap overlays', () => {
     map.applyServerState(makeState());
     expect(map.countOthersAt(0, 0)).toBe(1);
     expect(map.countOthersAt(1, 0)).toBe(2);
-    const badges = [...container.querySelectorAll<HTMLElement>('.three-map-badge')].map(b => b.textContent);
-    expect(badges.sort()).toEqual(['+1', '×2']);
-    expect(container.querySelectorAll('.three-map-dungeon-key')).toHaveLength(2);
+    const party = container.querySelector('.wm-marker--party') as HTMLElement;
+    expect(party.querySelector('.wm-marker__count')?.textContent).toBe('+1');
+    expect(party.classList.contains('has-dungeon-party')).toBe(true);
+    const others = [...container.querySelectorAll<HTMLElement>('.wm-marker--other')];
+    expect(others).toHaveLength(1);
+    expect(others[0].querySelector('.wm-marker__count')?.textContent).toBe('2');
+    expect(others[0].querySelector('.wm-marker__key')).not.toBeNull();
   });
 
   it('builds the tile info for the current room', async () => {
@@ -118,8 +122,12 @@ describe('ThreeWorldMap overlays', () => {
     map.applyServerState(makeState());
     const canvas = container.querySelector('canvas')!;
     canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 0, clientY: 0, bubbles: true }));
-    const tip = container.querySelector('.canvas-map-tooltip') as HTMLElement;
-    expect(tip.style.display).toBe('block');
-    expect([...tip.children].map(c => c.textContent)).toEqual(['Zone: Home', '🧙 Mira', '🗝️ Crystal Caves', '👥 1 player here']);
+    const tip = container.querySelector('.wm-tooltip') as HTMLElement;
+    expect(tip.style.display).toBe('flex');
+    expect(tip.querySelector('.wm-tooltip__zone')?.textContent).toBe('Zone');
+    expect(tip.querySelector('.wm-tooltip__room')?.textContent).toBe('Home');
+    expect([...tip.querySelectorAll('.wm-tooltip__actions li')].map(li => li.textContent))
+      .toEqual(['🧙 Mira', '🗝️ Crystal Caves', '👥 1 player here']);
+    expect(tip.textContent).not.toContain('alice');
   });
 });

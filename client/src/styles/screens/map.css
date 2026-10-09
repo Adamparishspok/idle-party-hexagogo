@@ -1448,3 +1448,8 @@ button.room-status-chip:active {
     animation: none;
   }
 }
+
+.rv-action__glyph--emoji {
+  font-size: 26px;
+  line-height: 1;
+}

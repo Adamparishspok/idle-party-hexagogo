@@ -9,7 +9,6 @@ import '../styles/screens/map.css';
 type Member = { username: string; className?: string; level?: number };
 
 const ICON_KEY = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M11.5 11.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>';
-const ICON_DOOR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M2.5 21h19" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="15" cy="12.5" r="1.6" fill="currentColor"/></svg>';
 const ICON_STOP = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>';
 
 /**
@@ -221,12 +220,6 @@ export class RoomView {
     if (unexplored) {
       facts.push(this.fact('rv-fact--dim', 'Unexplored. Travel here to learn more.'));
     }
-    if (info.isUnlocked) {
-      for (const action of this.actions) {
-        const detail = action.detail ? ` · ${action.detail}` : '';
-        facts.push(this.fact(`rv-fact--${action.kind}${action.questReady ? ' is-quest-ready' : ''}`, `${action.icon} ${action.name}${detail}`));
-      }
-    }
     const playerCount = info.playersHere.length;
     if (playerCount === 0 && !unexplored) facts.push(this.fact('rv-fact--dim', 'No other adventurers here right now.'));
 
@@ -241,6 +234,7 @@ export class RoomView {
       <button type="button" class="gc-close gc-modal__close room-view-close" aria-label="Close"></button>
       <div class="gc-modal__body rv-preview__body">
         <div class="rv-preview__zone">${this.escapeHtml(info.zoneName)}${kind}</div>
+        ${info.isUnlocked ? this.renderContentsList(this.actions) : ''}
         ${facts.length > 0 ? `<ul class="rv-preview__facts">${facts.join('')}</ul>` : ''}
         ${partiesBlock}
       </div>
@@ -271,32 +265,42 @@ export class RoomView {
     }
   }
 
+  /** What an explored remote room offers — informational, no action buttons. */
+  private renderContentsList(actions: RoomAction[]): string {
+    if (actions.length === 0) return '';
+    const items = actions.map(action => {
+      const pip = action.questReady ? ' quest-ready-pip' : '';
+      const detail = action.detail
+        ? `<span class="room-view-contents-detail">${this.escapeHtml(action.detail)}</span>`
+        : '';
+      return `<li class="room-view-contents-item rv-fact rv-fact--${action.kind}">`
+        + `<span class="room-view-contents-icon${pip}">${this.escapeHtml(action.icon)}</span>`
+        + `<span class="room-view-contents-name">${this.escapeHtml(action.name)}</span>${detail}</li>`;
+    }).join('');
+    return `<div class="room-view-contents"><ul class="room-view-contents-list rv-preview__facts">${items}</ul></div>`;
+  }
+
   private fact(cls: string, text: string): string {
     return `<li class="rv-fact ${cls}">${this.escapeHtml(text)}</li>`;
   }
 
   private actionButton(hook: string, icon: string, label: string, attrs = ''): string {
-    return `<button type="button" class="gc-btn gc-btn--lg gc-btn--block rv-action ${hook}" ${attrs}>
-      ${icon}<span class="rv-action__label">${this.escapeHtml(label)}</span>
-    </button>`;
+    return `<button type="button" class="gc-btn gc-btn--lg gc-btn--block rv-action ${hook}" ${attrs}>`
+      + `${icon}<span class="rv-action__label">${this.escapeHtml(label)}</span></button>`;
   }
 
-  /** Icon chip for a room action: NPC portrait, shop art over a coin, or a drawn glyph. */
+  /** Icon chip for a room action: NPC portrait or shop art over the shared glyph/coin. */
   private actionIcon(action: RoomAction): string {
     const id = encodeURIComponent(action.targetId);
     if (action.kind === 'npc') {
-      return `<span class="rv-action__chip">
-        <span class="rv-action__emoji" aria-hidden="true">${this.escapeHtml(action.icon || '')}</span>
-        <img class="rv-action__img" src="${artworkUrl('npc', id)}" alt="" onerror="this.remove()" />
-      </span>`;
+      return `<span class="rv-action__chip"><span class="rv-action__emoji" aria-hidden="true">${this.escapeHtml(action.icon)}</span>`
+        + `<img class="rv-action__img" src="${artworkUrl('npc', id)}" alt="" onerror="this.remove()" /></span>`;
     }
     if (action.kind === 'shop') {
-      return `<span class="rv-action__chip">
-        <span class="gc-coin rv-action__coin" aria-hidden="true"></span>
-        <img class="rv-action__img" src="${artworkUrl('shop', id)}" alt="" onerror="this.remove()" />
-      </span>`;
+      return `<span class="rv-action__chip"><span class="gc-coin rv-action__coin" aria-hidden="true"></span>`
+        + `<img class="rv-action__img" src="${artworkUrl('shop', id)}" alt="" onerror="this.remove()" /></span>`;
     }
-    return `<span class="rv-action__glyph">${action.kind === 'dungeon' ? ICON_KEY : ICON_DOOR}</span>`;
+    return `<span class="rv-action__glyph rv-action__glyph--emoji" aria-hidden="true">${this.escapeHtml(action.icon)}</span>`;
   }
 
   /**

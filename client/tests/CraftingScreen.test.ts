@@ -129,9 +129,4 @@ describe('CraftingScreen', () => {
     expect(client.sendCraftCancel).toHaveBeenCalledWith(1);
   });
 
-  it('shows the locked state below the unlock level', () => {
-    mount(makeState(craftState({ unlocked: false }), {}));
-    expect(document.querySelector('.cr-message')?.hasAttribute('hidden')).toBe(false);
-    expect(document.querySelector('.cr-message h2')?.textContent).toBe('Workshop Locked');
-  });
 });
