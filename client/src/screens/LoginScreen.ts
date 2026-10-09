@@ -1,12 +1,17 @@
 import type { Screen } from './ScreenManager';
+import { setButtonBusy, setTitleStatus, titleShellHtml, titleStatusHtml, wireTitleLogo } from '../ui/TitleShell';
 
 export class LoginScreen implements Screen {
   private container: HTMLElement;
   private input!: HTMLInputElement;
   private button!: HTMLButtonElement;
   private errorEl!: HTMLElement;
+  private formEl!: HTMLElement;
+  private leadEl!: HTMLElement;
+  private statusEl!: HTMLElement;
   private subtitleEl!: HTMLElement;
-  private cancelLink!: HTMLAnchorElement;
+  private waitingEl!: HTMLElement;
+  private cancelLink!: HTMLButtonElement;
   private onLoginCallback: (email: string) => void;
 
   constructor(containerId: string, onLogin: (email: string) => void) {
@@ -30,24 +35,26 @@ export class LoginScreen implements Screen {
 
   showError(message: string): void {
     this.errorEl.textContent = message;
-    this.errorEl.style.display = 'block';
+    this.errorEl.hidden = false;
   }
 
   setLoading(loading: boolean): void {
     this.input.disabled = loading;
-    this.button.disabled = loading;
-    this.button.textContent = loading ? 'Verifying...' : 'Verify';
+    setButtonBusy(this.button, loading, loading ? 'Verifying...' : 'Verify');
   }
 
   showCheckEmail(onCancel?: () => void): void {
     this.subtitleEl.textContent = 'Check your email for a sign-in link!';
-    this.subtitleEl.style.display = 'block';
-    this.input.style.display = 'none';
-    this.button.style.display = 'none';
-    this.errorEl.style.display = 'none';
+    this.subtitleEl.hidden = false;
+    this.statusEl.hidden = false;
+    setTitleStatus(this.statusEl, 'mail');
+    this.waitingEl.hidden = false;
+    this.leadEl.hidden = true;
+    this.formEl.hidden = true;
+    this.errorEl.hidden = true;
 
     if (onCancel) {
-      this.cancelLink.style.display = 'block';
+      this.cancelLink.hidden = false;
       this.cancelLink.onclick = (e) => {
         e.preventDefault();
         onCancel();
@@ -57,56 +64,69 @@ export class LoginScreen implements Screen {
 
   showExpired(): void {
     this.subtitleEl.textContent = 'Sign-in link expired. Please try again.';
-    this.subtitleEl.style.display = 'block';
-    this.input.style.display = '';
-    this.button.style.display = '';
-    this.cancelLink.style.display = 'none';
-    this.errorEl.style.display = 'none';
+    this.subtitleEl.hidden = false;
+    this.statusEl.hidden = true;
+    this.waitingEl.hidden = true;
+    this.leadEl.hidden = true;
+    this.formEl.hidden = false;
+    this.cancelLink.hidden = true;
+    this.errorEl.hidden = true;
     this.setLoading(false);
   }
 
   private reset(): void {
-    this.input.style.display = '';
-    this.button.style.display = '';
-    this.subtitleEl.style.display = 'none';
-    this.errorEl.style.display = 'none';
-    this.cancelLink.style.display = 'none';
+    this.formEl.hidden = false;
+    this.leadEl.hidden = false;
+    this.statusEl.hidden = true;
+    this.subtitleEl.hidden = true;
+    this.waitingEl.hidden = true;
+    this.errorEl.hidden = true;
+    this.cancelLink.hidden = true;
     this.setLoading(false);
   }
 
   private buildDOM(): void {
-    this.container.innerHTML = `
-      <div class="login-content">
-        <h1 class="login-title">Idle Party RPG</h1>
-        <p class="login-subtitle" style="display:none"></p>
-        <div class="login-form">
-          <input type="email" class="login-input" placeholder="Email" autocomplete="email" spellcheck="false" />
-          <button class="login-button">Verify</button>
-          <div class="login-error"></div>
-        </div>
-        <a href="#" class="login-cancel-link" style="display:none">Try a different email</a>
-      </div>
-    `;
+    this.container.innerHTML = titleShellHtml(`
+      ${titleStatusHtml('mail')}
+      <p class="ts-lead">Enter your email and we'll send you a sign-in link.</p>
+      <p class="ts-message" hidden></p>
+      <p class="ts-waiting" hidden>Waiting for you to open the link&hellip;</p>
+      <form class="ts-form" novalidate>
+        <label class="ts-visually-hidden" for="login-email">Email</label>
+        <input id="login-email" type="email" class="gc-input ts-input" placeholder="you@example.com"
+          autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" enterkeyhint="go" />
+        <div class="ts-error" role="alert" hidden></div>
+        <button type="submit" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block ts-submit">Verify</button>
+      </form>
+      <button type="button" class="ts-link" hidden>Try a different email</button>
+    `, { tab: 'Sign In' });
 
-    this.input = this.container.querySelector('.login-input')!;
-    this.button = this.container.querySelector('.login-button')!;
-    this.errorEl = this.container.querySelector('.login-error')!;
-    this.subtitleEl = this.container.querySelector('.login-subtitle')!;
-    this.cancelLink = this.container.querySelector('.login-cancel-link')!;
+    wireTitleLogo(this.container);
+    this.input = this.container.querySelector('.ts-input')!;
+    this.button = this.container.querySelector('.ts-submit')!;
+    this.errorEl = this.container.querySelector('.ts-error')!;
+    this.formEl = this.container.querySelector('.ts-form')!;
+    this.leadEl = this.container.querySelector('.ts-lead')!;
+    this.statusEl = this.container.querySelector('.ts-status')!;
+    this.subtitleEl = this.container.querySelector('.ts-message')!;
+    this.waitingEl = this.container.querySelector('.ts-waiting')!;
+    this.cancelLink = this.container.querySelector('.ts-link')!;
   }
 
   private wireEvents(): void {
-    this.button.addEventListener('click', () => this.submit());
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.submit();
+    // A real <form> so the mobile keyboard's Go key submits; we never let it navigate.
+    this.formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.submit();
     });
 
     this.input.addEventListener('input', () => {
-      this.errorEl.style.display = 'none';
+      this.errorEl.hidden = true;
     });
   }
 
   private submit(): void {
+    if (this.button.disabled) return;
     const email = this.input.value.trim();
     if (!email) {
       this.showError('Enter your email');
@@ -116,7 +136,7 @@ export class LoginScreen implements Screen {
       this.showError('Enter a valid email address');
       return;
     }
-    this.errorEl.style.display = 'none';
+    this.errorEl.hidden = true;
     this.onLoginCallback(email);
   }
 }

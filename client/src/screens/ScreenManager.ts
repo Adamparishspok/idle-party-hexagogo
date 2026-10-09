@@ -16,6 +16,8 @@
  * to be stacked into one tall screen becomes a push instead.
  */
 
+import '../styles/screens/screen-header.css';
+
 export interface Screen {
   /**
    * Called when the screen becomes visible. `params` carries whatever `push`

@@ -1,0 +1,532 @@
+/*
+ * Title-screen shell — login, username, verify, approve, offline, suspended,
+ * plus the backdrop the class picker reuses. Built on the kit
+ * (components.css); see ui/TitleShell.ts for the markup.
+ *
+ * Layout: .ts-screen fills the screen; .ts-backdrop paints a dusk scene
+ * behind everything; .ts-stage is the one scroll region (it only scrolls
+ * when the mobile keyboard squeezes the viewport) and centers the logo +
+ * parchment card. Pre-game screens have no nav or perch, so the stage pads
+ * for the safe-area insets instead.
+ */
+
+.ts-screen,
+.cs-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  background: #0e0a1c;
+  color: var(--parch-ink);
+}
+
+/* Screens toggle states with the `hidden` attribute; kit classes like
+   .gc-btn set their own display, so make `hidden` win inside the shell. */
+.ts-screen [hidden],
+.cs-screen [hidden] {
+  display: none !important;
+}
+
+.ts-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Backdrop: dusk sky, moon, mountains, a far castle, mist ── */
+
+.ts-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 110% 40% at 50% 78%, rgba(255, 150, 80, 0.42) 0%, transparent 70%),
+    linear-gradient(180deg, #0a0920 0%, #19143a 26%, #34214f 48%, #6c3651 66%, #b65a43 82%, #d9813f 92%, #2a1712 100%);
+}
+/* Edge vignette so the card and logo pop. */
+.ts-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 85% 70% at 50% 45%, transparent 45%, rgba(4, 2, 10, 0.7) 100%);
+}
+
+.ts-stars {
+  position: absolute;
+  inset: 0 0 45% 0;
+  background:
+    radial-gradient(2px 2px at 8% 12%, #fff 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 18% 34%, #fff 50%, transparent 52%),
+    radial-gradient(2.5px 2.5px at 27% 8%, #fff7d6 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 38% 26%, #fff 50%, transparent 52%),
+    radial-gradient(2px 2px at 46% 5%, #fff 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 55% 40%, #dfe8ff 50%, transparent 52%),
+    radial-gradient(2px 2px at 63% 16%, #fff 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 72% 44%, #fff 50%, transparent 52%),
+    radial-gradient(2.5px 2.5px at 88% 30%, #fff7d6 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 94% 8%, #fff 50%, transparent 52%),
+    radial-gradient(1.5px 1.5px at 4% 46%, #fff 50%, transparent 52%),
+    radial-gradient(1px 1px at 33% 50%, #fff 50%, transparent 52%);
+  -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 40%, transparent 100%);
+  animation: ts-twinkle 5s ease-in-out infinite alternate;
+}
+
+.ts-moon {
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: clamp(56px, 16vw, 92px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 34%, #fffbe8 0%, #f6e1a8 55%, #d8b066 100%);
+  box-shadow:
+    0 0 36px 10px rgba(255, 231, 160, 0.35),
+    0 0 120px 50px rgba(255, 190, 120, 0.12);
+}
+
+.ts-peaks {
+  position: absolute;
+  left: -4%;
+  right: -4%;
+}
+.ts-peaks--far {
+  bottom: 16%;
+  height: 34%;
+  background: linear-gradient(180deg, #3b2a55 0%, #261a3a 100%);
+  clip-path: polygon(0 100%, 0 58%, 7% 42%, 13% 54%, 22% 24%, 31% 50%, 39% 36%, 47% 60%, 57% 20%, 66% 46%, 74% 32%, 83% 52%, 91% 28%, 100% 46%, 100% 100%);
+}
+/* Tiny keep on the far ridge — the "adventure is out there" note. */
+.ts-castle {
+  position: absolute;
+  left: 52%;
+  bottom: calc(16% + 34% * 0.78);
+  width: 46px;
+  height: 40px;
+  background: #261a3a;
+  clip-path: polygon(0 100%, 0 40%, 10% 40%, 10% 30%, 20% 30%, 20% 40%, 30% 40%, 30% 10%, 36% 0, 42% 10%, 42% 40%, 58% 40%, 58% 22%, 64% 14%, 70% 22%, 70% 40%, 80% 40%, 80% 30%, 90% 30%, 90% 40%, 100% 40%, 100% 100%);
+}
+.ts-castle::after {
+  /* One lit window. */
+  content: '';
+  position: absolute;
+  left: 33%;
+  top: 30%;
+  width: 3px;
+  height: 5px;
+  background: #ffcf6a;
+  box-shadow: 0 0 6px 2px rgba(255, 190, 90, 0.7);
+}
+.ts-peaks--near {
+  bottom: 0;
+  height: 26%;
+  background: linear-gradient(180deg, #1b1226 0%, #0c0812 100%);
+  clip-path: polygon(0 100%, 0 30%, 10% 18%, 22% 34%, 34% 10%, 46% 30%, 58% 16%, 70% 36%, 82% 12%, 92% 26%, 100% 20%, 100% 100%);
+}
+
+.ts-mist {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: 12%;
+  height: 22%;
+  background:
+    radial-gradient(ellipse 40% 50% at 25% 60%, rgba(255, 210, 190, 0.16) 0%, transparent 70%),
+    radial-gradient(ellipse 35% 45% at 70% 50%, rgba(255, 200, 200, 0.12) 0%, transparent 70%);
+  animation: ts-drift 24s ease-in-out infinite alternate;
+}
+
+/* ── Stage (the one scroll region) ─────────────────────────── */
+
+.ts-stage {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-6);
+  padding:
+    calc(env(safe-area-inset-top, 0px) + var(--s-5))
+    calc(env(safe-area-inset-right, 0px) + var(--s-4))
+    calc(env(safe-area-inset-bottom, 0px) + var(--s-6))
+    calc(env(safe-area-inset-left, 0px) + var(--s-4));
+}
+/* Safe centering: auto margins center when there's room and collapse
+   (instead of clipping the top) when the keyboard squeezes the stage. */
+.ts-stage > :first-child { margin-top: auto; }
+.ts-stage > :last-child { margin-bottom: auto; }
+
+/* ── Logo ──────────────────────────────────────────────────── */
+
+.ts-logo {
+  text-align: center;
+  animation: ts-logo-in 640ms var(--ease-spring) both;
+}
+.ts-logo__art {
+  display: none;
+  width: min(78vw, 360px);
+  height: auto;
+  max-height: 30vh;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.55));
+}
+.ts-logo--art .ts-logo__art {
+  display: block;
+  margin-inline: auto;
+}
+/* When the art loads the wordmark stays in the tree for screen readers. */
+.ts-logo--art .ts-logo__word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.ts-logo__word {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: clamp(56px, 17vw, 88px);
+  line-height: 0.86;
+  letter-spacing: 0.01em;
+  color: #fff6df;
+  transform: rotate(-3deg);
+  /* A heavier outline than --text-stroke: this is the hero type. */
+  text-shadow:
+    -3px -3px 0 var(--ink-900), 3px -3px 0 var(--ink-900),
+    -3px 3px 0 var(--ink-900), 3px 3px 0 var(--ink-900),
+    0 -3px 0 var(--ink-900), 0 3px 0 var(--ink-900),
+    -3px 0 0 var(--ink-900), 3px 0 0 var(--ink-900),
+    0 8px 0 var(--ink-900),
+    0 12px 18px rgba(0, 0, 0, 0.55);
+}
+.ts-logo__line--accent {
+  color: var(--gold-500);
+  font-size: 1.12em;
+}
+
+/* ── Parchment card ────────────────────────────────────────── */
+
+.ts-card {
+  width: min(100%, 400px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  text-align: center;
+  animation: gc-pop-in 360ms var(--ease-spring) 120ms both;
+}
+.ts-card__tab {
+  position: absolute !important;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -58%);
+  max-width: calc(100% - 48px);
+}
+.ts-card h2 {
+  margin: 0;
+}
+
+.ts-lead,
+.ts-message {
+  margin: 0;
+  font-size: var(--t-body);
+  line-height: 1.45;
+  color: var(--parch-ink);
+}
+.ts-message {
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1.2;
+}
+.ts-waiting {
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+  animation: ts-breathe 1.8s ease-in-out infinite;
+}
+.ts-hint {
+  margin: 0;
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+  text-align: left;
+}
+
+.ts-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-1);
+}
+.ts-form .gc-btn {
+  margin-top: var(--s-2);
+}
+
+/* Inputs on parchment: same kit input, lighter well so it sits on paper. */
+.ts-input,
+.ts-textarea {
+  font-size: var(--t-body);
+  text-align: left;
+}
+.ts-input:disabled,
+.ts-textarea:disabled {
+  opacity: 0.7;
+}
+.ts-textarea {
+  min-height: 132px;
+  padding: var(--s-3) var(--s-4);
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.ts-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  border: 2px solid rgba(138, 31, 23, 0.45);
+  background: rgba(224, 70, 58, 0.12);
+  font-size: var(--t-small);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--red-700);
+  text-align: left;
+  animation: ts-shake 320ms var(--ease-out);
+}
+.ts-error::before {
+  content: '!';
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--red-500);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  color: #fff;
+}
+
+.ts-feedback {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--parch-ink-soft);
+}
+.ts-feedback[data-tone="error"] { color: var(--red-700); }
+.ts-feedback[data-tone="success"] { color: var(--green-700); }
+
+/* Secondary text action (≥48px tall, reads as a link). */
+.ts-link {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--s-4);
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--parch-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ts-link:active {
+  background: rgba(138, 106, 60, 0.18);
+  transform: translateY(1px);
+}
+.ts-link:focus-visible {
+  outline: 3px solid var(--parch-accent);
+  outline-offset: 2px;
+}
+a.gc-btn {
+  text-decoration: none;
+}
+
+/* Debug details (verify screen) */
+.ts-details {
+  text-align: left;
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.ts-details summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+.ts-details__pre {
+  max-height: 200px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background: rgba(58, 40, 23, 0.1);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: var(--t-caption);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--parch-ink);
+}
+
+/* ── Status seal ───────────────────────────────────────────── */
+
+.ts-status {
+  --seal-top: var(--slate-500);
+  --seal-bottom: var(--slate-800);
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: var(--s-1);
+  border-radius: 50%;
+  border: 3px solid var(--ink-900);
+  background: radial-gradient(circle at 50% 30%, var(--seal-top) 0%, var(--seal-bottom) 85%);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.25),
+    0 4px 0 rgba(58, 40, 23, 0.45);
+  animation: ts-seal-in 420ms var(--ease-spring) both;
+}
+.ts-status svg {
+  width: 40px;
+  height: 40px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 0 var(--ink-900));
+}
+.ts-status[data-state="success"] { --seal-top: var(--green-300); --seal-bottom: var(--green-700); }
+.ts-status[data-state="error"],
+.ts-status[data-state="locked"] { --seal-top: var(--red-300); --seal-bottom: var(--red-700); }
+.ts-status[data-state="mail"] { --seal-top: var(--teal-300); --seal-bottom: var(--teal-700); }
+.ts-status[data-state="offline"] { --seal-top: var(--gold-300); --seal-bottom: var(--gold-700); }
+.ts-status[data-state="mail"] svg {
+  animation: ts-bob 1.8s ease-in-out infinite;
+}
+.ts-status__spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--gold-300);
+  animation: ts-spin 0.9s linear infinite;
+}
+
+/* ── Busy button (kit candidate: .gc-btn--loading) ─────────── */
+
+.gc-btn--loading {
+  cursor: progress;
+}
+.gc-btn--loading:disabled {
+  /* Keep the face colorful — it's working, not unavailable. */
+  filter: saturate(0.75) brightness(0.95);
+}
+.gc-btn--loading::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: ts-spin 0.8s linear infinite;
+}
+
+/* ── Motion ────────────────────────────────────────────────── */
+
+@keyframes ts-logo-in {
+  from { opacity: 0; transform: translateY(-24px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ts-seal-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes ts-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ts-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes ts-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+@keyframes ts-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+@keyframes ts-twinkle {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+@keyframes ts-drift {
+  from { transform: translateX(-4%); }
+  to { transform: translateX(4%); }
+}
+
+/* ── Desktop ───────────────────────────────────────────────── */
+
+@media (min-width: 768px) {
+  .ts-card {
+    width: 420px;
+    padding: var(--s-7) var(--s-6) var(--s-6);
+  }
+  .ts-castle {
+    width: 64px;
+    height: 56px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ts-logo,
+  .ts-card,
+  .ts-status,
+  .ts-error,
+  .ts-stars,
+  .ts-mist,
+  .ts-waiting,
+  .ts-status[data-state="mail"] svg {
+    animation: none;
+  }
+  /* Spinners still need to say "working" — slow them instead of freezing. */
+  .ts-status__spinner,
+  .gc-btn--loading::before {
+    animation-duration: 2.4s;
+  }
+}

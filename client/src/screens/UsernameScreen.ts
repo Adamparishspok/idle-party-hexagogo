@@ -1,10 +1,12 @@
 import type { Screen } from './ScreenManager';
+import { setButtonBusy, titleShellHtml, wireTitleLogo } from '../ui/TitleShell';
 
 export class UsernameScreen implements Screen {
   private container: HTMLElement;
   private input!: HTMLInputElement;
   private button!: HTMLButtonElement;
   private errorEl!: HTMLElement;
+  private formEl!: HTMLFormElement;
   private onSubmitCallback: (username: string) => void;
 
   constructor(containerId: string, onSubmit: (username: string) => void) {
@@ -18,10 +20,8 @@ export class UsernameScreen implements Screen {
   }
 
   onActivate(): void {
-    this.input.disabled = false;
-    this.button.disabled = false;
-    this.button.textContent = 'Continue';
-    this.errorEl.style.display = 'none';
+    this.setLoading(false);
+    this.errorEl.hidden = true;
     this.input.focus();
   }
 
@@ -31,45 +31,48 @@ export class UsernameScreen implements Screen {
 
   showError(message: string): void {
     this.errorEl.textContent = message;
-    this.errorEl.style.display = 'block';
+    this.errorEl.hidden = false;
   }
 
   setLoading(loading: boolean): void {
     this.input.disabled = loading;
-    this.button.disabled = loading;
-    this.button.textContent = loading ? 'Saving...' : 'Continue';
+    setButtonBusy(this.button, loading, loading ? 'Saving...' : 'Continue');
   }
 
   private buildDOM(): void {
-    this.container.innerHTML = `
-      <div class="login-content">
-        <h1 class="login-title">Choose a Name</h1>
-        <p class="login-subtitle">Pick a username for your character.</p>
-        <div class="login-form">
-          <input type="text" class="login-input" placeholder="Username" maxlength="20" autocomplete="off" spellcheck="false" />
-          <button class="login-button">Continue</button>
-          <div class="login-error"></div>
-        </div>
-      </div>
-    `;
+    this.container.innerHTML = titleShellHtml(`
+      <h2>Choose a Name</h2>
+      <p class="ts-lead">Pick a username for your character.</p>
+      <form class="ts-form" novalidate>
+        <label class="ts-visually-hidden" for="username-input">Username</label>
+        <input id="username-input" type="text" class="gc-input ts-input" placeholder="Username" maxlength="20"
+          autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" />
+        <p class="ts-hint">Up to 20 letters, numbers, hyphens or underscores.</p>
+        <div class="ts-error" role="alert" hidden></div>
+        <button type="submit" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block ts-submit">Continue</button>
+      </form>
+    `, { tab: 'New Hero' });
 
-    this.input = this.container.querySelector('.login-input')!;
-    this.button = this.container.querySelector('.login-button')!;
-    this.errorEl = this.container.querySelector('.login-error')!;
+    wireTitleLogo(this.container);
+    this.input = this.container.querySelector('.ts-input')!;
+    this.button = this.container.querySelector('.ts-submit')!;
+    this.errorEl = this.container.querySelector('.ts-error')!;
+    this.formEl = this.container.querySelector('.ts-form')!;
   }
 
   private wireEvents(): void {
-    this.button.addEventListener('click', () => this.submit());
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.submit();
+    this.formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.submit();
     });
 
     this.input.addEventListener('input', () => {
-      this.errorEl.style.display = 'none';
+      this.errorEl.hidden = true;
     });
   }
 
   private submit(): void {
+    if (this.button.disabled) return;
     const username = this.input.value.trim();
     if (!username) {
       this.showError('Enter a username');
@@ -83,7 +86,7 @@ export class UsernameScreen implements Screen {
       this.showError('Letters, numbers, hyphens, underscores only');
       return;
     }
-    this.errorEl.style.display = 'none';
+    this.errorEl.hidden = true;
     this.onSubmitCallback(username);
   }
 }
