@@ -183,6 +183,57 @@ body[data-nav-depth]:not([data-nav-depth="1"]) #top-hud {
   transform: translateY(1px);
 }
 
+/* Home: a framed house beside the gear, shown once you own a house. */
+.hud-home {
+  position: relative;
+  isolation: isolate;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55));
+  -webkit-tap-highlight-color: transparent;
+}
+.hud-home[hidden] {
+  display: none;
+}
+.hud-home::before,
+.hud-home::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+  pointer-events: none;
+}
+.hud-home::before {
+  inset: 2px;
+  background: var(--gc-frame-edge);
+}
+.hud-home::after {
+  inset: calc(2px + var(--gc-frame-w));
+  background: var(--gc-frame-fill);
+}
+.hud-home.active::before,
+.hud-home:hover::before {
+  background: var(--gc-frame-edge-gold);
+}
+.hud-home:active {
+  transform: translateY(1px);
+}
+.hud-home:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+.hud-home-icon {
+  width: 26px;
+  height: 26px;
+}
+
 /* Notification bell → matching octagon button, aligned with the HUD row.
    Fixed (mounted outside #app by NotificationCenter), just above the nav's
    z tier; its dropdown is promoted through ModalStack. */
@@ -301,6 +352,84 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   font-variant-numeric: tabular-nums;
   text-shadow: var(--text-stroke-sm);
   white-space: nowrap;
+}
+
+/* Well Rested buff chip at the bar's right end. */
+.rested-chip {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 8px 0 5px;
+  border: 2px solid var(--ink-900);
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, #5a4a96, #2a2050);
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: rested-glow 2.4s ease-in-out infinite alternate;
+}
+.rested-chip[hidden] {
+  display: none;
+}
+/* Grows the hit area to the 48px minimum without growing the chip. */
+.rested-chip::before {
+  content: '';
+  position: absolute;
+  inset: -20px -8px -6px;
+}
+.rested-chip:active {
+  transform: translateY(1px);
+}
+.rested-chip:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+.rested-chip__icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  color: var(--gold-300);
+}
+.rested-chip__tip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 5;
+  width: max-content;
+  max-width: 240px;
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--gold-700);
+  border-radius: var(--r-md);
+  background: rgba(20, 14, 8, 0.95);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  white-space: normal;
+  text-align: left;
+  color: var(--gold-300);
+}
+.rested-chip__tip[hidden] {
+  display: none;
+}
+@keyframes rested-glow {
+  from { box-shadow: 0 0 3px rgba(255, 210, 120, 0.35); }
+  to { box-shadow: 0 0 10px rgba(255, 210, 120, 0.85); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rested-chip {
+    animation: none;
+    box-shadow: 0 0 8px rgba(255, 210, 120, 0.6);
+  }
 }
 
 /* Level badge on the bar's left end, overlapping the portrait's base. */

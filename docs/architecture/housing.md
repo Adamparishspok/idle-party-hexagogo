@@ -82,11 +82,12 @@ the target enter once within 30 minutes.
   house cards (exterior art, tier badge, storage/shelf counts, price with coin),
   a gold Buy button (disabled with a reason if you own one or can't afford it).
 - **Home button:** a "Home" entry (shown once you own a house) — opens your home.
-  Placement: the top HUD next to the gear, or the perch — whichever reads best.
+  It sits in the top HUD beside the gear.
 - **Home view:** full-screen place (like the current-room view): interior backdrop,
   the campfire (animated flame; "Sit by the fire" / "Stand up"), trophy shelves
   as framed item slots, the chest (owner only), occupants as portraits around the
   fire (sitting ones by the fire), an "Invite" button (friends/party picker), and
   Leave. Visitors see the same view without the chest and owner controls.
-- **Well Rested:** a small buff chip on the HUD/XP bar with remaining time.
-- **Player card:** "Visit Home" for players who own a house and allow you in.
+- **Well Rested:** a small buff chip at the right end of the XP bar with remaining time.
+- **Player card:** "Visit Home" on other players' cards; the server refuses (as an `error`, shown as a toast) when you aren't allowed in or they have no house.
+- Client details: `docs/architecture/client.md` (Player housing).

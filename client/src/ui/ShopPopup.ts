@@ -1,14 +1,17 @@
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
 import type { ServerStateMessage } from '@idle-party-rpg/shared';
-import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer, HiredHenchman } from '@idle-party-rpg/shared';
+import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer, HiredHenchman, HouseOffer } from '@idle-party-rpg/shared';
 import { getUnequippedCount, listUnequippedEntries, MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from '@idle-party-rpg/shared';
 import { escapeHtml, renderKitItem } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
+import { houseArtHtml } from './HouseArt';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import '../styles/screens/map.css';
 
 const ICON_PLUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
+type ShopMode = 'buy' | 'sell' | 'hire' | 'houses';
+
 const ICON_MINUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
 
 /**
@@ -17,21 +20,23 @@ const ICON_MINUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h1
  * with their price under each. Tapping an item opens its detail view in
  * place — stats, a quantity stepper, the total in big numbers, and a gold
  * Buy/Sell button on the panel's bottom edge. A Hire tab lists the room's
- * henchmen for hire while the shop offers any.
+ * henchmen for hire while the shop offers any, and a Houses tab lists the
+ * homes an estate agent sells.
  */
 export class ShopPopup {
   private overlay: HTMLElement;
   private gameClient: GameClient;
   private worldCache: WorldCache;
-  /** `hire` only exists while the room's shop offers henchmen. */
-  private mode: 'buy' | 'sell' | 'hire' = 'buy';
+  /** `hire` / `houses` only exist while the room's shop offers henchmen / houses. */
+  private mode: ShopMode = 'buy';
   /** View context — what's open inside the shop popup right now. */
-  private view: { kind: 'grid' } | { kind: 'buy'; itemId: string; price: number; qty: number } | { kind: 'sell'; itemId: string; qty: number } | { kind: 'replace'; henchmanId: string } = { kind: 'grid' };
+  private view: { kind: 'grid' } | { kind: 'buy'; itemId: string; price: number; qty: number } | { kind: 'sell'; itemId: string; qty: number } | { kind: 'replace'; henchmanId: string } | { kind: 'house'; houseId: string } = { kind: 'grid' };
   private notice: string | null = null;
   private noticeTimer: number | null = null;
   private unsubscribeState: (() => void) | null = null;
   /** Henchman id of a hire awaiting a server answer, so only its refusal shows. */
   private pendingHireId: string | null = null;
+  private pendingHouse: HouseOffer | null = null;
   private unsubscribeError: (() => void) | null = null;
   /** Hash of the inputs that drove the most recent render. State ticks
    *  whose inputs match this skip the re-render entirely so item-artwork
@@ -54,8 +59,7 @@ export class ShopPopup {
   show(state: ServerStateMessage): void {
     const shop = state.shopDefinition;
     if (!shop) return;
-    const hasOffers = (state.henchmanOffers?.length ?? 0) > 0;
-    this.mode = shop.inventory.length === 0 && hasOffers ? 'hire' : 'buy';
+    this.mode = ShopPopup.initialMode(state, shop);
     this.view = { kind: 'grid' };
     this.notice = null;
     this.lastRenderKey = '';
@@ -70,6 +74,11 @@ export class ShopPopup {
       if (!s.shopDefinition) { this.hide(); return; }
       // A state tick means the hire landed — a refusal arrives as an error first.
       this.pendingHireId = null;
+      if (this.pendingHouse && s.house?.house.houseId === this.pendingHouse.houseId) {
+        const name = this.pendingHouse.name;
+        this.pendingHouse = null;
+        this.setNotice(`${name} is yours! Tap the house at the top of the screen to go home.`);
+      }
       this.renderCurrentView(s);
     });
 
@@ -77,8 +86,9 @@ export class ShopPopup {
     this.unsubscribeError?.();
     this.unsubscribeError = this.gameClient.onServerError((message) => {
       if (this.overlay.style.display === 'none') return;
-      if (!this.pendingHireId) return;
+      if (!this.pendingHireId && !this.pendingHouse) return;
       this.pendingHireId = null;
+      this.pendingHouse = null;
       this.setNotice(message);
       const s = this.gameClient.lastState;
       if (s) this.renderCurrentView(s);
@@ -94,6 +104,7 @@ export class ShopPopup {
     this.unsubscribeError?.();
     this.unsubscribeError = null;
     this.pendingHireId = null;
+    this.pendingHouse = null;
     // Reset the render-cache so the next time the popup opens it
     // re-renders fresh (player may have visited a different shop).
     this.lastRenderKey = '';
@@ -102,6 +113,13 @@ export class ShopPopup {
       this.noticeTimer = null;
     }
     this.notice = null;
+  }
+
+  private static initialMode(state: ServerStateMessage, shop: ShopDefinition): ShopMode {
+    if (shop.inventory.length > 0) return 'buy';
+    if ((state.henchmanOffers?.length ?? 0) > 0) return 'hire';
+    if ((state.houseOffers?.length ?? 0) > 0) return 'houses';
+    return 'buy';
   }
 
   private static hiredHenchmen(state: ServerStateMessage): HiredHenchman[] {
@@ -120,7 +138,9 @@ export class ShopPopup {
     if (!shop) return;
 
     const offers = state.henchmanOffers ?? [];
+    const houses = state.houseOffers ?? [];
     if (this.mode === 'hire' && offers.length === 0) this.mode = 'buy';
+    if (this.mode === 'houses' && houses.length === 0) this.mode = 'buy';
 
     // Skip re-render if nothing the popup cares about changed. State ticks
     // arrive once per second and were re-creating the img elements every
@@ -134,6 +154,8 @@ export class ShopPopup {
       offers,
       hired: ShopPopup.hiredHenchmen(state).map(h => `${h.instanceId}:${h.name ?? ''}`),
       room: ShopPopup.hasRoomForHire(state),
+      houses,
+      ownedHouse: state.house?.house.houseId ?? null,
       gold: state.character?.gold ?? 0,
       inv: state.character?.inventory ?? {},
       eq: state.character?.equipment ?? {},
@@ -161,6 +183,8 @@ export class ShopPopup {
         return;
       }
       this.renderReplaceConfirm(this.view.henchmanId, state, shop);
+    } else if (this.view.kind === 'house') {
+      this.renderHouseConfirm(this.view.houseId, state, shop);
     }
   }
 
@@ -209,8 +233,11 @@ export class ShopPopup {
     const setDefs = state.setDefinitions ?? {};
     const offers = state.henchmanOffers ?? [];
 
+    const houses = state.houseOffers ?? [];
     const listHtml = this.mode === 'hire'
       ? `<div class="gc-modal__body shop-hire">${this.renderHireList(offers, state)}</div>`
+      : this.mode === 'houses'
+      ? `<div class="gc-modal__body shop-houses">${this.renderHouseList(houses, state)}</div>`
       : `<div class="gc-modal__body shop-modal__grid">${this.mode === 'buy'
           ? this.renderBuyItems(shop, itemDefs, setDefs)
           : this.renderSellItems(char.inventory, char.equipment, itemDefs, setDefs)}</div>`;
@@ -218,12 +245,16 @@ export class ShopPopup {
     const hireTab = offers.length > 0
       ? `<button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="hire" aria-selected="${this.mode === 'hire'}">Hire</button>`
       : '';
+    const housesTab = houses.length > 0
+      ? `<button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="houses" aria-selected="${this.mode === 'houses'}">Houses</button>`
+      : '';
 
     const body = `
       <div class="gc-tabs shop-modal__tabs" role="tablist">
         <button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="buy" aria-selected="${this.mode === 'buy'}">Buy</button>
         <button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="sell" aria-selected="${this.mode === 'sell'}">Sell</button>
         ${hireTab}
+        ${housesTab}
       </div>
       ${listHtml}
     `;
@@ -231,7 +262,7 @@ export class ShopPopup {
 
     for (const btn of this.overlay.querySelectorAll('.shop-toggle-btn')) {
       btn.addEventListener('click', () => {
-        this.mode = (btn as HTMLElement).dataset.mode as 'buy' | 'sell' | 'hire';
+        this.mode = (btn as HTMLElement).dataset.mode as ShopMode;
         this.view = { kind: 'grid' };
         this.renderGrid(state, shop);
       });
@@ -249,6 +280,15 @@ export class ShopPopup {
         this.pendingHireId = henchmanId;
         this.gameClient.sendHireHenchman(henchmanId);
         this.renderGrid(state, shop);
+      });
+    }
+
+    for (const btn of this.overlay.querySelectorAll('.shop-house-buy')) {
+      btn.addEventListener('click', () => {
+        const houseId = (btn as HTMLElement).dataset.houseId;
+        if (!houseId) return;
+        this.view = { kind: 'house', houseId };
+        this.renderCurrentView(state);
       });
     }
 
@@ -344,6 +384,82 @@ export class ShopPopup {
     }).join('');
     const why = partyFull ? '<p class="gc-modal__why shop-hire-why">Your party is full of players.</p>' : '';
     return rows + why;
+  }
+
+  /** Why this house can't be bought right now, or null when it can. */
+  private static houseBlocker(offer: HouseOffer, state: ServerStateMessage): string | null {
+    if (state.house) return 'You already own a home. Sell it before buying another.';
+    const gold = state.character?.gold ?? 0;
+    if (gold < offer.price) return `You need ${(offer.price - gold).toLocaleString()} more gold.`;
+    return null;
+  }
+
+  private renderHouseList(offers: HouseOffer[], state: ServerStateMessage): string {
+    const ownedId = state.house?.house.houseId;
+    return offers.map(o => {
+      const blocker = ShopPopup.houseBlocker(o, state);
+      const owned = ownedId === o.houseId;
+      const short = !state.house && (state.character?.gold ?? 0) < o.price;
+      const description = o.description?.trim();
+      const action = owned
+        ? '<span class="gc-tag gc-tag--green shop-house-owned">Your home</span>'
+        : `<button type="button" class="gc-btn gc-btn--gold gc-btn--lg shop-house-buy" data-house-id="${escapeHtml(o.houseId)}"`
+          + `${blocker ? ' disabled' : ''} aria-label="Buy ${escapeHtml(o.name)}">Buy</button>`;
+      const why = blocker && !owned ? `<p class="gc-modal__why shop-house-why">${escapeHtml(blocker)}</p>` : '';
+      return `
+        <article class="shop-house" data-house-id="${escapeHtml(o.houseId)}">
+          ${houseArtHtml(o, 'shop-house__art')}
+          <div class="shop-house__main">
+            <div class="shop-house__head">
+              <h3 class="shop-house__name">${escapeHtml(o.name)}</h3>
+              <span class="gc-tag gc-tag--gold shop-house__tier">Tier ${o.tier}</span>
+            </div>
+            ${description ? `<p class="shop-house__desc">${escapeHtml(description)}</p>` : ''}
+            <div class="gc-facts shop-house__facts">
+              <div class="gc-fact"><span class="gc-fact__label">Storage</span><span class="gc-fact__value">${o.storageSlots}</span></div>
+              <div class="gc-fact"><span class="gc-fact__label">Shelves</span><span class="gc-fact__value">${o.displaySlots}</span></div>
+            </div>
+            <div class="shop-house__foot">
+              <span class="shop-house__price${short ? ' is-short' : ''}"><span class="gc-coin" aria-hidden="true"></span>${o.price.toLocaleString()}</span>
+              ${action}
+            </div>
+            ${why}
+          </div>
+        </article>`;
+    }).join('');
+  }
+
+  private renderHouseConfirm(houseId: string, state: ServerStateMessage, shop: ShopDefinition): void {
+    const offer = (state.houseOffers ?? []).find(o => o.houseId === houseId);
+    const blocker = offer ? ShopPopup.houseBlocker(offer, state) : null;
+    if (!offer || blocker) {
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+      return;
+    }
+    const question = `Buy ${offer.name} for ${offer.price.toLocaleString()} gold?`;
+    const body = `
+      <div class="gc-modal__body shop-house-confirm">
+        ${houseArtHtml(offer, 'shop-house__art shop-house__art--lg')}
+        <p class="shop-house-confirm__text">${escapeHtml(question)}</p>
+        <p class="shop-house-confirm__sub">Store up to ${offer.storageSlots} kinds of items, show off ${offer.displaySlots} trophies, and rest by your own fire.</p>
+      </div>`;
+    const actions = `
+      <button type="button" class="gc-btn shop-house-cancel">Cancel</button>
+      <button type="button" class="gc-btn gc-btn--gold gc-btn--lg shop-house-confirm-btn">Buy</button>`;
+    this.overlay.innerHTML = this.panel(shop, state.character?.gold ?? 0, body, actions, 'is-detail', 'Buy a home');
+
+    this.overlay.querySelector('.shop-house-confirm-btn')?.addEventListener('click', () => {
+      this.pendingHouse = offer;
+      this.gameClient.sendBuyHouse(offer.houseId);
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+    });
+    this.overlay.querySelector('.shop-house-cancel')?.addEventListener('click', () => {
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+    });
+    this.overlay.querySelector('.shop-close-btn')?.addEventListener('click', () => this.hide());
   }
 
   /** Ask which hired henchman makes room for a new one. */

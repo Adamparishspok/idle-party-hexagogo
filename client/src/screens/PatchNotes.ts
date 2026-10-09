@@ -25,6 +25,11 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'New quest button next to Chat — a gold ! appears when a quest is ready to hand in, and it shows how many quests you have going.',
       'New players get a quick guided tour of the game (replay it any time from Settings).',
       'Coming back after a break? A welcome-back summary now shows everything your party earned while you were away — levels, experience, gold, battles won and loot.',
+      'Player housing! Estate agents now sell houses — find one, open its Houses tab, and buy a home of your own, from a humble cottage to a grand manor.',
+      'Once you own a house, tap the house button at the top of the screen to step inside from anywhere. Your party keeps fighting while you\'re home.',
+      'Keep spare items safe in your home\'s chest, and show off your best finds on trophy shelves that every visitor can see.',
+      'Sit by your campfire to become Well Rested: each minute by the fire earns 12 minutes of +10% experience and gold. A glowing moon on your experience bar shows how long it lasts.',
+      'Invite friends and party members over to sit by the fire together, or tap Visit Home on a player\'s card to drop in on them.',
     ],
   },
   {
