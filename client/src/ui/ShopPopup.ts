@@ -1,8 +1,8 @@
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
 import type { ServerStateMessage } from '@idle-party-rpg/shared';
-import type { ShopDefinition, ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
-import { getUnequippedCount, listUnequippedEntries } from '@idle-party-rpg/shared';
+import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer, HiredHenchman } from '@idle-party-rpg/shared';
+import { getUnequippedCount, listUnequippedEntries, MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from '@idle-party-rpg/shared';
 import { escapeHtml, renderKitItem } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
@@ -16,18 +16,23 @@ const ICON_MINUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h1
  * as a big outlined number, Buy/Sell tabs, and the wares as kit item frames
  * with their price under each. Tapping an item opens its detail view in
  * place — stats, a quantity stepper, the total in big numbers, and a gold
- * Buy/Sell button on the panel's bottom edge.
+ * Buy/Sell button on the panel's bottom edge. A Hire tab lists the room's
+ * henchmen for hire while the shop offers any.
  */
 export class ShopPopup {
   private overlay: HTMLElement;
   private gameClient: GameClient;
   private worldCache: WorldCache;
-  private mode: 'buy' | 'sell' = 'buy';
+  /** `hire` only exists while the room's shop offers henchmen. */
+  private mode: 'buy' | 'sell' | 'hire' = 'buy';
   /** View context — what's open inside the shop popup right now. */
-  private view: { kind: 'grid' } | { kind: 'buy'; itemId: string; price: number; qty: number } | { kind: 'sell'; itemId: string; qty: number } = { kind: 'grid' };
+  private view: { kind: 'grid' } | { kind: 'buy'; itemId: string; price: number; qty: number } | { kind: 'sell'; itemId: string; qty: number } | { kind: 'replace'; henchmanId: string } = { kind: 'grid' };
   private notice: string | null = null;
   private noticeTimer: number | null = null;
   private unsubscribeState: (() => void) | null = null;
+  /** Henchman id of a hire awaiting a server answer, so only its refusal shows. */
+  private pendingHireId: string | null = null;
+  private unsubscribeError: (() => void) | null = null;
   /** Hash of the inputs that drove the most recent render. State ticks
    *  whose inputs match this skip the re-render entirely so item-artwork
    *  <img> elements aren't recreated and don't flicker. */
@@ -49,7 +54,8 @@ export class ShopPopup {
   show(state: ServerStateMessage): void {
     const shop = state.shopDefinition;
     if (!shop) return;
-    this.mode = 'buy';
+    const hasOffers = (state.henchmanOffers?.length ?? 0) > 0;
+    this.mode = shop.inventory.length === 0 && hasOffers ? 'hire' : 'buy';
     this.view = { kind: 'grid' };
     this.notice = null;
     this.lastRenderKey = '';
@@ -62,7 +68,20 @@ export class ShopPopup {
     this.unsubscribeState = this.gameClient.subscribe(s => {
       if (this.overlay.style.display === 'none') return;
       if (!s.shopDefinition) { this.hide(); return; }
+      // A state tick means the hire landed — a refusal arrives as an error first.
+      this.pendingHireId = null;
       this.renderCurrentView(s);
+    });
+
+    // A hire refusal arrives as an `error`, not a state change; only claim one while a hire is outstanding.
+    this.unsubscribeError?.();
+    this.unsubscribeError = this.gameClient.onServerError((message) => {
+      if (this.overlay.style.display === 'none') return;
+      if (!this.pendingHireId) return;
+      this.pendingHireId = null;
+      this.setNotice(message);
+      const s = this.gameClient.lastState;
+      if (s) this.renderCurrentView(s);
     });
   }
 
@@ -72,6 +91,9 @@ export class ShopPopup {
     release(this.overlay);
     this.unsubscribeState?.();
     this.unsubscribeState = null;
+    this.unsubscribeError?.();
+    this.unsubscribeError = null;
+    this.pendingHireId = null;
     // Reset the render-cache so the next time the popup opens it
     // re-renders fresh (player may have visited a different shop).
     this.lastRenderKey = '';
@@ -82,9 +104,23 @@ export class ShopPopup {
     this.notice = null;
   }
 
+  private static hiredHenchmen(state: ServerStateMessage): HiredHenchman[] {
+    return state.social?.party?.henchmen ?? [];
+  }
+
+  /** Whether one more henchman fits without anyone leaving. */
+  private static hasRoomForHire(state: ServerStateMessage): boolean {
+    const hired = ShopPopup.hiredHenchmen(state).length;
+    const members = state.social?.party?.members.length ?? 1;
+    return hired < MAX_HENCHMEN_PER_PARTY && members + hired < MAX_PARTY_SIZE;
+  }
+
   private renderCurrentView(state: ServerStateMessage): void {
     const shop = state.shopDefinition;
     if (!shop) return;
+
+    const offers = state.henchmanOffers ?? [];
+    if (this.mode === 'hire' && offers.length === 0) this.mode = 'buy';
 
     // Skip re-render if nothing the popup cares about changed. State ticks
     // arrive once per second and were re-creating the img elements every
@@ -95,6 +131,9 @@ export class ShopPopup {
       notice: this.notice,
       shopId: shop.id,
       shopInv: shop.inventory,
+      offers,
+      hired: ShopPopup.hiredHenchmen(state).map(h => `${h.instanceId}:${h.name ?? ''}`),
+      room: ShopPopup.hasRoomForHire(state),
       gold: state.character?.gold ?? 0,
       inv: state.character?.inventory ?? {},
       eq: state.character?.equipment ?? {},
@@ -115,6 +154,13 @@ export class ShopPopup {
         return;
       }
       this.renderSellDetail(this.view.itemId, max, state.itemDefinitions ?? {}, state.setDefinitions ?? {}, state, shop);
+    } else if (this.view.kind === 'replace') {
+      if (ShopPopup.hiredHenchmen(state).length === 0) {
+        this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+        return;
+      }
+      this.renderReplaceConfirm(this.view.henchmanId, state, shop);
     }
   }
 
@@ -136,13 +182,13 @@ export class ShopPopup {
   }
 
   /** Shared panel chrome: title tab, close, purse, notice. */
-  private panel(shop: ShopDefinition, gold: number, body: string, actions: string, extraClass = ''): string {
+  private panel(shop: ShopDefinition, gold: number, body: string, actions: string, extraClass = '', title = shop.name): string {
     const noticeHtml = this.notice
       ? `<div class="shop-modal__notice" role="status">${escapeHtml(this.notice)}</div>`
       : '';
     return `
-      <div class="gc-modal__panel gc-parchment shop-modal__panel ${extraClass}" role="dialog" aria-modal="true" aria-label="${escapeHtml(shop.name)}">
-        <div class="gc-title-tab gc-modal__title shop-modal__title"><span class="gc-title-tab__text">${escapeHtml(shop.name)}</span></div>
+      <div class="gc-modal__panel gc-parchment shop-modal__panel ${extraClass}" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+        <div class="gc-title-tab gc-modal__title shop-modal__title"><span class="gc-title-tab__text">${escapeHtml(title)}</span></div>
         <button type="button" class="gc-close gc-modal__close shop-close-btn" aria-label="Close"></button>
         <div class="shop-modal__purse" aria-label="Your gold">
           <span class="gc-coin" aria-hidden="true"></span>
@@ -155,30 +201,53 @@ export class ShopPopup {
     `;
   }
 
-  /** Render the main grid view (buy or sell item list). */
+  /** Render the main grid view (buy / sell item list, or the hire list). */
   private renderGrid(state: ServerStateMessage, shop: ShopDefinition): void {
     const char = state.character;
     if (!char) return;
     const itemDefs = state.itemDefinitions ?? {};
     const setDefs = state.setDefinitions ?? {};
+    const offers = state.henchmanOffers ?? [];
 
-    const itemsHtml = this.mode === 'buy'
-      ? this.renderBuyItems(shop, itemDefs, setDefs)
-      : this.renderSellItems(char.inventory, char.equipment, itemDefs, setDefs);
+    const listHtml = this.mode === 'hire'
+      ? `<div class="gc-modal__body shop-hire">${this.renderHireList(offers, state)}</div>`
+      : `<div class="gc-modal__body shop-modal__grid">${this.mode === 'buy'
+          ? this.renderBuyItems(shop, itemDefs, setDefs)
+          : this.renderSellItems(char.inventory, char.equipment, itemDefs, setDefs)}</div>`;
+
+    const hireTab = offers.length > 0
+      ? `<button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="hire" aria-selected="${this.mode === 'hire'}">Hire</button>`
+      : '';
 
     const body = `
       <div class="gc-tabs shop-modal__tabs" role="tablist">
         <button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="buy" aria-selected="${this.mode === 'buy'}">Buy</button>
         <button type="button" role="tab" class="gc-tab shop-toggle-btn" data-mode="sell" aria-selected="${this.mode === 'sell'}">Sell</button>
+        ${hireTab}
       </div>
-      <div class="gc-modal__body shop-modal__grid">${itemsHtml}</div>
+      ${listHtml}
     `;
     this.overlay.innerHTML = this.panel(shop, char.gold, body, '');
 
     for (const btn of this.overlay.querySelectorAll('.shop-toggle-btn')) {
       btn.addEventListener('click', () => {
-        this.mode = (btn as HTMLElement).dataset.mode as 'buy' | 'sell';
+        this.mode = (btn as HTMLElement).dataset.mode as 'buy' | 'sell' | 'hire';
         this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+      });
+    }
+
+    for (const btn of this.overlay.querySelectorAll('.shop-hire-btn')) {
+      btn.addEventListener('click', () => {
+        const henchmanId = (btn as HTMLElement).dataset.henchmanId;
+        if (!henchmanId) return;
+        if (!ShopPopup.hasRoomForHire(state) && ShopPopup.hiredHenchmen(state).length > 0) {
+          this.view = { kind: 'replace', henchmanId };
+          this.renderCurrentView(state);
+          return;
+        }
+        this.pendingHireId = henchmanId;
+        this.gameClient.sendHireHenchman(henchmanId);
         this.renderGrid(state, shop);
       });
     }
@@ -242,6 +311,109 @@ export class ShopPopup {
       const value = def ? (def.value ?? 1) : 1;
       return this.cell(itemId, def, value, { 'item-id': itemId, qty: String(qty) }, qty);
     }).join('');
+  }
+
+  /** Render the hire list. The combat archetype (className) is deliberately not shown. */
+  private renderHireList(offers: HenchmanOffer[], state: ServerStateMessage): string {
+    if (offers.length === 0) {
+      return '<p class="shop-modal__empty">Nobody here is looking for work</p>';
+    }
+    const hired = ShopPopup.hiredHenchmen(state);
+    const hiredIds = new Set(hired.map(h => h.henchmanId));
+    const hasRoom = ShopPopup.hasRoomForHire(state);
+    const partyFull = !hasRoom && hired.length === 0;
+
+    const rows = offers.map(o => {
+      const description = o.description?.trim();
+      const verb = hasRoom ? 'Hire' : 'Replace';
+      const action = hiredIds.has(o.henchmanId)
+        ? '<span class="gc-tag gc-tag--green shop-hire-hired">In party</span>'
+        : partyFull
+          ? '<button type="button" class="gc-btn gc-btn--steel shop-hire-full" disabled>Party full</button>'
+          : `<button type="button" class="gc-btn gc-btn--gold shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}" aria-label="${verb} ${escapeHtml(o.name)}">${verb}</button>`;
+      return `
+        <div class="gc-row shop-hire-row" data-henchman-id="${escapeHtml(o.henchmanId)}">
+          ${ShopPopup.henchmanPortrait(o.emoji, o.artworkUrl)}
+          <div class="gc-row__main">
+            <div class="gc-row__title shop-hire-name">${escapeHtml(o.name)}</div>
+            ${description ? `<p class="shop-hire-desc">${escapeHtml(description)}</p>` : ''}
+            <div class="gc-row__sub shop-hire-stats">${ShopPopup.henchmanStats(o)}</div>
+          </div>
+          ${action}
+        </div>`;
+    }).join('');
+    const why = partyFull ? '<p class="gc-modal__why shop-hire-why">Your party is full of players.</p>' : '';
+    return rows + why;
+  }
+
+  /** Ask which hired henchman makes room for a new one. */
+  private renderReplaceConfirm(henchmanId: string, state: ServerStateMessage, shop: ShopDefinition): void {
+    const offer = (state.henchmanOffers ?? []).find(o => o.henchmanId === henchmanId);
+    if (!offer) {
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+      return;
+    }
+
+    const choices = ShopPopup.hiredHenchmen(state)
+      .filter(h => h.henchmanId !== henchmanId)
+      .map(h => {
+        const name = h.name ?? 'henchman';
+        return `
+        <button type="button" class="gc-row shop-replace-confirm" data-instance-id="${escapeHtml(h.instanceId)}" aria-label="Replace ${escapeHtml(name)}">
+          ${ShopPopup.henchmanPortrait(h.emoji ?? '?', h.artworkUrl)}
+          <span class="gc-row__main">
+            <span class="gc-row__title">${escapeHtml(name)}</span>
+            ${h.level !== undefined ? `<span class="gc-row__sub">Lv ${h.level}</span>` : ''}
+          </span>
+          <span class="gc-tag gc-tag--red">Leaves</span>
+        </button>`;
+      })
+      .join('');
+
+    const body = `
+      <div class="gc-modal__body shop-replace">
+        <div class="gc-row shop-hire-row">
+          ${ShopPopup.henchmanPortrait(offer.emoji, offer.artworkUrl)}
+          <div class="gc-row__main">
+            <div class="gc-row__title shop-hire-name">${escapeHtml(offer.name)}</div>
+            <div class="gc-row__sub shop-hire-stats">${ShopPopup.henchmanStats(offer)}</div>
+          </div>
+        </div>
+        <p class="shop-replace__prompt">Your party has no room. Choose who leaves; ${escapeHtml(offer.name)} takes their place in your formation.</p>
+        <div class="shop-replace__choices">${choices}</div>
+      </div>`;
+    const actions = '<button type="button" class="gc-btn shop-replace-cancel">Cancel</button>';
+    this.overlay.innerHTML = this.panel(shop, state.character?.gold ?? 0, body, actions, 'is-detail', `Make room for ${offer.name}?`);
+
+    for (const btn of this.overlay.querySelectorAll('.shop-replace-confirm')) {
+      btn.addEventListener('click', () => {
+        const instanceId = (btn as HTMLElement).dataset.instanceId;
+        if (!instanceId) return;
+        this.pendingHireId = henchmanId;
+        this.gameClient.sendHireHenchman(henchmanId, instanceId);
+        this.view = { kind: 'grid' };
+        this.renderGrid(state, shop);
+      });
+    }
+    this.overlay.querySelector('.shop-replace-cancel')?.addEventListener('click', () => {
+      this.view = { kind: 'grid' };
+      this.renderGrid(state, shop);
+    });
+    this.overlay.querySelector('.shop-close-btn')?.addEventListener('click', () => this.hide());
+  }
+
+  private static henchmanStats(o: HenchmanOffer): string {
+    return `Lv ${o.level} · ${o.maxHp} HP · ${o.baseDamage} DMG`;
+  }
+
+  /** Kit octagon portrait: the photo over the emoji, which shows through when the photo is missing or 404s. */
+  private static henchmanPortrait(emoji: string, artworkUrl: string | undefined): string {
+    const img = artworkUrl
+      ? `<img class="gc-portrait__img" src="${escapeHtml(artworkUrl)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+      : '';
+    return '<span class="gc-portrait gc-portrait--sm shop-hire-portrait" aria-hidden="true">'
+      + `<span class="gc-portrait__initial shop-hire-emoji">${escapeHtml(emoji)}</span>${img}</span>`;
   }
 
   /** Detail body shared by buy and sell: hero frame, stats, stepper, total. */
