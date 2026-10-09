@@ -68,7 +68,7 @@
   flex-direction: column;
 }
 .soc-view {
-  padding: var(--s-2) var(--s-4) 0;
+  padding: var(--s-2) var(--s-4) var(--perch-height);
 }
 .soc-stack {
   display: flex;
