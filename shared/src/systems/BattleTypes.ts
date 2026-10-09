@@ -300,7 +300,20 @@ export interface ClientUnequipSkillMessage {
  * Machine-readable tag on an `error` message, for the cases a screen needs to react
  * to rather than just log. Most errors carry no code.
  */
-export type ServerErrorCode = 'trade_nonce_mismatch';
+export type ServerErrorCode =
+  | 'trade_nonce_mismatch'
+  | 'house_not_for_sale'
+  | 'house_already_owned'
+  | 'house_cannot_afford'
+  | 'house_not_owned'
+  | 'house_not_empty'
+  | 'home_access_denied'
+  | 'home_not_inside'
+  | 'home_chest_full'
+  | 'home_item_missing'
+  | 'home_bag_full'
+  | 'home_invite_refused'
+  | 'home_invalid_request';
 
 export interface WelcomeBackItem {
   itemId: string;

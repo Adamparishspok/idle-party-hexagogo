@@ -56,6 +56,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
   { eventKey: 'dm_received', category: 'dm', label: 'New direct message', defaultChannels: ['in_app'] },
   { eventKey: 'friend_request_received', category: 'friend', label: 'New friend request', defaultChannels: ['in_app'] },
   { eventKey: 'friend_request_accepted', category: 'friend', label: 'Friend request accepted', defaultChannels: ['in_app'] },
+  { eventKey: 'home_invite', category: 'friend', label: 'Invited to visit a home', defaultChannels: ['in_app'] },
 ];
 
 export function getNotificationEventDefinition(eventKey: string): NotificationEventDefinition | undefined {
@@ -163,6 +164,7 @@ export type NotificationNavigationTarget =
   | { kind: 'party' }
   | { kind: 'friend_requests' }
   | { kind: 'dm_reply'; username: string }
+  | { kind: 'home'; owner: string }
   | { kind: 'none' };
 
 /**
@@ -182,6 +184,10 @@ export function resolveNotificationNavigation(
     case 'dm_received': {
       const from = entry.payload?.fromUsername;
       return typeof from === 'string' ? { kind: 'dm_reply', username: from } : { kind: 'none' };
+    }
+    case 'home_invite': {
+      const owner = entry.payload?.owner;
+      return typeof owner === 'string' ? { kind: 'home', owner } : { kind: 'none' };
     }
     default:
       return { kind: 'none' };

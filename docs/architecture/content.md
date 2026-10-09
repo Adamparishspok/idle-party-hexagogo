@@ -83,7 +83,7 @@ Runtime: shared skill helpers take a `SkillContent` bundle; `reconcileSkillLoado
 
 ## Shop system
 
-`ShopTypes.ts` defines `ShopDefinition` with `id`, `name`, `inventory: ShopItem[]` (item ID + stock + price), and `henchmanIds?: string[]` — the henchmen this shop offers for hire (see Henchman system). A shop may vend items, henchmen, or both. Shops are linked to tiles via `shopId?: string` on `WorldTileDefinition`. Shop definitions stored in `data/shops.json`, managed by `ContentStore`. `GET /api/world` also ships a `shops` map of `ShopSummary` (`{ id, name, sellsItems, hiresHenchmen }`, built by `toShopSummary`) so the client can label explored rooms' shops without their stock; full stock still arrives only for the current room via `state.shopDefinition`. The client shows a shop button in the room info popup when the current tile has a shop. `ShopPopup` (`client/src/ui/ShopPopup.ts`) provides buy/sell UI — buy mode shows shop inventory with prices, sell mode shows unequipped inventory items only with quantity controls (-/+/All) and sell prices.
+`ShopTypes.ts` defines `ShopDefinition` with `id`, `name`, `inventory: ShopItem[]` (item ID + stock + price), `henchmanIds?: string[]` — the henchmen this shop offers for hire (see Henchman system) — and `houseIds?: string[]` — the houses it sells, making it an estate agent (see House system). A shop may vend any mix of the three. Shops are linked to tiles via `shopId?: string` on `WorldTileDefinition`. Shop definitions stored in `data/shops.json`, managed by `ContentStore`. `GET /api/world` also ships a `shops` map of `ShopSummary` (`{ id, name, sellsItems, hiresHenchmen }`, built by `toShopSummary`) so the client can label explored rooms' shops without their stock; full stock still arrives only for the current room via `state.shopDefinition`. The client shows a shop button in the room info popup when the current tile has a shop. `ShopPopup` (`client/src/ui/ShopPopup.ts`) provides buy/sell UI — buy mode shows shop inventory with prices, sell mode shows unequipped inventory items only with quantity controls (-/+/All) and sell prices.
 
 ## Zone / map constraint
 
@@ -110,6 +110,14 @@ Stats are **fixed**: no levelling, no equipment, no inventory, so the definition
 **Runtime & UI**: hired henchmen live in `GamePartyInfo.henchmen`, a sibling of `members` — see `docs/architecture/social.md`. `ShopPopup` gains a Hire list driven by `ServerStateMessage.henchmanOffers`; a shop with no `henchmanIds` shows no hire list at all.
 
 **Snapshot semantics**: `henchmen` is **keep-when-absent** in `ContentStore.replaceAll` (the `skills` form, not the `shops` form), and `VersionStore.loadSnapshot` deliberately does **not** back-fill it to `[]`. Every snapshot published before the type existed lacks the key, so a clear-then-fill would wipe the live catalogue on the first deploy or rollback. `DraftEditor`'s henchman cores hydrate an absent key from live content before mutating, so editing one henchman in a pre-henchmen draft cannot collapse the set to a single entry.
+
+## House system
+
+`HouseDefinition` (`shared/src/systems/HousingTypes.ts`) is a content type: `id`, `name`, optional `description`, `tier` (1–5, display grouping only), `price`, `storageSlots`, `displaySlots`, `emoji` (required) and optional `artworkUrl`. `validateHouseDefinition` is the one shape check, shared by the admin route, `DraftEditor` and `validate_draft`. Stored in `data/houses.json`; `SEED_HOUSES` (Cottage 1,000g / 6 chest / 3 shelves, Townhouse 5,000g / 12 / 6, Manor 25,000g / 24 / 10) seeds a fresh world, and also a dev install whose `houses.json` is missing.
+
+Houses are **sold through shops** via `ShopDefinition.houseIds`, exactly like henchmen; the state push carries `houseOffers` for the current room's shop. Deleting a house is blocked while any shop sells it (guarded in both `ContentStore` and `DraftEditor`). Deleting one that players already own is allowed: `houseDefinitionFor` (`server/src/game/housing/HousingService.ts`) synthesizes a stand-in definition from the saved house so the owner keeps their chest and shelves (and it sells back for 0g).
+
+**Snapshot semantics**: `houses` is keep-when-absent in `ContentStore.replaceAll`, like `henchmen`. Ownership, storage, visits and Well Rested are runtime systems — see `docs/architecture/housing.md`.
 
 ## NPC system
 
@@ -209,6 +217,8 @@ Every kind of image the game serves is declared once in `ASSET_KIND_INFO` (`shar
 | `class` | Character portraits (combat / character / profile) | Class name, folded to lowercase (`Knight` → `knight.png`) | square |
 | `npc` | Talk-popup portraits | `NpcDefinition.id` — but see the NPC note below | square |
 | `henchman` | Hire-list and party-grid photos | `HenchmanDefinition.id` — but see the note below | square |
+| `house` | Estate-agent house cards and the home header (`/house-artwork/{id}.png`, falling back to the emoji) | `HouseDefinition.id` — `HouseDefinition.artworkUrl` overrides | any |
+| `house-interior` | Backdrop inside a home (`/house-interior-artwork/{id}.png`, falling back to a CSS scene) | `HouseDefinition.id` | any |
 | `logo` | Splash-screen logo | fixed single id `idle-party` | any |
 | `combat-bg` | Backdrop behind the combat stage | zone id, or `WorldTileDefinition.id` (room GUID) per room — see the room-override note below | any |
 | `room-bg` | Backdrop behind the room view | zone id, or `WorldTileDefinition.id` (room GUID) per room — see the room-override note below | any |

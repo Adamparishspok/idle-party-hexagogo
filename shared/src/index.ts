@@ -536,6 +536,8 @@ export {
   applyRestedBonus,
   canStore,
   emptyHouse,
+  validateHouseDefinition,
+  SEED_HOUSES,
 } from './systems/HousingTypes.js';
 export type {
   HouseDefinition,

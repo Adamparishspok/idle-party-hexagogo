@@ -6,8 +6,8 @@ import type { AccountStore } from '../auth/AccountStore.js';
 import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
-import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
-import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements } from '@idle-party-rpg/shared';
+import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
+import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition } from '@idle-party-rpg/shared';
 import type { AdminAuth } from './adminMiddleware.js';
 import type { ApiTokenStore, ApiTokenRecord } from '../auth/ApiTokenStore.js';
 import { isApiTokenExpired } from '../auth/ApiTokenStore.js';
@@ -308,6 +308,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       sets: content.getAllSets(),
       shops: content.getAllShops(),
       henchmen: content.getAllHenchmen(),
+      houses: content.getAllHouses(),
       tileTypes: content.getAllTileTypes(),
       recipes: content.getAllRecipes(),
       npcs: content.getAllNpcs(),
@@ -854,6 +855,54 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
         return;
       }
       res.json({ success: true, henchmen: content.getAllHenchmen() });
+    }
+  });
+
+  // ── House endpoints ──────────────────────────────────────
+
+  router.get('/houses', (_req, res) => {
+    const content = getContentStore();
+    res.json({ houses: content.getAllHouses() });
+  });
+
+  /** Add or update a house. Supports ?versionId= for draft editing. */
+  router.put('/houses/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    const house = req.body as HouseDefinition;
+    const invalid = validateHouseDefinition(house);
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+
+    if (versionId) {
+      const result = await draftEditor.upsertHouse(versionId, house);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, houses: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      await content.addOrUpdateHouse(house);
+      res.json({ success: true, houses: content.getAllHouses() });
+    }
+  });
+
+  /** Delete a house. Refused while any shop sells it. Supports ?versionId= for draft editing. */
+  router.delete('/houses/:id', async (req, res) => {
+    const houseId = req.params.id;
+    const versionId = req.query.versionId as string | undefined;
+
+    if (versionId) {
+      const result = await draftEditor.deleteHouse(versionId, houseId);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, houses: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      const result = await content.deleteHouse(houseId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, houses: content.getAllHouses() });
     }
   });
 
@@ -1453,6 +1502,9 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const henchmenRecord = snapshot.henchmen !== undefined
       ? toRecord(snapshot.henchmen)
       : getContentStore().getAllHenchmen();
+    const housesRecord = snapshot.houses !== undefined
+      ? toRecord(snapshot.houses)
+      : getContentStore().getAllHouses();
     const skillSlotSchedulesRecord: Record<string, SkillSlot[]> = {};
     if (snapshot.skillSlotSchedules !== undefined) {
       for (const entry of snapshot.skillSlotSchedules) skillSlotSchedulesRecord[entry.className] = entry.slots;
@@ -1461,7 +1513,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       const liveSchedules = getContentStore().getAllSkillSlotSchedules();
       for (const [cn, sl] of Object.entries(liveSchedules)) skillSlotSchedulesRecord[cn] = sl;
     }
-    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
+    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, houses: housesRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
   });
 
   /** Rename a draft version. */

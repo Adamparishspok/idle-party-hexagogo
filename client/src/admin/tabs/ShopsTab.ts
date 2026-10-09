@@ -1,6 +1,6 @@
 import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
-import type { HenchmanDefinition, ShopDefinition, ShopItem } from '@idle-party-rpg/shared';
+import type { HenchmanDefinition, HouseDefinition, ShopDefinition, ShopItem } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
 
@@ -21,7 +21,7 @@ export class ShopsTab implements Tab {
             <button class="admin-btn admin-btn-sm shop-edit-btn" data-id="${s.id}">Edit</button>
             <button class="admin-btn admin-btn-sm admin-btn-danger shop-delete-btn" data-id="${s.id}">Del</button>
           </td>`;
-      return `<tr><td>${escapeHtml(s.name)}</td><td>${s.inventory.length}</td>${actions}</tr>`;
+      return `<tr><td>${escapeHtml(s.name)}</td><td>${s.inventory.length}</td><td>${s.houseIds?.length ?? 0}</td>${actions}</tr>`;
     }).join('');
 
     const addBtn = readOnly ? '' : '<button class="admin-btn" id="shop-add-btn">+ Add Shop</button>';
@@ -35,7 +35,7 @@ export class ShopsTab implements Tab {
         </div>
         <div class="admin-table-wrap">
           <table class="admin-table">
-            <thead><tr><th>Name</th><th>Items</th>${actionsHeader}</tr></thead>
+            <thead><tr><th>Name</th><th>Items</th><th>Houses</th>${actionsHeader}</tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -77,6 +77,14 @@ export class ShopsTab implements Tab {
       ? henchmen.map(h => this.henchmanChecklistRowHtml(h, forHire.has(h.id))).join('')
       : '<div class="admin-form-hint">No henchmen defined yet. Create some on the Henchmen tab.</div>';
 
+    const houses = Object.values(content.houses ?? {})
+      .slice()
+      .sort((a, b) => a.tier - b.tier || a.price - b.price || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    const forSale = new Set(s.houseIds ?? []);
+    const houseRows = houses.length > 0
+      ? houses.map(h => this.houseChecklistRowHtml(h, forSale.has(h.id))).join('')
+      : '<div class="admin-form-hint">No houses defined yet. Create some on the Houses tab.</div>';
+
     const itemRows = items.map(item => {
       const checked = inShop.has(item.id);
       const price = priceMap.get(item.id) ?? (item.value ?? 1);
@@ -116,6 +124,11 @@ export class ShopsTab implements Tab {
         </div>
         <div class="admin-checklist" id="shf-hench-list">${henchmanRows}</div>
       </fieldset>
+      <fieldset class="admin-form-fieldset">
+        <legend>Houses for sale <span id="shf-house-count" class="admin-form-hint"></span></legend>
+        <div class="admin-form-hint">A shop that sells houses is an estate agent. The price is set on the house.</div>
+        <div class="admin-checklist" id="shf-house-list">${houseRows}</div>
+      </fieldset>
     `;
     const actionsHtml = readOnly
       ? `<div class="admin-modal-actions admin-modal-actions-readonly">
@@ -139,6 +152,7 @@ export class ShopsTab implements Tab {
 
     this.wireItemFilter(root);
     this.wireHenchmanFilter(root);
+    this.wireHouseCount(root);
 
     root.querySelector('#shf-cancel')?.addEventListener('click', modal.close);
     root.querySelector('#shf-save')?.addEventListener('click', () => this.saveForm(root, ctx, modal.close));
@@ -191,6 +205,29 @@ export class ShopsTab implements Tab {
     `;
   }
 
+  private houseChecklistRowHtml(house: HouseDefinition, checked: boolean): string {
+    return `
+      <label class="admin-checkbox shf-house-row">
+        <input type="checkbox" class="shf-house-check" value="${escapeHtml(house.id)}" ${checked ? 'checked' : ''}>
+        ${escapeHtml(house.emoji)} ${escapeHtml(house.name)}
+        <span class="admin-form-hint">Tier ${house.tier} · ${house.price.toLocaleString()}g</span>
+      </label>
+    `;
+  }
+
+  private wireHouseCount(root: HTMLElement): void {
+    const list = root.querySelector<HTMLElement>('#shf-house-list');
+    const countEl = root.querySelector<HTMLElement>('#shf-house-count');
+    if (!list || !countEl) return;
+    const apply = () => {
+      const total = list.querySelectorAll('.shf-house-check').length;
+      const checked = list.querySelectorAll('.shf-house-check:checked').length;
+      countEl.textContent = `(${checked} for sale of ${total})`;
+    };
+    list.addEventListener('change', apply);
+    apply();
+  }
+
   private wireHenchmanFilter(root: HTMLElement): void {
     const search = root.querySelector<HTMLInputElement>('#shf-hench-search');
     const list = root.querySelector<HTMLElement>('#shf-hench-list');
@@ -241,9 +278,15 @@ export class ShopsTab implements Tab {
       if (cb.checked) henchmanIds.push(cb.value);
     });
 
+    const houseIds: string[] = [];
+    root.querySelectorAll<HTMLInputElement>('.shf-house-check').forEach(cb => {
+      if (cb.checked) houseIds.push(cb.value);
+    });
+
     const shopDef: ShopDefinition = {
       id, name, inventory,
       henchmanIds: henchmanIds.length > 0 ? henchmanIds : undefined,
+      houseIds: houseIds.length > 0 ? houseIds : undefined,
     };
     try {
       const data = await putAdmin<{ shops: Record<string, ShopDefinition> }>(

@@ -18,6 +18,7 @@ import { InAppNotificationDriver } from './social/InAppNotificationDriver.js';
 import { BrowserPushNotificationDriver } from './social/BrowserPushNotificationDriver.js';
 import { EmailNotificationDriver } from './social/EmailNotificationDriver.js';
 import { PartyBattleManager } from './PartyBattleManager.js';
+import { HousingService } from './housing/HousingService.js';
 import type { ContentStore } from './ContentStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 
@@ -38,6 +39,7 @@ export class PlayerManager {
   readonly notifications: NotificationSystem;
   readonly notify: NotificationService;
   readonly partyBattles: PartyBattleManager;
+  readonly housing: HousingService;
   private getAllUsernames: () => string[];
   private readonly serverVersion = Date.now().toString();
 
@@ -78,6 +80,14 @@ export class PlayerManager {
       (partyId) => this.parties.getHenchmen(partyId),
       (partyId, mapId) => this.parties.dismissHenchmenOffMap(partyId, mapId),
     );
+    this.housing = new HousingService({
+      content,
+      getSession: (username) => this.sessions.get(username),
+      areFriends: (a, b) => this.friends.getFriends(a).includes(b),
+      isBlocked: (a, b) => this.isTradeBlocked(a, b),
+      pushState: (username) => this.sendStateToPlayer(username),
+      notify: (username, eventKey, message) => this.notify.notify(username, eventKey, message),
+    });
   }
 
   /** The world's default (spawn) map grid. */
@@ -150,6 +160,7 @@ export class PlayerManager {
         this.playerConnections.delete(username);
         // Trades are async — they persist across disconnect. Nothing to cancel here.
         this.sessions.get(username)?.captureAwaySnapshot(now);
+        this.housing.handleDisconnect(username, now);
       }
     }
 
@@ -262,6 +273,7 @@ export class PlayerManager {
     const session = this.sessions.get(oldUsername);
     if (!session) return false;
 
+    this.housing.handleDisconnect(oldUsername);
     this.sessions.delete(oldUsername);
     session.username = newUsername;
     this.sessions.set(newUsername, session);
@@ -445,6 +457,7 @@ export class PlayerManager {
           username: u,
           className: this.sessions.get(u)?.getClassName() ?? undefined,
           level: this.sessions.get(u)?.getLevel(),
+          hasHouse: this.sessions.get(u)?.getHouse() ? true : undefined,
         })),
       blockedUsers: session?.getBlockedUsers() ?? {},
       chatPreferences: {
@@ -503,6 +516,7 @@ export class PlayerManager {
       if (!partyId) return null;
       return this.partyBattles.getDungeonRunInfo(partyId);
     };
+    session.getHomeVisit = () => this.housing.getHomeView(session.username);
   }
 
   /** Ensure a player is in a party. Auto-creates a solo party if needed. */

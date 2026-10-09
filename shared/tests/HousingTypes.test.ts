@@ -8,6 +8,8 @@ import {
   isWellRested,
   RESTED_CAP_MS,
   RESTED_MS_PER_SIT_MS,
+  SEED_HOUSES,
+  validateHouseDefinition,
 } from '../src/systems/HousingTypes';
 import type { HouseDefinition } from '../src/systems/HousingTypes';
 
@@ -50,5 +52,33 @@ describe('housing rules', () => {
     expect(canStore(house, COTTAGE, 'a', 5)).toBe(true);
     expect(canStore(house, COTTAGE, 'c', 1)).toBe(false);
     expect(canStore(house, COTTAGE, 'a', 0)).toBe(false);
+  });
+});
+
+describe('validateHouseDefinition', () => {
+  it('accepts a well-formed house and every seed', () => {
+    expect(validateHouseDefinition(COTTAGE)).toBeNull();
+    for (const def of Object.values(SEED_HOUSES)) expect(validateHouseDefinition(def)).toBeNull();
+  });
+
+  it('rejects bad tiers, negative prices and fractional slot counts', () => {
+    expect(validateHouseDefinition({ ...COTTAGE, tier: 6 })).toContain('tier');
+    expect(validateHouseDefinition({ ...COTTAGE, price: -1 })).toContain('price');
+    expect(validateHouseDefinition({ ...COTTAGE, storageSlots: 1.5 })).toContain('storageSlots');
+    expect(validateHouseDefinition({ ...COTTAGE, displaySlots: -2 })).toContain('displaySlots');
+    expect(validateHouseDefinition({ ...COTTAGE, emoji: '' })).toContain('emoji');
+  });
+});
+
+describe('SEED_HOUSES', () => {
+  it('keys every house by its id and prices higher tiers higher', () => {
+    const houses = Object.entries(SEED_HOUSES);
+    expect(houses.length).toBeGreaterThan(0);
+    for (const [key, def] of houses) expect(def.id).toBe(key);
+    const byTier = houses.map(([, def]) => def).sort((a, b) => a.tier - b.tier);
+    for (let i = 1; i < byTier.length; i++) {
+      expect(byTier[i].price).toBeGreaterThan(byTier[i - 1].price);
+      expect(byTier[i].storageSlots).toBeGreaterThanOrEqual(byTier[i - 1].storageSlots);
+    }
   });
 });

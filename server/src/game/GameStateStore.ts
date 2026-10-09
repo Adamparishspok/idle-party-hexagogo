@@ -1,4 +1,4 @@
-import type { HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription } from '@idle-party-rpg/shared';
+import type { HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse } from '@idle-party-rpg/shared';
 
 /** Progress baseline taken when a player's last connection closes; diffed on return. */
 export interface AwaySnapshot {
@@ -79,6 +79,10 @@ export interface PlayerSaveData {
   pushSubscriptions?: WebPushSubscription[];
   /** Present while the player has no open connection; drives the welcome-back summary. */
   awaySnapshot?: AwaySnapshot;
+  /** The player's house: chest contents and trophy shelves. */
+  house?: PlayerHouse;
+  /** Epoch ms the Well Rested bonus lasts until. */
+  wellRestedUntil?: number;
 }
 
 /**

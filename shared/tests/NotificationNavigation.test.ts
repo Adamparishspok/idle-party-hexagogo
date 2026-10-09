@@ -30,6 +30,11 @@ describe('resolveNotificationNavigation', () => {
     expect(resolveNotificationNavigation(entryFor('dm_received', { fromUsername: 42 }))).toEqual({ kind: 'none' });
   });
 
+  it('routes a home invite to the inviting owner\'s home', () => {
+    expect(resolveNotificationNavigation(entryFor('home_invite', { owner: 'bob' }))).toEqual({ kind: 'home', owner: 'bob' });
+    expect(resolveNotificationNavigation(entryFor('home_invite'))).toEqual({ kind: 'none' });
+  });
+
   it('friend_request_accepted (informational, already resolved) is a no-op', () => {
     expect(resolveNotificationNavigation(entryFor('friend_request_accepted'))).toEqual({ kind: 'none' });
   });

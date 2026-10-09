@@ -76,6 +76,17 @@ notification through the notification framework (new event type, in-app +
 optional push), whose action opens `enter_home {owner}`. A pending invite lets
 the target enter once within 30 minutes.
 
+## Server
+
+`HousingService` (`server/src/game/housing/HousingService.ts`, owned by `PlayerManager` as `housing`) implements every rule above; `server/src/index.ts` routes the ten housing messages to `housing.handle()`. `HomeOccupancy` is the in-memory who-is-inside/who-is-sitting map. `GameLoop` calls `housing.tickResting()` every minute (and once on shutdown, before the final save) to bank Well Rested for everyone sitting.
+
+- **Refusals** go out as `{ type: 'error', message, code }` with a `ServerErrorCode`: `house_not_for_sale`, `house_already_owned`, `house_cannot_afford`, `house_not_owned`, `house_not_empty`, `home_access_denied`, `home_not_inside`, `home_chest_full`, `home_item_missing`, `home_bag_full`, `home_invite_refused`, `home_invalid_request`.
+- **Shelf swap:** `home_display` on an occupied shelf returns the shelf's item to the chest and puts the new one up in one step; it refuses with `home_chest_full` only when the returning item needs a new chest slot and none is free after the new item leaves the chest.
+- **Chest access** (`home_store` / `home_withdraw` / `home_display`) doesn't require being inside the home — the owner's `house` state carries the chest everywhere.
+- **Invites** are in memory, keyed by target then owner; a new invite from the same owner refreshes the 30-minute window. Refused for yourself, unknown players, and when either side has blocked the other. Friends and party members don't consume an invite.
+- **Social list:** `PlayerListEntry.hasHouse` marks owners so the client can offer "Visit Home".
+- **Deleted definitions:** an owned house whose `HouseDefinition` was deleted keeps working with a stand-in definition (shelf count from the save, chest size = stacks already stored, sells for 0g).
+
 ## Client
 
 - **Estate agent:** a **Houses** tab in the shop popup when `houseOffers` exist —

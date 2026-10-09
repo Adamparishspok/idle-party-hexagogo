@@ -132,6 +132,8 @@ export interface PlayerListEntry {
   username: string;
   className?: string;
   level?: number;
+  /** Owns a house, so "Visit Home" can be offered. Access is still checked on entry. */
+  hasHouse?: boolean;
 }
 
 export interface ClientSocialState {

@@ -135,3 +135,51 @@ export function canStore(house: PlayerHouse, def: Pick<HouseDefinition, 'storage
 export function emptyHouse(def: HouseDefinition, now: number): PlayerHouse {
   return { houseId: def.id, purchasedAt: now, storage: {}, displays: Array.from({ length: def.displaySlots }, () => null) };
 }
+
+const MAX_HOUSE_TIER = 5;
+
+/** Shape check for authored houses. Returns an error message, or null when valid. */
+export function validateHouseDefinition(def: Partial<HouseDefinition>): string | null {
+  if (typeof def.id !== 'string' || !def.id) return 'House needs an id.';
+  if (typeof def.name !== 'string' || !def.name.trim()) return 'House needs a name.';
+  if (typeof def.emoji !== 'string' || !def.emoji) return 'House needs an emoji.';
+  if (!Number.isInteger(def.tier) || def.tier! < 1 || def.tier! > MAX_HOUSE_TIER) return `House tier must be a whole number from 1 to ${MAX_HOUSE_TIER}.`;
+  if (!Number.isInteger(def.price) || def.price! < 0) return 'House price must be a whole number of gold, 0 or more.';
+  if (!Number.isInteger(def.storageSlots) || def.storageSlots! < 0) return 'House storageSlots must be a whole number, 0 or more.';
+  if (!Number.isInteger(def.displaySlots) || def.displaySlots! < 0) return 'House displaySlots must be a whole number, 0 or more.';
+  return null;
+}
+
+/** Starter houses `ContentStore` seeds into a fresh world. */
+export const SEED_HOUSES: Record<string, HouseDefinition> = {
+  cottage: {
+    id: 'cottage',
+    name: 'Cottage',
+    description: 'A snug one-room cottage with a hearth and a sturdy chest.',
+    tier: 1,
+    price: 1000,
+    storageSlots: 6,
+    displaySlots: 3,
+    emoji: '🛖',
+  },
+  townhouse: {
+    id: 'townhouse',
+    name: 'Townhouse',
+    description: 'Two storeys on a quiet lane, with room to show off your finds.',
+    tier: 2,
+    price: 5000,
+    storageSlots: 12,
+    displaySlots: 6,
+    emoji: '🏠',
+  },
+  manor: {
+    id: 'manor',
+    name: 'Manor',
+    description: 'A grand estate with a trophy hall and a vault for your treasures.',
+    tier: 3,
+    price: 25000,
+    storageSlots: 24,
+    displaySlots: 10,
+    emoji: '🏰',
+  },
+};

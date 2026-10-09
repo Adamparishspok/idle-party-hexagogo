@@ -44,10 +44,16 @@ import {
   xpForCraftLevel,
   getCraftSkillName,
   emptyNotificationPreferences,
+  applyRestedBonus,
+  isWellRested,
 } from '@idle-party-rpg/shared';
 import type {
   HiredHenchman,
   HenchmanOffer,
+  HouseOffer,
+  PlayerHouse,
+  ClientHouseState,
+  HomeView,
   ServerStateMessage,
   ServerBattleState,
   ServerPartyState,
@@ -84,6 +90,7 @@ import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
 import type { WorldGrids } from './WorldGrids.js';
 import { QuestSystem } from './QuestSystem.js';
+import { houseDefinitionFor } from './housing/HousingService.js';
 import type { QuestEvent } from './QuestSystem.js';
 import type { QuestDefinition, QuestProgressEntry, CompletedQuestEntry } from '@idle-party-rpg/shared';
 
@@ -123,6 +130,8 @@ export class PlayerSession {
   private notificationPreferences: NotificationPreferences = emptyNotificationPreferences();
   private pushSubscriptions: WebPushSubscription[] = [];
   private awaySnapshot: AwaySnapshot | null = null;
+  private house: PlayerHouse | null = null;
+  private wellRestedUntil: number | undefined;
   /** Which chat thread the player is actively looking at right now, if any — ephemeral, not persisted. */
   private chatFocus: { channelType: string; channelId: string } | null = null;
   /** Per-player quest tracking. */
@@ -158,6 +167,9 @@ export class PlayerSession {
 
   /** Callback to get the active dungeon run state — set by PlayerManager. */
   getDungeonState?: () => import('@idle-party-rpg/shared').DungeonRunInfo | null;
+
+  /** Callback to get the home this player is inside — set by PlayerManager. */
+  getHomeVisit?: () => HomeView | undefined;
 
   constructor(username: string, grids: WorldGrids, content: ContentStore, onQuestEvent?: (event: QuestEvent) => void) {
     this.username = username;
@@ -269,11 +281,17 @@ export class PlayerSession {
    * floors aren't overworld tiles).
    */
   handleVictory(
-    rewards: { xp: number; gold: number; items: string[] },
+    baseRewards: { xp: number; gold: number; items: string[] },
     tile: HexTile,
     options?: { unlockTiles?: boolean },
+    now = Date.now(),
   ): void {
     if (!this.character) return;
+    const rewards = {
+      ...baseRewards,
+      xp: applyRestedBonus(baseRewards.xp, this.wellRestedUntil, now),
+      gold: applyRestedBonus(baseRewards.gold, this.wellRestedUntil, now),
+    };
     this.addLogEntry('Victory!', 'victory');
     if (this.awaySnapshot) this.awaySnapshot.battlesWon++;
 
@@ -440,6 +458,15 @@ export class PlayerSession {
       }
     }
 
+    if (this.house) {
+      const stored = [...Object.keys(this.house.storage), ...this.house.displays.filter((id): id is string => id !== null)];
+      for (const itemId of stored) {
+        if (defs[itemId]) continue;
+        const def = this.content.getItem(itemId);
+        if (def) defs[itemId] = def;
+      }
+    }
+
     // Set pieces — needed so the popup can render names for unowned pieces of a set the player partially owns.
     for (const set of Object.values(setDefs)) {
       for (const itemId of set.itemIds) {
@@ -502,6 +529,39 @@ export class PlayerSession {
       });
     }
     return offers;
+  }
+
+  getHouseOffers(): HouseOffer[] {
+    const shop = this.getCurrentShop();
+    if (!shop?.houseIds?.length) return [];
+    const offers: HouseOffer[] = [];
+    for (const id of shop.houseIds) {
+      const def = this.content.getHouse(id);
+      if (!def) continue;
+      offers.push({
+        houseId: def.id,
+        name: def.name,
+        description: def.description,
+        tier: def.tier,
+        price: def.price,
+        storageSlots: def.storageSlots,
+        displaySlots: def.displaySlots,
+        emoji: def.emoji,
+        artworkUrl: def.artworkUrl,
+      });
+    }
+    return offers;
+  }
+
+  getHouse(): PlayerHouse | null { return this.house; }
+  setHouse(house: PlayerHouse | null): void { this.house = house; }
+
+  getWellRestedUntil(): number | undefined { return this.wellRestedUntil; }
+  setWellRestedUntil(until: number | undefined): void { this.wellRestedUntil = until; }
+
+  private getHouseState(): ClientHouseState | undefined {
+    if (!this.house) return undefined;
+    return { house: this.house, definition: houseDefinitionFor(this.house, id => this.content.getHouse(id)) };
   }
 
   /** NPC definition for the player's current room, if any. */
@@ -712,6 +772,10 @@ export class PlayerSession {
       setDefinitions: setDefs,
       shopDefinition: this.getCurrentShop(),
       henchmanOffers: this.getHenchmanOffers(),
+      houseOffers: this.getHouseOffers(),
+      house: this.getHouseState(),
+      homeVisit: this.getHomeVisit?.(),
+      wellRestedUntil: isWellRested(this.wellRestedUntil, Date.now()) ? this.wellRestedUntil : undefined,
       crafting: this.getCraftingState(),
       activeQuests: questBlock.activeQuests,
       completedQuests: questBlock.completedQuests,
@@ -1207,6 +1271,8 @@ export class PlayerSession {
       notificationPreferences: this.notificationPreferences,
       pushSubscriptions: [...this.pushSubscriptions],
       awaySnapshot: this.awaySnapshot ? { ...this.awaySnapshot, inventory: { ...this.awaySnapshot.inventory } } : undefined,
+      house: this.house ? { ...this.house, storage: { ...this.house.storage }, displays: [...this.house.displays] } : undefined,
+      wellRestedUntil: this.wellRestedUntil,
     };
   }
 
@@ -1315,6 +1381,10 @@ export class PlayerSession {
       ? { ...data.awaySnapshot, inventory: { ...data.awaySnapshot.inventory } }
       : null;
     session['chatFocus'] = null;
+    session['house'] = data.house
+      ? { ...data.house, storage: { ...data.house.storage }, displays: [...data.house.displays] }
+      : null;
+    session['wellRestedUntil'] = data.wellRestedUntil;
 
     // Restore craft queue (lazy completion happens on next tick)
     session['craftQueue'] = data.craftQueue

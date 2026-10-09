@@ -26,6 +26,7 @@ Pluggable framework for emitting notifications from game events, routing them to
 - **Party** (`server/src/index.ts`, `PartySystem` handlers) — `party_invite_received`, `party_kicked`, `party_promoted`, `party_demoted`, `party_ownership_transferred` (on for the recipient's own status changes), `party_member_joined`/`party_member_left` (off by default — ambient churn about *other* members).
 - **DM** (`send_chat` handler, `channelType === 'dm'` branch) — `dm_received`, suppressed when the recipient's session reports `chatFocus` pointing at a DM thread with the sender (see below).
 - **Friend requests** (`send_friend_request`/`accept_friend_request` handlers) — `friend_request_received` and `friend_request_accepted`. `FriendsSystem.sendRequest()` returns `'created' | 'auto_accepted' | string` (not just `true`) specifically so the caller can tell a fresh request apart from a mutual auto-accept and fire the right notification.
+- **Home invites** (`HousingService.invite`, from the `home_invite` message) — `home_invite`, category `friend`, in-app by default. `payload.owner` names the inviting owner; `resolveNotificationNavigation` maps it to `{ kind: 'home', owner }` so a click can send `enter_home { owner }`. See `docs/architecture/housing.md`.
 - **World events** (`PlayerManager.relocateDisplacedParties`) — `world_room_gated`, fired when a content change leaves a party standing in a room whose entry requirements it no longer meets and the party is sent back to the start tile. The only notification raised outside a WS handler, because the triggering event is a deploy rather than a player action. See `docs/architecture/content.md` → Room entry requirements.
 - **Guild** (non-combat guild events — invite, promote, achievement, raid reminders) is *not* wired yet; the guild system itself doesn't exist as a full feature. Slots into the same registry + `notify()` pattern once it does.
 
@@ -45,6 +46,7 @@ Clicking a notification (dropdown row or live toast) can navigate the player to 
 |---|---|---|
 | Any `category: 'party'` event (invite, kick, promotion, ownership transfer, membership churn) | Social → Party tab | The Party tab already renders every pending invite with Accept/Decline — no need to identify which specific event triggered the click. |
 | `friend_request_received` | Social → Leaderboard tab (`'users'`) | Incoming friend requests render inside the Leaderboard panel. |
+| `home_invite` | The inviting owner's home (`{ kind: 'home', owner }`) | The invite's whole point is to walk in; the pending invite is consumed on entry. |
 | `dm_received` | Chat popout, pre-addressed to `payload.fromUsername` | Reuses `SocialScreen.startDm()` (not `ChatPopout.openDm` directly) so the DM choice persists cross-device and the Chat nav chevron lights up, same as the existing "Chat" user-popup action. |
 | Everything else (e.g. `friend_request_accepted`) | No-op | Informational only — nothing left to act on. |
 
