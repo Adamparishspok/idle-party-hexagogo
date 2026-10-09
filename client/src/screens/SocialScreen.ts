@@ -67,6 +67,7 @@ export class SocialScreen implements Screen {
   private container: HTMLElement;
   private gameClient: GameClient;
   private chatStore: ChatLocalStore;
+  private worldCache: WorldCache;
   private isActive = false;
   private activeTab: SubTab = (() => {
     const stored = sessionStorage.getItem('socialSubTab');
@@ -113,6 +114,7 @@ export class SocialScreen implements Screen {
     this.container = el;
     this.gameClient = gameClient;
     this.chatStore = chatStore;
+    this.worldCache = worldCache;
 
     const getState = () => this.freshState();
     const getClass = (u: string) => this.getPlayerClassName(u);
@@ -672,7 +674,8 @@ export class SocialScreen implements Screen {
   /** Zone name for players we can see on the world map (and ourselves). */
   private zoneOf(username: string): string | undefined {
     if (username === this.lastState?.username) return this.lastState?.zoneName || undefined;
-    return this.lastState?.otherPlayers?.find(p => p.username === username)?.zone || undefined;
+    const zoneId = this.lastState?.otherPlayers?.find(p => p.username === username)?.zone;
+    return zoneId ? this.worldCache.getZoneName(zoneId) : undefined;
   }
 
   /** Global standings: level desc, then name. Independent of search / filter. */

@@ -166,6 +166,23 @@ export class WorldCache {
     return this.tilesByGuid.get(id);
   }
 
+  /**
+   * Display name for a zone id (the tile `zone` tag), from any tile in the
+   * world that carries it. Falls back to a prettified id ("sunscar_plains" →
+   * "Sunscar Plains") so UI never shows a raw tag.
+   */
+  getZoneName(zoneId: string): string {
+    for (const tile of this.tilesByGuid.values()) {
+      if (tile.zone === zoneId && tile.zoneName) return tile.zoneName;
+    }
+    return zoneId
+      .replace(/^dev_/, '')
+      .split(/[_-]+/)
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
   /** Check if a tile is unlocked (player can move to it). */
   isUnlocked(col: number, row: number): boolean {
     return this.unlockedOffsetKeys.has(`${col},${row}`);
