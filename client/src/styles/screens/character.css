@@ -1,0 +1,725 @@
+/*
+ * Character screen — WorldQuest-style character sheet over the inventory.
+ * Built on the kit (components.css) plus the item-frame extensions in
+ * screens/items.css; see CharItemsScreen.ts for the layout model.
+ * Prefix: .ci- (character + items).
+ */
+
+.ci {
+  /* Equipment slot frame size; the hero column takes whatever is left. */
+  --ci-slot: 56px;
+  --ci-bag-item: 60px;
+  background:
+    radial-gradient(ellipse 120% 50% at 50% 0%, #3b4560 0%, transparent 70%),
+    linear-gradient(180deg, var(--slate-800) 0%, var(--slate-900) 100%);
+}
+
+/* The one scroll region. Bottom padding clears the perch row (class
+   portrait + Chat button overlay it). Written out rather than relying on
+   .screen-scroll because this shorthand would otherwise override it. */
+.ci-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--s-6) var(--s-3) calc(var(--perch-height) + var(--s-6));
+}
+.ci-stack {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* Room for the next panel's title tab, which overhangs upward. */
+  gap: var(--s-7);
+}
+
+/* ── Parchment panels with a title tab on the top edge ───────── */
+
+.ci-panel {
+  padding: var(--s-6) var(--s-4) var(--s-5);
+}
+.ci-panel > .ci-panel__title {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -55%);
+  max-width: calc(100% - var(--s-6));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Paper doll: slots | hero | slots ────────────────────────── */
+
+.ci-doll {
+  display: grid;
+  grid-template-columns: var(--ci-slot) minmax(0, 1fr) var(--ci-slot);
+  gap: var(--s-2);
+}
+.ci-doll__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.ci-doll__col .gc-item {
+  width: var(--ci-slot);
+  height: var(--ci-slot);
+}
+/* Weapon slots close each column, set slightly apart as a pair. */
+.ci-doll__col .gc-item:nth-child(6) {
+  margin-top: var(--s-2);
+}
+
+.ci-hero {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ci-hero__stats {
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+  gap: var(--s-1);
+}
+
+/* Big outlined stat — a button: tap explains it. */
+.ci-stat {
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  padding: var(--s-1) var(--s-1) 0;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.ci-stat:active {
+  transform: translateY(2px) scale(0.97);
+}
+.ci-stat:focus-visible,
+.ci-chip:focus-visible,
+.ci-skill:focus-visible,
+.ci-pick:focus-visible {
+  outline: 3px solid var(--gold-500);
+  outline-offset: 2px;
+}
+.ci-stat .gc-stat__value {
+  font-size: clamp(24px, 7.2vw, var(--t-heading));
+}
+.ci-stat__value--hp {
+  color: #ffe3dc;
+}
+.ci-stat__sub {
+  font-size: var(--t-caption);
+  line-height: 1.1;
+  color: var(--parch-ink-soft);
+  text-transform: capitalize;
+}
+
+/* Class art fills the hero column; the initial medallion sits under it and
+   is the fallback when the art fails (the img removes itself). */
+.ci-hero__art {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ci-hero__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  opacity: 0;
+  filter: drop-shadow(0 6px 6px rgba(58, 40, 23, 0.45));
+  transition: opacity var(--dur-med) linear;
+}
+.ci-hero__img.is-loaded {
+  opacity: 1;
+}
+.ci-hero__initial {
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 4px solid var(--parch-500);
+  background: radial-gradient(circle at 50% 35%, var(--slate-700), var(--slate-900));
+  font-family: var(--display-font);
+  font-size: var(--t-display);
+  color: #fff;
+  text-shadow: var(--text-stroke);
+}
+.ci-hero__img ~ .ci-hero__initial {
+  visibility: hidden;
+}
+.ci-hero__level {
+  margin-top: var(--s-2);
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.1;
+  color: var(--parch-ink);
+  text-align: center;
+}
+
+/* ── Secondary stat chips (DR / MR / Gold) ───────────────────── */
+
+.ci-chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.ci-chip {
+  min-height: var(--tap-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--s-1) var(--s-2);
+  border: 2px solid var(--parch-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--parch-100), var(--parch-300));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 0 var(--parch-700);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+}
+.ci-chip:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.ci-chip__label {
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.ci-chip__value {
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-chip--gold .ci-chip__value {
+  color: var(--gold-300);
+}
+
+/* ── Skill loadout strip ─────────────────────────────────────── */
+
+.ci-skills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-3) var(--s-2);
+}
+.ci-skill {
+  width: 76px;
+  min-height: var(--tap-min);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--parch-ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.ci-skill:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.ci-skill.is-locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+/* Frame edge says the slot type: gold for active, teal for passive. */
+.ci-skill--active .ci-skill__frame,
+.ci-pick--active .ci-pick__frame {
+  --rarity: var(--gold-500);
+}
+.ci-skill--passive .ci-skill__frame,
+.ci-pick--passive .ci-pick__frame {
+  --rarity: var(--teal-500);
+}
+.ci-skill__img {
+  position: absolute;
+  inset: calc(var(--gc-frame-w) + 3px);
+  width: calc(100% - 2 * (var(--gc-frame-w) + 3px));
+  height: calc(100% - 2 * (var(--gc-frame-w) + 3px));
+  object-fit: contain;
+  clip-path: var(--gc-octagon);
+  opacity: 0;
+  transition: opacity var(--dur-fast) linear;
+}
+.ci-skill__img.is-loaded {
+  opacity: 1;
+}
+.ci-skill__glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.ci-skill__img ~ .ci-skill__glyph {
+  display: none;
+}
+.ci-skill__glyph--add {
+  font-size: var(--t-heading);
+  color: var(--gold-300);
+}
+.ci-skill__glyph--lock {
+  font-size: var(--t-caption);
+  color: var(--gc-steel-300);
+}
+.ci-skill__name {
+  width: 100%;
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ci-skill__meta {
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: var(--parch-ink-soft);
+}
+
+/* ── XP ──────────────────────────────────────────────────────── */
+
+.ci-xp__rate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+}
+.ci-xp__rate-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--s-2);
+  min-width: 0;
+}
+.ci-xp__rate-value {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--teal-700);
+}
+.ci-xp__rate-from {
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.ci-xp__reset {
+  flex-shrink: 0;
+  font-size: var(--t-title);
+}
+
+/* ── Class passive ───────────────────────────────────────────── */
+
+.ci-class__type {
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: var(--parch-accent);
+  text-align: center;
+  text-transform: capitalize;
+}
+.ci-class__desc {
+  margin-top: var(--s-1);
+  text-align: center;
+}
+
+/* ── Mailbox / trades (slate rows on the dark backdrop) ─────── */
+
+.ci-section[hidden] {
+  display: none;
+}
+/* These sit between two parchment panels; pull them up a little so the gap
+   above isn't doubled (the stack gap is sized for title tabs). */
+.ci-section {
+  margin-top: calc(var(--s-5) - var(--s-7));
+}
+.ci-section__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-title);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.ci-section__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.ci-section .gc-row {
+  align-items: center;
+}
+.ci-mail__item,
+.ci-trade__offer {
+  font-size: var(--t-body);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.ci-mail__qty {
+  color: #a9b3c7;
+}
+.ci-row-warn {
+  margin-top: 2px;
+  font-size: var(--t-small);
+  color: var(--red-300);
+}
+.ci-row-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.ci-row-actions .gc-btn {
+  padding: 0 var(--s-3);
+}
+.ci-trade {
+  cursor: pointer;
+}
+.ci-trade.is-attention {
+  border-color: var(--gold-500);
+  box-shadow: 0 0 0 2px rgba(245, 200, 66, 0.25), 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+.ci-trade__status {
+  font-size: var(--t-small);
+  color: #a9b3c7;
+}
+.ci-trade.is-attention .ci-trade__status {
+  color: var(--gold-300);
+}
+.ci-trade__offer {
+  font-size: var(--t-small);
+}
+.ci-trade__side {
+  color: #a9b3c7;
+}
+.ci-trade__none {
+  color: #7d879b;
+  font-style: italic;
+}
+
+/* ── Inventory ───────────────────────────────────────────────── */
+
+.ci-bag__controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.ci-bag__search {
+  min-height: var(--tap-min);
+}
+.ci-bag__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--ci-bag-item), 1fr));
+  justify-items: center;
+  gap: var(--s-3) var(--s-2);
+}
+.ci-bag__grid .gc-item {
+  width: var(--ci-bag-item);
+  height: var(--ci-bag-item);
+}
+.ci-bag__group {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-label);
+}
+.ci-bag__group:first-child {
+  margin-top: 0;
+}
+.ci .ci-bag__empty {
+  grid-column: 1 / -1;
+  padding: var(--s-5) var(--s-3);
+  font-size: var(--t-body);
+  color: var(--parch-ink-soft);
+  text-align: center;
+}
+
+/* ── Modals (item details, confirms, skill picker) ──────────── */
+
+/* Leave room for the title tab above the body and the overlapping
+   action row below it. */
+.ci-modal .gc-modal__panel.has-title {
+  padding-top: var(--s-7);
+}
+.ci-modal .gc-modal__panel.has-actions {
+  padding-bottom: var(--s-7);
+}
+.ci-modal .gc-modal__actions {
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 var(--s-3);
+}
+.ci-modal .ci-owned {
+  margin-top: var(--s-3);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+
+/* Inline equip compare inside the item modal. */
+.ci-compare {
+  width: 100%;
+  margin-top: var(--s-4);
+  padding: var(--s-3);
+  border: 2px solid var(--parch-500);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.3);
+}
+.ci-compare__head {
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.ci-compare__head .gc-rarity-text {
+  font-size: var(--t-label);
+}
+.ci-compare__grid {
+  display: grid;
+  grid-template-columns: 44px 1fr 28px 1fr;
+  align-items: center;
+  row-gap: var(--s-1);
+  margin-top: var(--s-2);
+  font-size: var(--t-body);
+  color: var(--parch-ink);
+  text-align: center;
+}
+.ci-compare__col {
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.ci-compare__label {
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+  text-align: left;
+}
+.ci-compare__val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ci-compare__up { color: var(--green-700); }
+.ci-compare__down { color: var(--red-700); }
+.ci-compare__eq,
+.ci-compare__dash { color: var(--parch-ink-soft); }
+.ci-compare__none {
+  grid-column: 1 / -1;
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+
+/* Confirm / destroy-count modal. */
+.ci-confirm__msg {
+  text-align: center;
+}
+.ci-destroy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+}
+.ci-destroy__name {
+  font-size: var(--t-title);
+  text-align: center;
+}
+.ci-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.ci-stepper__value {
+  min-width: 56px;
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  color: #fff;
+  text-shadow: var(--text-stroke);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ci-stepper .gc-btn--icon {
+  font-size: var(--t-title);
+}
+.ci-stepper__max {
+  padding: 0 var(--s-3);
+}
+
+/* Skill picker. */
+.ci-modal .ci-pick-head {
+  margin-bottom: var(--s-3);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+  text-align: center;
+}
+.ci-pick-head strong {
+  color: var(--parch-ink);
+}
+.ci-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.ci-modal .ci-pick-empty {
+  padding: var(--s-4) 0;
+  color: var(--parch-ink-soft);
+  text-align: center;
+}
+.ci-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  min-height: 72px;
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--parch-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--parch-100), var(--parch-200));
+  box-shadow: 0 2px 0 var(--parch-700);
+  color: var(--parch-ink);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+}
+.ci-pick:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+.ci-pick.is-current {
+  border-color: var(--gold-700);
+  background: linear-gradient(180deg, #fff6d6, var(--parch-200));
+  cursor: default;
+}
+.ci-pick.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ci-pick__frame {
+  margin-top: 2px;
+}
+.ci-pick__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ci-pick__name {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+}
+.ci-pick__meta {
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.ci-pick__tag {
+  align-self: flex-start;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  background: rgba(138, 106, 60, 0.18);
+  font-size: var(--t-caption);
+  color: var(--parch-accent);
+}
+.ci-pick__tag--current {
+  background: var(--gold-500);
+  color: var(--ink-900);
+}
+.ci-pick__desc {
+  font-size: var(--t-small);
+  line-height: 1.35;
+}
+
+/* ── Tap tip (stat explanations, empty slot names) ──────────── */
+
+.ci-tip {
+  position: fixed;
+  z-index: 2000;
+  max-width: 260px;
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--slate-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--slate-700), var(--slate-900));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: var(--slate-text);
+  pointer-events: none;
+  animation: gc-pop-in var(--dur-med) var(--ease-spring);
+}
+.ci-tip__title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* ── Desktop ─────────────────────────────────────────────────── */
+
+@media (min-width: 768px) {
+  .ci {
+    --ci-slot: 68px;
+    --ci-bag-item: 72px;
+  }
+  .ci-scroll {
+    padding-left: var(--s-5);
+    padding-right: var(--s-5);
+  }
+  .ci-panel {
+    padding-left: var(--s-6);
+    padding-right: var(--s-6);
+  }
+  .ci-hero__art {
+    min-height: 240px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ci-stat,
+  .ci-chip,
+  .ci-skill,
+  .ci-pick,
+  .ci-hero__img,
+  .ci-skill__img {
+    transition: none;
+  }
+  .ci-tip {
+    animation: none;
+  }
+}

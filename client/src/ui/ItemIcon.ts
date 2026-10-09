@@ -1,4 +1,11 @@
 import type { ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
+// Legacy square-icon + dark popup styles, still used by the Shop and View
+// Player popups (they call renderItemIcon / renderItemPopupContent). Delete
+// this import and the file once those screens move to renderItemFrame.
+import '../styles/item-legacy.css';
+// Kit extensions for the rarity frame (renderItemFrame) and the item detail
+// modal (renderItemDetail in ItemPopup.ts).
+import '../styles/screens/items.css';
 
 export const RARITY_COLORS: Record<string, string> = {
   janky: '#808080',
@@ -163,4 +170,103 @@ export function renderEmptySlotIcon(slot: string, options?: { extraClass?: strin
   const label = SLOT_LABELS[slot] ?? slot;
 
   return `<div class="item-square item-square-empty${extraClass}" data-tooltip="${escapeHtml(label)}" style="background:#2a2a3a;border-color:rgba(255,255,255,0.08)"${dataStr}>${renderSlotDogear(slot)}</div>`;
+}
+
+// ── Kit item frames ──────────────────────────────────────────────────────
+// Rebuilt screens draw items as `.gc-item` octagon frames whose edge takes the
+// rarity color (components.css). The legacy square renderers above stay for
+// screens that haven't been rebuilt yet.
+
+/** Short slot names that fit inside an empty frame when the slot icon is missing. */
+export const SLOT_SHORT_LABELS: Record<string, string> = {
+  head: 'Head', shoulders: 'Shldr', chest: 'Chest', bracers: 'Wrist',
+  gloves: 'Hands', mainhand: 'Main', offhand: 'Off', twohanded: '2H',
+  foot: 'Feet', ring: 'Ring', necklace: 'Neck', back: 'Back', relic: 'Relic',
+};
+
+export interface ItemFrameOptions {
+  /** Stack count, drawn bottom-right when > 1. */
+  qty?: number;
+  /** Kit size modifier; default is the kit's 72px (screens may resize). */
+  size?: 'sm' | 'lg';
+  /** Show a small slot badge (top-right) for this slot. */
+  slot?: string;
+  /** Show the gold set pip (top-left) when the item belongs to any set. */
+  setDefs?: Record<string, SetDefinition>;
+  extraClass?: string;
+  dataAttrs?: Record<string, string>;
+  /** Render as a <span> (decorative) instead of a <button>. */
+  decorative?: boolean;
+}
+
+function dataAttrString(attrs?: Record<string, string>): string {
+  return attrs
+    ? Object.entries(attrs).map(([k, v]) => ` data-${k}="${escapeHtml(v)}"`).join('')
+    : '';
+}
+
+/**
+ * Slot glyph image. Slot icons are optional art: a missing PNG removes the
+ * img (no placehold.co), and empty frames fall back to the short slot name.
+ */
+function slotIconImg(slot: string, className: string): string {
+  const src = SLOT_ICONS[slot];
+  if (!src) return '';
+  return `<img class="${className}" src="${src}" alt="" onload="this.classList.add('is-loaded')" onerror="this.remove()" decoding="async">`;
+}
+
+/**
+ * Inner art for a frame: the item artwork over the item's initials (or its
+ * emoji). The img stays invisible until it loads and removes itself on 404,
+ * so the initials only show when there is no art — never a broken glyph.
+ */
+export function renderItemArt(itemId: string, def: ItemDefinition): string {
+  if (def.iconEmoji) {
+    return `<span class="gc-item__emoji">${escapeHtml(def.iconEmoji)}</span>`;
+  }
+  const tint = def.iconColor ? ` style="color:${escapeHtml(def.iconColor)}"` : '';
+  return `<img class="gc-item__img" src="/item-artwork/${encodeURIComponent(itemId)}.png" alt="" onload="this.classList.add('is-loaded')" onerror="this.remove()" decoding="async">`
+    + `<span class="gc-item__initials"${tint}>${escapeHtml(getItemInitials(def.name))}</span>`;
+}
+
+/** Render an item as a kit `.gc-item` rarity frame (a button by default). */
+export function renderItemFrame(itemId: string, def: ItemDefinition, options?: ItemFrameOptions): string {
+  const rarity = def.rarity ?? 'common';
+  const classes = ['gc-item'];
+  if (options?.size) classes.push(`gc-item--${options.size}`);
+  if (SHINY_RARITIES.has(rarity)) classes.push('gc-item--shiny');
+  if (options?.extraClass) classes.push(options.extraClass);
+
+  let inner = renderItemArt(itemId, def);
+  if (options?.setDefs && getItemSetId(itemId, options.setDefs)) {
+    inner += '<span class="gc-item__set" aria-hidden="true">S</span>';
+  }
+  if (options?.slot) {
+    inner += slotIconImg(options.slot, 'gc-item__slot');
+  }
+  const qty = options?.qty ?? 0;
+  if (qty > 1) {
+    inner += `<span class="gc-item__count">${qty}</span>`;
+  }
+
+  const label = qty > 1 ? `${def.name} ×${qty}` : def.name;
+  const attrs = `class="${classes.join(' ')}" data-rarity="${escapeHtml(rarity)}"${dataAttrString(options?.dataAttrs)}`;
+  if (options?.decorative) return `<span ${attrs} aria-hidden="true">${inner}</span>`;
+  return `<button type="button" ${attrs} title="${escapeHtml(def.name)}" aria-label="${escapeHtml(label)}">${inner}</button>`;
+}
+
+/** Render an empty equipment slot as a muted `.gc-item--empty` frame button. */
+export function renderEmptySlotFrame(
+  slot: string,
+  options?: { size?: 'sm' | 'lg'; extraClass?: string; dataAttrs?: Record<string, string> },
+): string {
+  const classes = ['gc-item', 'gc-item--empty'];
+  if (options?.size) classes.push(`gc-item--${options.size}`);
+  if (options?.extraClass) classes.push(options.extraClass);
+  const label = SLOT_LABELS[slot] ?? slot;
+  const short = SLOT_SHORT_LABELS[slot] ?? label;
+  return `<button type="button" class="${classes.join(' ')}" aria-label="Empty ${escapeHtml(label)} slot"${dataAttrString(options?.dataAttrs)}>`
+    + slotIconImg(slot, 'gc-item__slot-glyph')
+    + `<span class="gc-item__slot-name">${escapeHtml(short)}</span>`
+    + '</button>';
 }

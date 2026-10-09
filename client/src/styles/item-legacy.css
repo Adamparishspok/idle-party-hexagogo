@@ -1,0 +1,196 @@
+/*
+ * Legacy item squares + dark item popup.
+ *
+ * These rules used to be injected at runtime by CharItemsScreen. The Character
+ * screen now uses the kit frame (renderItemFrame / renderItemDetail, styled in
+ * screens/items.css), but the Shop popup and the View Player modal still call
+ * renderItemIcon / renderItemPopupContent, so the styles move here unchanged.
+ * Imported from ui/ItemIcon.ts. Delete once those screens are rebuilt.
+ */
+
+.item-square {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(180,180,180,0.25);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3);
+  box-sizing: border-box;
+  min-width: 0;
+}
+.item-square-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+/* isolation: isolate on the parent square keeps the inner z-indexed
+   overlays (initials, qty, dogear, set indicator) inside their own
+   stacking context so they cannot bleed up over the chat popout. */
+.item-square { isolation: isolate; }
+.item-square-initials {
+  font-size: 17px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+  z-index: 1;
+  pointer-events: none;
+  text-align: center;
+  line-height: 1;
+}
+.item-dogear {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  background: rgba(240,240,240,0.85);
+  border-top-left-radius: 4px;
+  border-top: 1px solid rgba(0,0,0,0.2);
+  border-left: 1px solid rgba(0,0,0,0.2);
+  pointer-events: none;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.item-dogear-icon {
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
+}
+.item-square-empty {
+  cursor: default;
+}
+.item-square-empty .item-dogear {
+  width: 16px;
+  height: 16px;
+}
+.item-square-empty .item-dogear-icon {
+  font-size: 13px;
+}
+.item-square-qty {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 13px;
+  color: #fff;
+  background: rgba(0,0,0,0.6);
+  padding: 0 2px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 2;
+  line-height: 1.2;
+}
+.item-square-set {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  font-size: 13px;
+  color: #e9bc18;
+  pointer-events: none;
+  z-index: 2;
+  line-height: 1;
+}
+
+@keyframes item-border-epic {
+  0%, 100% { border-color: rgba(180,180,180,0.4); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 4px rgba(238,102,227,0.3); }
+  50% { border-color: rgba(200,200,200,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 8px rgba(238,102,227,0.6), inset 0 0 4px rgba(238,102,227,0.15); }
+}
+@keyframes item-border-legendary {
+  0%, 100% { border-color: rgba(180,180,180,0.4); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 4px rgba(146,51,223,0.3); }
+  33% { border-color: rgba(200,200,200,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 8px rgba(199,125,255,0.6), inset 0 0 4px rgba(199,125,255,0.15); }
+  66% { border-color: rgba(210,210,210,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 12px rgba(224,170,255,0.7), inset 0 0 6px rgba(224,170,255,0.2); }
+}
+@keyframes item-border-heirloom {
+  0%, 100% { border-color: rgba(180,180,180,0.4); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 4px rgba(233,188,24,0.3); }
+  50% { border-color: rgba(200,200,200,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 10px rgba(255,241,118,0.6), inset 0 0 5px rgba(255,241,118,0.15); }
+}
+.item-rarity-epic { animation: item-border-epic 2s ease-in-out infinite; }
+.item-rarity-legendary { animation: item-border-legendary 3s ease-in-out infinite; }
+.item-rarity-heirloom { animation: item-border-heirloom 2.5s ease-in-out infinite; }
+
+.item-popup-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.item-popup {
+  background: #1a1a2e;
+  border: 2px solid #444;
+  border-radius: 8px;
+  padding: 16px;
+  max-width: 320px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  color: #e8e8e8;
+}
+.item-popup-artwork {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 12px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+.item-popup-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.item-popup-artwork .item-popup-initials {
+  font-size: 32px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+}
+.item-popup-name { text-align: center; font-size: 19px; margin-bottom: 8px; }
+.item-popup-stats { font-size: 15px; margin-bottom: 8px; line-height: 1.6; }
+.item-popup-stats div { display: flex; justify-content: space-between; }
+.item-popup-stats .stat-label { color: #999; }
+.item-popup-set-section { border-top: 1px solid #333; padding-top: 8px; margin-top: 8px; font-size: 15px; }
+.item-popup-set-name { color: #e9bc18; margin-bottom: 4px; }
+.item-popup-set-pieces { margin-bottom: 4px; }
+.item-popup-set-piece { color: #888; margin-left: 8px; }
+.item-popup-set-piece.owned { color: #ccc; }
+.item-popup-set-piece.equipped { color: #66bb6a; }
+.item-popup-set-bonus { color: #aaa; font-style: italic; }
+.item-popup-set-breakpoints { margin-top: 4px; }
+.item-popup-set-bp { color: #666; font-size: 14px; line-height: 1.4; }
+.item-popup-set-bp.unlocked { color: #aaa; }
+.item-popup-set-bp.active { color: #66bb6a; }
+.item-popup-actions { margin-top: 12px; display: flex; gap: 8px; justify-content: center; }
+.item-popup-actions button {
+  padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
+  background: #2a2a40; color: #e8e8e8; cursor: pointer; font-family: inherit; font-size: 15px;
+}
+.item-popup-actions button:hover { background: #3a3a55; }
+.item-popup-actions button.danger { border-color: #a33; color: #f88; }
+.item-popup-actions button.danger:hover { background: #4a2020; }
+.item-popup-actions button[disabled],
+.item-popup-actions button[disabled]:hover {
+  background: #1a1a28;
+  color: #555;
+  border-color: #2a2a3a;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+@media (min-width: 768px) {
+  .item-square-initials { font-size: 19px; }
+  .item-dogear { width: 22px; height: 22px; }
+  .item-dogear-icon { font-size: 16px; }
+  .item-popup { max-width: 380px; }
+}
