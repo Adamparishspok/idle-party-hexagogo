@@ -473,6 +473,7 @@ export {
   isValidAssetId,
   assetPublicPath,
   canonicalAssetId,
+  UI_CHROME_IDS,
 } from './assets/AssetKinds.js';
 export type {
   AssetKind,

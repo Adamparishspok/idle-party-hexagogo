@@ -1,41 +1,22 @@
 /*
- * Font choice: Cinzel for display (carved Roman caps — the Trajan/Friz
- * Quadrata lineage WoW uses for headings), Alegreya Sans for body/UI
- * (humanist, holds up at small sizes, good numerals). The pixel faces
- * (Silkscreen / Pixelify Sans) are gone — they fight the painted 2D art
- * direction. To swap, change --ui-font and --display-font and adjust the
- * @import accordingly.
- *
- * TODO: self-host these as .woff2. The @import is render-blocking and the
- * PWA can't cache a third-party origin, so offline loads lose the typeface.
+ * Legacy theme. Fonts, the type scale, and the design-system tokens now live
+ * in tokens.css (loaded first). Screens are being rebuilt one at a time onto
+ * the component kit in components.css; each rebuild deletes its section here.
  */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Alegreya+Sans:wght@400;500;700&display=swap');
 
 /* ── CSS Custom Properties ───────────────────────────────── */
 
 :root {
-  /* --pixel-font is kept as an alias so the ~200 existing references keep
-     working; it now resolves to the UI face, not a pixel one. New code
-     should use --ui-font. */
-  --ui-font: 'Alegreya Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* --pixel-font is a legacy alias for the UI face (see tokens.css). */
   --pixel-font: var(--ui-font);
-  --display-font: 'Cinzel', Georgia, 'Times New Roman', serif;
-  --nav-height: 64px;
-  --xpbar-height: 12px;
+  /* Bottom chrome stack (see game-chrome.css): the perch row of small
+     buttons + portrait, the XP bar, then the stone nav bar. Overlays that
+     dock above the chrome (chat sheet, maximized chat) use --chrome-bottom. */
+  --nav-height: 72px;
+  --xpbar-height: 28px;
+  --perch-height: 52px;
+  --chrome-bottom: calc(var(--nav-height) + var(--xpbar-height) + var(--perch-height));
 
-  /*
-   * Four-tier font-size scale (mobile defaults; desktop overrides below).
-   * Tweak these eight values to retune the whole UI's typography.
-   *
-   * --fs-xs : small chrome (nav labels, badges, tooltips, tiny meta)
-   * --fs-sm : default body  (log lines, paragraphs, button text, inputs)
-   * --fs-md : card / section titles, item names, modal subheads
-   * --fs-lg : hero text     (splash, screen titles, modal headings)
-   */
-  --fs-xs: 11px;
-  --fs-sm: 14px;
-  --fs-md: 18px;
-  --fs-lg: 28px;
 
   /* Backgrounds */
   --bg-dark: #1a1a2e;
@@ -62,16 +43,6 @@
   --accent-purple: #b06cff;
 }
 
-/* Desktop bumps each tier by a few pixels. Edit these four lines (and the
-   four in :root above) to retune the entire UI's typography in one place. */
-@media (min-width: 768px) {
-  :root {
-    --fs-xs: 13px;
-    --fs-sm: 16px;
-    --fs-md: 22px;
-    --fs-lg: 36px;
-  }
-}
 
 /* Bold is usable again now the pixel faces are gone — it only got muddy
    because bitmap-style fonts smear when bolded. Emphasis still brightens
@@ -208,88 +179,6 @@ html, body {
   box-shadow:
     inset -2px -2px 0 rgba(0, 0, 0, 0.3),
     inset 2px 2px 0 rgba(255, 255, 255, 0.08);
-}
-
-/* ── Bottom Nav ──────────────────────────────────────────── */
-
-#bottom-nav {
-  height: var(--nav-height);
-  background: var(--bg-panel);
-  border-top: 2px solid var(--border-pixel);
-  display: flex;
-  align-items: stretch;
-  flex-shrink: 0;
-  z-index: 1000;
-}
-
-.nav-tab {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  position: relative;
-  padding: 4px 0;
-  transition: color 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.nav-tab.active {
-  color: var(--accent-gold);
-}
-
-.nav-tab:not(.active):active {
-  color: var(--text-secondary);
-}
-
-.nav-icon {
-  font-size: 24px;
-  line-height: 1;
-}
-
-.nav-label {
-  font-family: var(--pixel-font);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.nav-badge {
-  position: absolute;
-  top: 4px;
-  right: calc(50% - 16px);
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-red);
-  display: none;
-}
-
-.nav-badge.visible {
-  display: block;
-}
-
-/* Nav tab status animations */
-.nav-tab.fighting-pulse .nav-icon {
-  animation: icon-pulse 0.6s ease-in-out infinite;
-  color: var(--accent-orange);
-}
-
-.nav-tab.victory-flash .nav-icon {
-  animation: icon-flash-green 0.4s ease-out;
-}
-
-.nav-tab.defeat-flash .nav-icon {
-  animation: icon-flash-red 0.4s ease-out;
-}
-
-.nav-tab.has-path .nav-icon {
-  color: var(--accent-green);
 }
 
 /* ── Combat Screen ───────────────────────────────────────── */
@@ -2776,8 +2665,6 @@ html, body {
   line-height: 1.15;
   text-wrap: balance;
   color: var(--accent-gold);
-  /* Soft drop shadow rather than the old hard 2px pixel offset — Cinzel has
-     real curves and a stepped shadow reads as an artifact against them. */
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
   text-align: center;
 }
@@ -4157,7 +4044,6 @@ html, body {
 /* ── Desktop Font Scaling ────────────────────────────────── */
 
 @media (min-width: 768px) {
-  .nav-label { font-size: 12px; }
   .combat-header { font-size: 13px; }
   .combat-hp-label { font-size: 12px; }
   .log-entry { font-size: 13px; }
@@ -5686,102 +5572,6 @@ html, body {
    inventory grouping headers, leaderboard polish.
    ===================================================================== */
 
-/* ── Persistent XP Bar (above bottom nav) ────────────────── */
-#persistent-xp-bar {
-  height: var(--xpbar-height);
-  display: flex;
-  align-items: stretch;
-  background: var(--bg-panel);
-  border-top: 1px solid var(--border-pixel);
-  border-bottom: 1px solid #000;
-  flex-shrink: 0;
-  z-index: 999;
-}
-.xpbar-level {
-  font-family: var(--pixel-font);
-  font-size: 12px;
-  color: var(--accent-gold);
-  background: var(--bg-panel-light);
-  border-right: 2px solid var(--border-pixel);
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-  text-shadow: 1px 1px 0 #000;
-}
-.xpbar-track {
-  flex: 1;
-  background: #0a0a18;
-  position: relative;
-  overflow: hidden;
-}
-.xpbar-fill {
-  background: linear-gradient(180deg, #f5c842 0%, #c89614 100%);
-  height: 100%;
-  width: 0%;
-  transition: width 0.4s ease-out;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 6px rgba(245, 200, 66, 0.4);
-}
-
-/* ── Bottom Nav Restyle ──────────────────────────────────── */
-#bottom-nav {
-  background: linear-gradient(180deg, #1f2848 0%, #11192e 100%);
-  border-top: 2px solid var(--border-pixel);
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.05), 0 -2px 6px rgba(0, 0, 0, 0.5);
-  height: var(--nav-height);
-}
-.nav-tab {
-  position: relative;
-  flex-direction: column;
-  gap: 3px;
-  padding: 6px 0 4px;
-  isolation: isolate;
-}
-.nav-tab-bg {
-  position: absolute;
-  inset: 4px 2px;
-  border-radius: 6px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 60%);
-  border: 1px solid transparent;
-  z-index: -1;
-  transition: all 0.15s ease-out;
-}
-.nav-tab:hover .nav-tab-bg {
-  background: linear-gradient(180deg, rgba(245, 200, 66, 0.1) 0%, rgba(245, 200, 66, 0.02) 60%);
-  border-color: rgba(245, 200, 66, 0.2);
-}
-.nav-tab.active .nav-tab-bg,
-.nav-tab.overlay-active .nav-tab-bg {
-  background: linear-gradient(180deg, rgba(245, 200, 66, 0.2) 0%, rgba(245, 200, 66, 0.05) 70%);
-  border-color: rgba(245, 200, 66, 0.5);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0 8px rgba(245, 200, 66, 0.25);
-}
-.nav-active-bar {
-  position: absolute;
-  bottom: 1px;
-  left: 18%;
-  right: 18%;
-  height: 2px;
-  background: var(--accent-gold);
-  border-radius: 2px;
-  transform: scaleX(0);
-  transition: transform 0.2s ease-out;
-  box-shadow: 0 0 6px rgba(245, 200, 66, 0.7);
-}
-.nav-tab.active .nav-active-bar,
-.nav-tab.overlay-active .nav-active-bar {
-  transform: scaleX(1);
-}
-.nav-icon {
-  font-size: 26px;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
-}
-.nav-label {
-  font-family: var(--pixel-font);
-  font-size: 11px;
-  letter-spacing: 0.4px;
-}
-
 /* ── Chat Popout ─────────────────────────────────────────── */
 #chat-popout-root {
   position: fixed;
@@ -5988,7 +5778,7 @@ html, body {
   .chat-popout-mobile-sheet {
     left: 0 !important;
     right: 0 !important;
-    bottom: calc(var(--nav-height) + var(--xpbar-height)) !important;
+    bottom: var(--chrome-bottom) !important;
     top: auto !important;
     width: 100vw !important;
     height: var(--chat-sheet-height, 50vh) !important;
@@ -6009,7 +5799,7 @@ html, body {
      and xpbar are at the viewport bottom, the chat slots cleanly into the
      space between them and the screen-container. */
   body[data-chat-open="1"][data-chat-layout="sheet"] #screen-container {
-    flex: 0 1 calc(100% - var(--chat-sheet-height, 50vh) - var(--nav-height) - var(--xpbar-height));
+    flex: 0 1 calc(100% - var(--chat-sheet-height, 50vh) - var(--chrome-bottom));
     min-height: 0;
   }
   body[data-chat-open="1"][data-chat-layout="sheet"] #persistent-xp-bar {
@@ -6806,20 +6596,6 @@ body, button, input, select, textarea {
   display: block;
 }
 
-/* Bottom nav icons — image instead of emoji */
-.nav-icon-img {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-  image-rendering: pixelated;
-  display: block;
-  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.4));
-}
-.nav-tab.active .nav-icon-img,
-.nav-tab.overlay-active .nav-icon-img {
-  filter: drop-shadow(0 0 4px rgba(245, 200, 66, 0.6)) drop-shadow(0 1px 0 rgba(0, 0, 0, 0.4));
-}
-
 /* Combat card sits inside a foggy tray — give each card its own slight shadow */
 .combat-tray .combat-card {
   box-shadow:
@@ -6834,14 +6610,6 @@ body, button, input, select, textarea {
   border-radius: 50%;
   width: 8px;
   height: 8px;
-}
-
-/* ── Chat nav tab: always a square, never flexes ────────── */
-.nav-tab[data-mode="overlay"][data-screen="chat"] {
-  flex: 0 0 var(--nav-height);
-  width: var(--nav-height);
-  aspect-ratio: 1;
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 /* Highlight the player's own row in the leaderboard so they can find themselves at a glance. */
@@ -7013,11 +6781,6 @@ body, button, input, select, textarea {
   background: var(--accent-red);
   flex-shrink: 0;
 }
-.nav-tab.submenu-open .nav-tab-bg {
-  background: linear-gradient(180deg, rgba(245, 200, 66, 0.2) 0%, rgba(245, 200, 66, 0.05) 70%);
-  border-color: rgba(245, 200, 66, 0.5);
-}
-
 /* ── Equip comparison popup ──────────────────────────────── */
 .compare-popup {
   min-width: 320px;
@@ -7102,57 +6865,6 @@ body, button, input, select, textarea {
 }
 .compare-cancel:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
 
-/* ── Chat nav button: chevron + distinct treatment ───────── */
-/* Make the chat tab read as a *toggle widget* rather than a sibling
-   navigation destination. Different background tint, no nav-tab-bg pill,
-   and a chevron that flips up/down based on open state. */
-.nav-tab[data-screen="chat"] {
-  background: linear-gradient(180deg, #2c1f3e 0%, #1a1228 100%);
-}
-.nav-tab[data-screen="chat"] .nav-tab-bg,
-.nav-tab[data-screen="chat"] .nav-active-bar {
-  display: none;
-}
-.nav-tab[data-screen="chat"] .nav-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 19px;
-}
-.nav-tab[data-screen="chat"] .nav-icon-img {
-  display: none;
-}
-.nav-tab[data-screen="chat"] .nav-label {
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-.nav-chat-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent-gold);
-  text-shadow: 0 1px 0 #000;
-  line-height: 1;
-}
-.nav-chat-chevron-up,
-.nav-chat-chevron-down {
-  display: none;
-}
-/* Closed → show "open upward" chevron. */
-.nav-tab[data-screen="chat"]:not(.overlay-active) .nav-chat-chevron-up {
-  display: inline;
-}
-/* Open → show "close downward" chevron. */
-.nav-tab[data-screen="chat"].overlay-active .nav-chat-chevron-down {
-  display: inline;
-}
-.nav-tab[data-screen="chat"].overlay-active {
-  background: linear-gradient(180deg, #4c2a6a 0%, #2a1840 100%);
-}
-.nav-tab[data-screen="chat"].overlay-active .nav-label {
-  color: var(--accent-gold);
-}
-
 /* Quick pulse on the item popup's class-restriction row when the player
    clicks Equip on something their class can't use. Just enough to draw the
    eye to the already-red class text — no overlay, no chrome. */
@@ -7225,7 +6937,7 @@ body, button, input, select, textarea {
   left: 0 !important;
   top: 0 !important;
   right: 0 !important;
-  bottom: calc(var(--nav-height) + var(--xpbar-height)) !important;
+  bottom: var(--chrome-bottom) !important;
   width: 100vw !important;
   height: auto !important;
   max-width: none !important;

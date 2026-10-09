@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Style Guide</title>
+    <!--
+      Dev-only reference for the component kit (components.css). Not a build
+      entry, so it never ships — vite serves it at /styleguide.html in dev.
+      Every rebuilt screen should be assembled from what's shown here.
+    -->
+    <script type="module">
+      import './src/styles/tokens.css';
+      import './src/styles/components.css';
+    </script>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        overflow: auto;
+        background: #2b2f3a radial-gradient(ellipse at 50% 0%, #3b4560 0%, #1c1f28 70%);
+        color: #eef2fa;
+      }
+      .sg {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 32px 16px 96px;
+      }
+      .sg h1 {
+        font-family: var(--display-font);
+        font-weight: 400;
+        font-size: var(--t-display);
+        text-shadow: var(--text-stroke);
+        margin-bottom: 4px;
+      }
+      .sg > p { color: #a9b3c7; margin-bottom: 32px; }
+      .sg h3 {
+        font-family: var(--display-font);
+        font-weight: 400;
+        font-size: var(--t-title);
+        color: var(--gold-300);
+        text-shadow: var(--text-stroke-sm);
+        margin: 48px 0 16px;
+      }
+      .sg-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+      .sg-col { display: flex; flex-direction: column; gap: 12px; }
+      .sg-phones { display: flex; flex-wrap: wrap; gap: 32px; }
+      .sg-phone {
+        position: relative;
+        width: 390px;
+        height: 760px;
+        border-radius: 28px;
+        overflow: hidden;
+        background: #12141a;
+        box-shadow: 0 0 0 8px #0a0b0e, 0 20px 50px rgba(0,0,0,.6);
+      }
+      .sg-phone .gc-modal { position: absolute; padding: 64px 16px 32px; }
+      .sg-type div { margin-bottom: 8px; }
+      .sg-swatch { width: 64px; height: 64px; border-radius: 12px; border: 2px solid #000; }
+      .sg-doll {
+        display: grid;
+        grid-template-columns: 72px 1fr 72px;
+        gap: 12px;
+        align-items: start;
+      }
+      .sg-doll .sg-col { gap: 14px; }
+      .sg-doll-hero {
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .sg-doll-hero img { width: 100%; max-height: 260px; object-fit: contain; }
+      .sg-doll-stats { display: flex; justify-content: space-between; width: 100%; }
+      .sg-quest-goal {
+        font-family: var(--ui-font);
+        font-weight: 600;
+        font-size: var(--t-label);
+        color: var(--parch-accent);
+        margin-top: 64px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sg">
+      <h1>Idle Party — Component Kit</h1>
+      <p>Dev-only reference. Classes live in <code>client/src/styles/components.css</code>; tokens in <code>tokens.css</code>.</p>
+
+      <h3>Mock screens</h3>
+      <div class="sg-phones">
+        <!-- Quest / NPC dialog (WorldQuest screenshot 4) -->
+        <div class="sg-phone">
+          <div class="gc-modal">
+            <div class="gc-modal__panel gc-parchment">
+              <div class="gc-modal__portrait"><img src="/class-artwork/priest.png" alt="" /></div>
+              <button class="gc-close gc-modal__close" aria-label="Close"></button>
+              <div class="gc-modal__body">
+                <h2>Farmer Aid</h2>
+                <p>Oh, good morning! Did you have a good nap? I slept terribly and I'll tell you why…</p>
+                <div class="sg-quest-goal">Travel to Farmer Sharlene</div>
+                <div class="gc-divider">Rewards</div>
+                <div class="sg-row" style="justify-content:center">
+                  <span class="gc-item" data-rarity="legendary"><img class="gc-item__img" src="/item-artwork/lesser_red_potion.png" alt="" /><span class="gc-item__count">5</span></span>
+                  <span class="gc-item" data-rarity="rare"><img class="gc-item__img" src="/item-artwork/waterskin.png" alt="" /><span class="gc-item__count">750</span></span>
+                </div>
+              </div>
+              <div class="gc-modal__actions"><button class="gc-btn gc-btn--lg">Complete</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Character paper doll (WorldQuest screenshot 2) -->
+        <div class="sg-phone">
+          <div class="gc-modal">
+            <div class="gc-modal__panel gc-parchment">
+              <div class="gc-title-tab gc-modal__title">BaakaDesu</div>
+              <button class="gc-close gc-modal__close" aria-label="Close"></button>
+              <div class="gc-modal__body">
+                <div class="sg-doll">
+                  <div class="sg-col">
+                    <span class="gc-item gc-item--empty"></span>
+                    <span class="gc-item" data-rarity="epic"><img class="gc-item__img" src="/item-artwork/gnarled_wand.png" alt="" /></span>
+                    <span class="gc-item" data-rarity="uncommon"><img class="gc-item__img" src="/item-artwork/mangy_pelt.png" alt="" /></span>
+                    <span class="gc-item gc-item--empty"></span>
+                  </div>
+                  <div class="sg-doll-hero">
+                    <div class="sg-doll-stats">
+                      <div class="gc-stat"><span class="gc-stat__label">Health</span><span class="gc-stat__value">113</span></div>
+                      <div class="gc-stat"><span class="gc-stat__label">Attack</span><span class="gc-stat__value">44</span></div>
+                    </div>
+                    <img src="/class-artwork/archer.png" alt="" />
+                    <div class="gc-caption" style="font-family:var(--display-font);font-size:var(--t-small)">Level 4 · Item Level 88</div>
+                  </div>
+                  <div class="sg-col">
+                    <span class="gc-item" data-rarity="uncommon"><img class="gc-item__img" src="/item-artwork/rusty_dagger.png" alt="" /></span>
+                    <span class="gc-item gc-item--empty"></span>
+                    <span class="gc-item" data-rarity="uncommon"><img class="gc-item__img" src="/item-artwork/short_bow.png" alt="" /></span>
+                    <span class="gc-item" data-rarity="legendary"><img class="gc-item__img" src="/item-artwork/ancestral_blade.png" alt="" /></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Type scale</h3>
+      <div class="sg-type">
+        <div class="gc-display" style="font-size:var(--t-display)">Display 40 — Victory!</div>
+        <div class="gc-display" style="font-size:var(--t-heading)">Heading 28 — Farmer Aid</div>
+        <div class="gc-display" style="font-size:var(--t-title)">Title 22 — Ancestral Blade</div>
+        <div style="font-size:var(--t-label);font-family:var(--display-font)">Label 18 — Buttons, tabs, row titles</div>
+        <div style="font-size:var(--t-body)">Body 17 — Goblin hits You for 4 physical damage. Paragraph copy reads here.</div>
+        <div style="font-size:var(--t-small);color:#a9b3c7">Small 15 — Secondary labels, list subtitles</div>
+        <div style="font-size:var(--t-caption);color:#a9b3c7">Caption 13 — the floor. Timestamps, fine print.</div>
+      </div>
+
+      <h3>Buttons</h3>
+      <div class="sg-row">
+        <button class="gc-btn">Complete</button>
+        <button class="gc-btn gc-btn--gold">Claim</button>
+        <button class="gc-btn gc-btn--green">Travel</button>
+        <button class="gc-btn gc-btn--steel">Cancel</button>
+        <button class="gc-btn gc-btn--red">Leave Party</button>
+        <button class="gc-btn" disabled>Disabled</button>
+      </div>
+      <div class="sg-row" style="margin-top:20px">
+        <button class="gc-btn gc-btn--gold gc-btn--lg">Enter Dungeon</button>
+        <button class="gc-btn gc-btn--steel gc-btn--icon" aria-label="Info">?</button>
+        <button class="gc-close" aria-label="Close"></button>
+      </div>
+
+      <h3>Items &amp; rarity</h3>
+      <div class="sg-row">
+        <span class="gc-item"><img class="gc-item__img" src="/item-artwork/waterskin.png" alt="" /></span>
+        <span class="gc-item" data-rarity="uncommon"><img class="gc-item__img" src="/item-artwork/mangy_pelt.png" alt="" /><span class="gc-item__count">3</span></span>
+        <span class="gc-item" data-rarity="rare"><img class="gc-item__img" src="/item-artwork/short_bow.png" alt="" /></span>
+        <span class="gc-item" data-rarity="epic"><img class="gc-item__img" src="/item-artwork/gnarled_wand.png" alt="" /></span>
+        <span class="gc-item" data-rarity="legendary"><img class="gc-item__img" src="/item-artwork/ancestral_blade.png" alt="" /></span>
+        <span class="gc-item gc-item--empty"></span>
+        <span class="gc-item gc-item--sm" data-rarity="rare"><img class="gc-item__img" src="/item-artwork/rusty_dagger.png" alt="" /></span>
+        <span class="gc-item gc-item--lg" data-rarity="legendary"><img class="gc-item__img" src="/item-artwork/ancestral_blade.png" alt="" /></span>
+      </div>
+
+      <h3>Bars, stats, badges</h3>
+      <div class="sg-col" style="max-width:360px">
+        <div class="gc-bar"><div class="gc-bar__fill" style="width:72%"></div><div class="gc-bar__text">28 / 32</div></div>
+        <div class="gc-bar gc-bar--danger"><div class="gc-bar__fill" style="width:24%"></div><div class="gc-bar__text">8 / 32</div></div>
+        <div class="gc-bar gc-bar--xp gc-bar--lg"><div class="gc-bar__fill" style="width:48%"></div><div class="gc-bar__text">2,273 / 4,750 XP</div></div>
+      </div>
+      <div class="sg-row" style="margin-top:20px">
+        <div class="gc-stat"><span class="gc-stat__label">Health</span><span class="gc-stat__value">113</span></div>
+        <div class="gc-stat"><span class="gc-stat__label">Attack</span><span class="gc-stat__value">44</span></div>
+        <span class="gc-badge">3</span>
+        <span class="gc-badge gc-badge--level">12</span>
+      </div>
+
+      <h3>Tabs, rows, inputs</h3>
+      <div class="sg-col" style="max-width:420px">
+        <div class="gc-tabs" role="tablist">
+          <button class="gc-tab" role="tab" aria-selected="true">Party</button>
+          <button class="gc-tab" role="tab" aria-selected="false">Guild</button>
+          <button class="gc-tab" role="tab" aria-selected="false">Ranks</button>
+        </div>
+        <button class="gc-row">
+          <span class="gc-item gc-item--sm" data-rarity="uncommon"><img class="gc-item__img" src="/class-artwork/knight.png" alt="" /></span>
+          <span class="gc-row__main"><span class="gc-row__title" style="display:block">BaakaDesu</span><span class="gc-row__sub" style="display:block">Knight · Level 12 · Hatchetmill</span></span>
+          <span class="gc-badge gc-badge--level">12</span>
+        </button>
+        <div class="gc-row">
+          <span class="gc-item gc-item--sm" data-rarity="rare"><img class="gc-item__img" src="/class-artwork/mage.png" alt="" /></span>
+          <span class="gc-row__main"><span class="gc-row__title" style="display:block">n00b</span><span class="gc-row__sub" style="display:block">Mage · Level 3 · Sunscar Plains</span></span>
+          <button class="gc-btn gc-btn--green">Invite</button>
+        </div>
+        <input class="gc-input" placeholder="Say something to your party…" />
+      </div>
+
+      <h3>Cards &amp; panels</h3>
+      <div class="sg-row" style="align-items:stretch">
+        <div class="gc-card" style="width:300px">
+          <div class="gc-display" style="font-size:var(--t-title);margin-bottom:8px">Dark card</div>
+          <div>Used for lists and panels on dark screens (Social, Craft).</div>
+        </div>
+        <div class="gc-parchment" style="width:300px">
+          <h2>Parchment</h2>
+          <p>Used for dialogs, item details, quests, and the character sheet.</p>
+        </div>
+      </div>
+
+      <h3>Palette</h3>
+      <div class="sg-row">
+        <div class="sg-swatch" style="background:var(--parch-200)" title="parch-200"></div>
+        <div class="sg-swatch" style="background:var(--parch-500)" title="parch-500"></div>
+        <div class="sg-swatch" style="background:var(--slate-700)" title="slate-700"></div>
+        <div class="sg-swatch" style="background:var(--wood-500)" title="wood-500"></div>
+        <div class="sg-swatch" style="background:var(--gold-500)" title="gold-500"></div>
+        <div class="sg-swatch" style="background:var(--green-500)" title="green-500"></div>
+        <div class="sg-swatch" style="background:var(--red-500)" title="red-500"></div>
+        <div class="sg-swatch" style="background:var(--teal-500)" title="teal-500"></div>
+        <div class="sg-swatch" style="background:var(--arcane-600)" title="arcane-600"></div>
+        <div class="sg-swatch" style="background:var(--rarity-rare)" title="rarity-rare"></div>
+        <div class="sg-swatch" style="background:var(--rarity-epic)" title="rarity-epic"></div>
+        <div class="sg-swatch" style="background:var(--rarity-legendary)" title="rarity-legendary"></div>
+      </div>
+    </main>
+  </body>
+</html>

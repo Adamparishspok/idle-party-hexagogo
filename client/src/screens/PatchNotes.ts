@@ -1,5 +1,15 @@
 export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
+    version: '2026.10.08.1',
+    notes: [
+      'A new look for the game\'s frame: the bottom bar now has big framed buttons, and the screen you\'re on rises up on a purple banner.',
+      'The map button now sits in the middle of the bottom bar. Chat has moved to its own button just above the bar.',
+      'Your gold, plus the name of the zone and room you\'re in, now show along the top of the screen.',
+      'Settings has moved to the gear button at the top right, next to your notifications.',
+      'The experience bar now shows your exact progress to the next level, with your level badge and class portrait at its left end — tap the portrait to open your character.',
+    ],
+  },
+  {
     version: '2026.08.14.1',
     notes: [
       'The game now opens straight into play — the loading screen is gone.',

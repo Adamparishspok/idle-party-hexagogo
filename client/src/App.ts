@@ -20,10 +20,18 @@ import { BottomNav } from './ui/BottomNav';
 import { ChatLocalStore } from './network/ChatLocalStore';
 import { ChatPopout } from './ui/ChatPopout';
 import { PersistentXpBar } from './ui/PersistentXpBar';
+import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 
 const CONNECTION_ERROR = 'Could not connect to server';
+
+/** Speech-bubble glyph for the perched Chat button (no nav-icon PNG exists for it). */
+const CHAT_ICON = `<svg class="nav-icon-svg" viewBox="0 0 32 32" aria-hidden="true">
+  <path d="M5 6h22a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H14l-6 5v-5H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
+    fill="#efe3c4" stroke="#3a2c1c" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="10" cy="14" r="1.8" fill="#3a2c1c"/><circle cx="16" cy="14" r="1.8" fill="#3a2c1c"/><circle cx="22" cy="14" r="1.8" fill="#3a2c1c"/>
+</svg>`;
 
 export class App {
   private gameClient!: GameClient;
@@ -37,17 +45,20 @@ export class App {
   private suspensionScreen!: SuspensionScreen;
   private navEl!: HTMLElement;
   private xpBarEl!: HTMLElement;
+  private hudEl!: HTMLElement;
   private chatPopout?: ChatPopout;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.screenManager = new ScreenManager();
 
-    // Hide bottom nav + persistent xp bar until logged in
+    // Hide bottom nav, persistent xp bar, and top HUD until logged in
     this.navEl = document.getElementById('bottom-nav')!;
     this.navEl.style.display = 'none';
     this.xpBarEl = document.getElementById('persistent-xp-bar')!;
     this.xpBarEl.style.display = 'none';
+    this.hudEl = document.getElementById('top-hud')!;
+    this.hudEl.style.display = 'none';
 
     // Offline screen
     this.offlineScreen = new OfflineScreen('screen-offline', () => {
@@ -333,6 +344,7 @@ export class App {
     }
     this.suspensionScreen.setEmail(email ?? localStorage.getItem('suspendedEmail') ?? '');
     this.navEl.style.display = 'none';
+    this.hudEl.style.display = 'none';
     this.screenManager.switchTo('suspended');
   }
 
@@ -378,12 +390,10 @@ export class App {
     // Title is supplied here because it is only ever shown as a pushed screen.
     this.screenManager.register('patch-notes', document.getElementById('screen-patch-notes')!, patchNotesScreen, 'Patch Notes');
 
-    // Show bottom nav + persistent XP bar
+    // Show bottom nav, persistent XP bar, and top HUD
     this.navEl.style.display = '';
     this.xpBarEl.style.display = '';
-
-    // Persistent XP bar above nav — visible on every screen
-    new PersistentXpBar(this.gameClient);
+    this.hudEl.style.display = '';
 
     // Chat popout — global overlay, toggled from the Chat nav tab
     this.chatPopout = new ChatPopout(this.gameClient);
@@ -406,12 +416,11 @@ export class App {
         + ` onload="this.style.opacity='1'"`
         + ` onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src='${placeholder}';}else{this.style.display='none';}" />`;
     };
+    // Five framed buttons in the bar with Map at the center (WorldQuest
+    // layout); Chat perches above the bar since it's an overlay toggle, not
+    // a destination. Settings lives on the top HUD's gear.
     const nav = new BottomNav(
       [
-        { id: 'combat', label: 'Combat', icon: navImg('combat', 'Fight') },
-        { id: 'map', label: 'Map', icon: navImg('map', 'Map') },
-        { id: 'items', label: 'Char', icon: navImg('items', 'Char') },
-        { id: 'craft', label: 'Craft', icon: navImg('craft', 'Craft') },
         // Social opens a fly-out submenu with the three sub-views; the
         // pill bar inside the screen is gone in favor of this.
         {
@@ -425,21 +434,16 @@ export class App {
             { id: 'users', label: 'Leaderboard', badge: 'friend-requests' },
           ],
         },
-        { id: 'settings', label: 'Settings', icon: navImg('settings', 'Set') },
-        // Chat is pinned to the far right as a square overlay button. The
-        // icon is a chevron (▲ when closed → "open me upward", ▼ when open
-        // → "tap to close") so it visually reads as a separate widget, not
-        // another nav destination. CSS swaps the chevron via .overlay-active.
-        {
-          id: 'chat',
-          label: 'Chat',
-          icon: '<span class="nav-chat-chevron"><span class="nav-chat-chevron-up">▲</span><span class="nav-chat-chevron-down">▼</span></span>',
-          mode: 'overlay',
-        },
+        { id: 'items', label: 'Character', icon: navImg('items', 'Char') },
+        { id: 'map', label: 'Map', icon: navImg('map', 'Map') },
+        { id: 'combat', label: 'Combat', icon: navImg('combat', 'Fight') },
+        { id: 'craft', label: 'Craft', icon: navImg('craft', 'Craft') },
+        { id: 'chat', label: 'Chat', icon: CHAT_ICON, mode: 'overlay', placement: 'perch' },
       ],
       savedScreen,
       (tabId, wasActive) => {
         this.screenManager.switchTo(tabId);
+        hud.setSettingsActive(false);
         // Re-click on Map → recenter on player (the only "tap again" gesture
         // wired so far; other tabs ignore wasActive).
         if (tabId === 'map' && wasActive) {
@@ -455,12 +459,23 @@ export class App {
       (tabId, itemId) => {
         if (tabId === 'social') {
           socialScreen.setSubTab(itemId);
-          this.screenManager.switchTo('social');
-          nav.setActive('social');
-          sessionStorage.setItem('activeScreen', 'social');
+          goToRoot('social');
         }
       },
     );
+
+    // Settings left the bar for the HUD gear; the portrait jumps to the
+    // character screen. Both route through the nav so its highlight stays
+    // in sync with the visible root.
+    const goToRoot = (id: string) => {
+      this.screenManager.switchTo(id);
+      nav.setActive(id);
+      hud.setSettingsActive(id === 'settings');
+      sessionStorage.setItem('activeScreen', id);
+    };
+    const hud = new TopHud(this.gameClient, this.worldCache, () => goToRoot('settings'));
+    hud.setSettingsActive(savedScreen === 'settings');
+    new PersistentXpBar(this.gameClient, () => goToRoot('items'));
 
     // Wire popout → nav so closing the popout from its own button clears the
     // overlay-active state, and unread mail lights up the Chat tab badge.
@@ -480,15 +495,11 @@ export class App {
       switch (target.kind) {
         case 'party':
           socialScreen.setSubTab('party');
-          this.screenManager.switchTo('social');
-          nav.setActive('social');
-          sessionStorage.setItem('activeScreen', 'social');
+          goToRoot('social');
           break;
         case 'friend_requests':
           socialScreen.setSubTab('users');
-          this.screenManager.switchTo('social');
-          nav.setActive('social');
-          sessionStorage.setItem('activeScreen', 'social');
+          goToRoot('social');
           break;
         case 'dm_reply':
           socialScreen.startDm(target.username);

@@ -1,0 +1,630 @@
+/*
+ * Component kit — the building blocks every rebuilt screen uses. Preview them
+ * all on the dev-only style guide: http://localhost:3000/styleguide.html
+ *
+ * Rules of the kit:
+ *  - Touch targets ≥ --tap-min (48px); primary actions --tap-lg (56px).
+ *  - Display text (titles, buttons, numbers) uses --display-font with an
+ *    outline (--text-stroke) so it reads over painted art.
+ *  - Every pressable thing has a visible pressed state (sinks into its base).
+ *  - Painted art hooks: pieces that will get real art use `border-image` or a
+ *    stacked `background` pointing at /ui-artwork/{id}.png. A missing PNG
+ *    falls back to the CSS look (a failed border-image renders the plain
+ *    border), so art drops in without code changes.
+ *
+ * Naming: `.gc-*` blocks, `--modifier` variants, `__part` children.
+ */
+
+/* ── Text helpers ─────────────────────────────────────────── */
+
+.gc-display {
+  font-family: var(--display-font);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+}
+.gc-caption {
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────
+   Chunky 3D buttons: a face sitting on a darker base (the bottom shadow).
+   Pressing sinks the face into the base. Default is WorldQuest's wood. */
+
+.gc-btn {
+  --btn-face-top: var(--wood-300);
+  --btn-face-bottom: var(--wood-500);
+  --btn-base: var(--wood-900);
+  --btn-edge: var(--ink-900);
+  --btn-text: #fff6df;
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
+  padding: 0 var(--s-5);
+  border: 2px solid var(--btn-edge);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--btn-face-top) 0%, var(--btn-face-bottom) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+    0 4px 0 var(--btn-base),
+    0 6px 8px rgba(0, 0, 0, 0.35);
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1;
+  color: var(--btn-text);
+  text-shadow: var(--text-stroke-sm);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), filter var(--dur-fast);
+}
+.gc-btn:hover {
+  filter: brightness(1.08);
+}
+.gc-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.18),
+    0 1px 0 var(--btn-base),
+    0 2px 3px rgba(0, 0, 0, 0.35);
+}
+.gc-btn:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 3px;
+}
+.gc-btn:disabled {
+  filter: grayscale(0.85) brightness(0.8);
+  cursor: not-allowed;
+}
+
+.gc-btn--gold {
+  --btn-face-top: #ffe58a;
+  --btn-face-bottom: #f0a92a;
+  --btn-base: #8a5a0c;
+  --btn-text: #fff;
+}
+.gc-btn--green {
+  --btn-face-top: var(--green-300);
+  --btn-face-bottom: var(--green-500);
+  --btn-base: #1d5614;
+  --btn-text: #fff;
+}
+.gc-btn--steel {
+  --btn-face-top: #8b93a3;
+  --btn-face-bottom: #555c6b;
+  --btn-base: #23262e;
+  --btn-text: #fff;
+}
+.gc-btn--red {
+  --btn-face-top: var(--red-300);
+  --btn-face-bottom: var(--red-500);
+  --btn-base: var(--red-700);
+  --btn-text: #fff;
+}
+.gc-btn--lg {
+  min-height: var(--tap-lg);
+  padding: 0 var(--s-6);
+  font-size: var(--t-title);
+  border-radius: var(--r-lg);
+}
+.gc-btn--block {
+  display: flex;
+  width: 100%;
+}
+/* Square icon button (close, settings, info). */
+.gc-btn--icon {
+  width: var(--tap-min);
+  padding: 0;
+}
+
+/* ── Close button (parchment square with an X) ───────────── */
+
+.gc-close {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid var(--ink-700);
+  border-radius: var(--r-sm);
+  background:
+    url(/ui-artwork/close-button.png) center / 100% 100% no-repeat,
+    linear-gradient(180deg, var(--parch-100), var(--parch-300));
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5), 0 3px 0 var(--parch-700), 0 5px 6px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.gc-close::before,
+.gc-close::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--ink-700);
+}
+.gc-close::before { transform: translate(-50%, -50%) rotate(45deg); }
+.gc-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+.gc-close:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5), 0 1px 0 var(--parch-700);
+}
+
+/* ── Parchment panel ──────────────────────────────────────────
+   WorldQuest's cream paper with bracket flourishes in the corners. */
+
+.gc-parchment {
+  --corner-tl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg transform='rotate(0 12 12)'%3E%3Cpath d='M3 20V8a5 5 0 0 1 5-5h12' fill='none' stroke='%23a8875a' stroke-width='2'/%3E%3Cpath d='M8 8h3l-3 3z' fill='%23a8875a'/%3E%3C/g%3E%3C/svg%3E");
+  --corner-tr: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg transform='rotate(90 12 12)'%3E%3Cpath d='M3 20V8a5 5 0 0 1 5-5h12' fill='none' stroke='%23a8875a' stroke-width='2'/%3E%3Cpath d='M8 8h3l-3 3z' fill='%23a8875a'/%3E%3C/g%3E%3C/svg%3E");
+  --corner-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg transform='rotate(180 12 12)'%3E%3Cpath d='M3 20V8a5 5 0 0 1 5-5h12' fill='none' stroke='%23a8875a' stroke-width='2'/%3E%3Cpath d='M8 8h3l-3 3z' fill='%23a8875a'/%3E%3C/g%3E%3C/svg%3E");
+  --corner-bl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg transform='rotate(270 12 12)'%3E%3Cpath d='M3 20V8a5 5 0 0 1 5-5h12' fill='none' stroke='%23a8875a' stroke-width='2'/%3E%3Cpath d='M8 8h3l-3 3z' fill='%23a8875a'/%3E%3C/g%3E%3C/svg%3E");
+  position: relative;
+  color: var(--parch-ink);
+  padding: var(--s-5);
+  border: 3px solid var(--parch-500);
+  border-radius: var(--r-sm);
+  border-image: url(/ui-artwork/panel-parchment.png) 48 fill / 24px stretch;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 60%),
+    radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(138, 106, 60, 0.28) 100%),
+    var(--parch-200);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.35),
+    0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.gc-parchment::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  pointer-events: none;
+  background:
+    var(--corner-tl) top left / 22px no-repeat,
+    var(--corner-tr) top right / 22px no-repeat,
+    var(--corner-bl) bottom left / 22px no-repeat,
+    var(--corner-br) bottom right / 22px no-repeat;
+}
+.gc-parchment > * {
+  position: relative;
+}
+.gc-parchment h2,
+.gc-parchment .gc-parchment__title {
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-heading);
+  color: var(--parch-ink);
+  text-align: center;
+  line-height: 1.1;
+  margin-bottom: var(--s-3);
+}
+.gc-parchment p {
+  font-size: var(--t-body);
+  line-height: 1.45;
+}
+
+/* ── Dark card (lists and panels on dark screens) ─────────── */
+
+.gc-card {
+  position: relative;
+  padding: var(--s-4);
+  border: 2px solid var(--slate-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 10px rgba(0, 0, 0, 0.4);
+  color: #eef2fa;
+}
+
+/* ── Title tab (slate banner that sits on a panel's top edge) ── */
+
+.gc-title-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 var(--s-6) 6px;
+  background:
+    url(/ui-artwork/title-tab.png) center / 100% 100% no-repeat,
+    linear-gradient(180deg, var(--slate-700) 0%, var(--slate-900) 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 70%, calc(50% + 24px) 70%, 50% 100%, calc(50% - 24px) 70%, 0 70%);
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  color: var(--slate-text);
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+}
+
+/* ── Modal ────────────────────────────────────────────────────
+   Structure:
+     .gc-modal (scrim, fixed, centers)
+       .gc-modal__panel.gc-parchment
+         .gc-modal__title  (title tab, overlapping the top edge)
+         .gc-modal__close  (.gc-close, overlapping the top-right corner)
+         .gc-modal__portrait (optional round portrait, top-left)
+         .gc-modal__body   (scrolls if tall)
+         .gc-modal__actions (button row, overlapping the bottom edge) */
+
+.gc-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-7) var(--s-4) calc(var(--chrome-bottom, 0px) + var(--s-4));
+  background: rgba(8, 6, 4, 0.62);
+  backdrop-filter: blur(2px);
+  animation: gc-fade-in var(--dur-med) var(--ease-out);
+}
+.gc-modal__panel {
+  width: min(100%, 420px);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--s-6);
+  padding-bottom: var(--s-6);
+  animation: gc-pop-in 280ms var(--ease-spring);
+}
+.gc-modal__title {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -55%);
+  max-width: calc(100% - 96px);
+}
+.gc-modal__close {
+  position: absolute;
+  right: -10px;
+  top: -14px;
+  z-index: 2;
+}
+.gc-modal__portrait {
+  position: absolute;
+  left: -14px;
+  top: -40px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 4px solid var(--slate-500);
+  background: var(--slate-900);
+  box-shadow: 0 0 0 3px var(--ink-900), 0 6px 10px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  z-index: 2;
+}
+.gc-modal__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.gc-modal__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.gc-modal__actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  transform: translateY(50%);
+  display: flex;
+  justify-content: center;
+  gap: var(--s-3);
+}
+
+@keyframes gc-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes gc-pop-in {
+  from { opacity: 0; transform: scale(0.88); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── Ornamental divider ("—— Rewards ——") ─────────────────── */
+
+.gc-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-4) 0 var(--s-3);
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  color: var(--parch-ink);
+}
+.gc-divider::before,
+.gc-divider::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--parch-700) 20%, var(--parch-700) 80%, transparent);
+}
+
+/* ── Item / reward frame ──────────────────────────────────────
+   Octagon frame whose edge takes the rarity color. Optional count in the
+   bottom-right corner, outlined like WorldQuest's reward numbers. */
+
+.gc-item {
+  --gc-frame-edge: linear-gradient(160deg, #eef1f5 0%, var(--rarity) 30%, color-mix(in srgb, var(--rarity) 55%, #000) 75%, var(--rarity) 100%);
+  --gc-frame-w: 4px;
+  --rarity: var(--rarity-common);
+  position: relative;
+  isolation: isolate;
+  display: inline-block;
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.45));
+}
+.gc-item::before,
+.gc-item::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+}
+.gc-item::before {
+  inset: 0;
+  background: var(--gc-frame-edge);
+}
+.gc-item::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+.gc-item[data-rarity="uncommon"] { --rarity: var(--rarity-uncommon); }
+.gc-item[data-rarity="rare"] { --rarity: var(--rarity-rare); }
+.gc-item[data-rarity="epic"] { --rarity: var(--rarity-epic); }
+.gc-item[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
+.gc-item--empty {
+  --rarity: #6d7480;
+}
+.gc-item--sm { width: 56px; height: 56px; }
+.gc-item--lg { width: 88px; height: 88px; }
+.gc-item__img {
+  position: absolute;
+  inset: calc(var(--gc-frame-w) + 4px);
+  width: calc(100% - 2 * (var(--gc-frame-w) + 4px));
+  height: calc(100% - 2 * (var(--gc-frame-w) + 4px));
+  object-fit: contain;
+}
+.gc-item__count {
+  position: absolute;
+  right: 4px;
+  bottom: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+button.gc-item {
+  cursor: pointer;
+}
+button.gc-item:active {
+  transform: scale(0.95);
+}
+
+/* ── Stat (big number with icon + label, e.g. "Health 113") ── */
+
+.gc-stat {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.gc-stat__label {
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.gc-stat__value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+}
+.gc-stat__icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+/* ── Progress / HP bar ────────────────────────────────────── */
+
+.gc-bar {
+  --bar-fill-top: var(--green-300);
+  --bar-fill-bottom: var(--green-500);
+  position: relative;
+  height: 18px;
+  border-radius: var(--r-pill);
+  background: #0b0c10;
+  border: 2px solid var(--ink-900);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.gc-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, var(--bar-fill-top) 0%, var(--bar-fill-bottom) 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4);
+  transition: width 0.35s var(--ease-out);
+}
+.gc-bar__text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  font-variant-numeric: tabular-nums;
+}
+.gc-bar--xp { --bar-fill-top: var(--teal-300); --bar-fill-bottom: var(--teal-500); }
+.gc-bar--danger { --bar-fill-top: var(--red-300); --bar-fill-bottom: var(--red-500); }
+.gc-bar--lg { height: 24px; }
+
+/* ── Segmented tabs ───────────────────────────────────────── */
+
+.gc-tabs {
+  display: flex;
+  gap: var(--s-1);
+  padding: var(--s-1);
+  border-radius: var(--r-md);
+  background: var(--slate-900);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+.gc-tab {
+  flex: 1;
+  min-height: var(--tap-min);
+  padding: 0 var(--s-3);
+  border: none;
+  border-radius: calc(var(--r-md) - 4px);
+  background: transparent;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: #9aa4b8;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.gc-tab[aria-selected="true"],
+.gc-tab.active {
+  background: linear-gradient(180deg, var(--wood-300), var(--wood-500));
+  color: #fff6df;
+  text-shadow: var(--text-stroke-sm);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 0 var(--wood-900);
+}
+
+/* ── List row ─────────────────────────────────────────────── */
+
+.gc-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 64px;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  border: 2px solid var(--slate-500);
+  color: #eef2fa;
+}
+.gc-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.gc-row__title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gc-row__sub {
+  font-size: var(--t-small);
+  color: #a9b3c7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.gc-row {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+button.gc-row:active {
+  transform: translateY(1px);
+  filter: brightness(1.1);
+}
+
+/* ── Input ────────────────────────────────────────────────── */
+
+.gc-input {
+  width: 100%;
+  min-height: var(--tap-lg);
+  padding: 0 var(--s-4);
+  border: 2px solid var(--slate-500);
+  border-radius: var(--r-md);
+  background: var(--slate-900);
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.55);
+  font-family: var(--ui-font);
+  font-size: var(--t-body);
+  color: #fff;
+}
+.gc-input::placeholder {
+  color: #7d879b;
+}
+.gc-input:focus {
+  outline: none;
+  border-color: var(--gold-500);
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.55), 0 0 0 3px rgba(245, 200, 66, 0.3);
+}
+
+/* ── Badge / pip ──────────────────────────────────────────── */
+
+.gc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 35% 30%, var(--red-300), var(--red-500) 60%, var(--red-700));
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.gc-badge--level {
+  min-width: 34px;
+  height: 34px;
+  background: radial-gradient(circle at 50% 35%, #2e3242 0%, var(--gc-iron-950) 80%);
+  border-color: var(--gc-steel-300);
+  font-size: var(--t-small);
+}
+
+/* ── Screen title ─────────────────────────────────────────── */
+
+.gc-screen-title {
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-heading);
+  line-height: 1.1;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-modal,
+  .gc-modal__panel {
+    animation: none;
+  }
+  .gc-btn,
+  .gc-bar__fill {
+    transition: none;
+  }
+}

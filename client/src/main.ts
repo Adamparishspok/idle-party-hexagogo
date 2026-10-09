@@ -1,4 +1,7 @@
+import './styles/tokens.css';
 import './styles/pixel-theme.css';
+import './styles/components.css';
+import './styles/game-chrome.css';
 import { App } from './App';
 import { registerServiceWorker } from './network/PushNotifications';
 

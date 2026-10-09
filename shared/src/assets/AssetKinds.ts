@@ -32,9 +32,23 @@ export const ASSET_KINDS = [
   'slot-icon',
   'nav-icon',
   'skill',
+  'ui',
 ] as const;
 
 export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/**
+ * Painted chrome pieces the game shell reaches for under `/ui-artwork/{id}.png`.
+ * Every one is drawn over a CSS fallback in `game-chrome.css`, so these are
+ * upgrades, not requirements.
+ */
+export const UI_CHROME_IDS = [
+  'nav-bar',
+  'nav-button',
+  'nav-button-active',
+  'xp-frame',
+  'hud-pill',
+] as const;
 
 /**
  * How the coverage report enumerates the ids a kind is *expected* to have art
@@ -280,6 +294,18 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
     idFormat: 'SkillDefinition.id',
     shape: 'square',
   },
+  ui: {
+    label: 'UI chrome',
+    description:
+      'Painted interface chrome — the bottom-nav bar, nav button frames, the XP bar frame, and HUD pills. '
+      + 'Each piece layers over a CSS fallback, so missing art degrades to the plain CSS look.',
+    dir: 'data/ui-artwork',
+    mount: '/ui-artwork',
+    idSource: 'fixed',
+    idFormat: 'Fixed chrome-piece id',
+    fixedIds: UI_CHROME_IDS,
+    shape: 'any',
+  },
 };
 
 /**
@@ -307,6 +333,7 @@ export const MANAGED_ASSET_KINDS = [
   'slot-icon',
   'nav-icon',
   'skill',
+  'ui',
 ] as const;
 
 export type ManagedAssetKind = (typeof MANAGED_ASSET_KINDS)[number];

@@ -22,11 +22,18 @@ export interface NavTabConfig {
   mode?: NavMode;
   /** Submenu items shown when this tab is clicked (only when mode === 'submenu'). */
   submenu?: NavSubmenuItem[];
+  /**
+   * - `bar` (default): one of the big framed buttons in the stone bar.
+   * - `perch`: a smaller button perched on the plinth above the bar (Chat).
+   */
+  placement?: 'bar' | 'perch';
 }
 
 /**
- * Bottom nav with restyled buttons (depth/shadow), proper active indication,
- * support for overlay tabs (Chat pop-out), and fly-out submenus (Social).
+ * Bottom nav: a stone bar of framed icon buttons (the active one rises on a
+ * banner), a plinth of perched buttons above it for overlay toggles (Chat),
+ * and fly-out submenus (Social). Labels are screen-reader only — the icons
+ * carry the meaning, as in most mobile games.
  */
 export class BottomNav {
   private container: HTMLElement;
@@ -55,19 +62,29 @@ export class BottomNav {
     this.container = document.getElementById('bottom-nav')!;
     this.container.innerHTML = '';
 
+    const perch = document.createElement('div');
+    perch.className = 'nav-perch';
+    const bar = document.createElement('div');
+    bar.className = 'nav-bar';
+    this.container.append(perch, bar);
+
     for (const tab of tabs) {
       const button = document.createElement('button');
       const mode: NavMode = tab.mode ?? 'screen';
-      button.className = `nav-tab nav-tab-${mode}${tab.id === defaultTab ? ' active' : ''}`;
+      const placement = tab.placement ?? 'bar';
+      button.type = 'button';
+      button.className = `nav-tab nav-tab-${mode} nav-tab-${placement}${tab.id === defaultTab ? ' active' : ''}`;
       button.dataset.screen = tab.id;
       button.dataset.mode = mode;
+      button.setAttribute('aria-label', tab.label);
 
       button.innerHTML = `
-        <span class="nav-tab-bg"></span>
-        <span class="nav-icon">${tab.icon}</span>
+        <span class="nav-banner" aria-hidden="true"></span>
+        <span class="nav-frame gc-frame" aria-hidden="true">
+          <span class="nav-icon">${tab.icon}</span>
+        </span>
         <span class="nav-label">${tab.label}</span>
         <span class="nav-badge"></span>
-        <span class="nav-active-bar"></span>
       `;
 
       button.addEventListener('click', (e) => {
@@ -75,7 +92,7 @@ export class BottomNav {
         this.handleClick(tab);
       });
 
-      this.container.appendChild(button);
+      (placement === 'perch' ? perch : bar).appendChild(button);
       this.tabButtons.set(tab.id, button);
     }
 

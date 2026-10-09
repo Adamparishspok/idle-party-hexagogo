@@ -151,6 +151,7 @@ Every kind of image the game serves is declared once in `ASSET_KIND_INFO` (`shar
 | `class-icon` | Inline class glyphs (party lists, chat, leaderboard) | Class name as spelled, plus `Unknown`/`Server` (case-sensitive — `CLASS_ICONS` requests `Knight.png`) | square |
 | `slot-icon` | Equipment-slot dogear glyphs | `EquipSlot` id | square |
 | `nav-icon` | Bottom-nav button glyphs | Nav destination id | square |
+| `ui` | Painted shell chrome (nav bar, nav button frame, active-tab banner, XP bar housing, HUD pill), layered over CSS fallbacks in `game-chrome.css` | fixed ids in `UI_CHROME_IDS` | any |
 
 `shape: 'square'` rejects non-square uploads; `'any'` accepts any aspect ratio (the wide backdrops and the logo). NPCs may skip the folder entirely by pointing `NpcDefinition.artworkUrl` at any URL.
 

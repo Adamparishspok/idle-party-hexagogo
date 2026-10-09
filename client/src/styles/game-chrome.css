@@ -1,0 +1,568 @@
+/*
+ * Game chrome — the painted-fantasy shell (WorldQuest-style): stone nav bar
+ * with framed icon buttons, perched overlay buttons, XP bar with portrait and
+ * level badge, and the top HUD.
+ *
+ * Hybrid art model: every piece is drawn in CSS first, and the pieces that
+ * want real painted art layer a `/ui-artwork/{id}.png` (the `ui` asset kind,
+ * ids in UI_CHROME_IDS) over the CSS fallback. A missing PNG just leaves the
+ * CSS look showing, so art can be dropped in one piece at a time.
+ *
+ * Loaded after pixel-theme.css, so these rules win ties.
+ */
+
+/* Tokens (iron/steel, octagon, frame paints) live in tokens.css. */
+
+/* ── Octagon frame ───────────────────────────────────────────
+   The WorldQuest signature shape. The octagon is painted on the pseudo
+   elements (edge on ::before, fill on ::after) instead of clipping the
+   element itself, so badges and focus rings on the element aren't clipped.
+   Put content inside `.gc-frame-content` (or give it the same clip) to keep
+   images inside the octagon. */
+
+.gc-frame {
+  position: relative;
+  isolation: isolate;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55));
+}
+.gc-frame::before,
+.gc-frame::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+  pointer-events: none;
+}
+.gc-frame::before {
+  inset: 0;
+  background: var(--gc-frame-edge);
+}
+.gc-frame::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+
+/* ── Top HUD ─────────────────────────────────────────────── */
+
+#top-hud {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: env(safe-area-inset-top, 0px) 8px 0 0;
+  background: linear-gradient(180deg, var(--gc-iron-950) 0%, rgba(18, 19, 24, 0.94) 100%);
+  border-bottom: 1px solid rgba(183, 190, 201, 0.12);
+  z-index: 900;
+}
+
+/* A pushed screen's back header owns the top edge instead. */
+body[data-nav-depth]:not([data-nav-depth="1"]) #top-hud {
+  display: none !important;
+}
+
+.hud-currency {
+  justify-self: start;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  margin-left: 12px;
+  padding: 0 14px 0 20px;
+  isolation: isolate;
+}
+/* Arrow-tipped pill painted on a pseudo element, so clipping it doesn't
+   also clip the coin overhanging the left end. */
+.hud-currency::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    url(/ui-artwork/hud-pill.png) center / 100% 100% no-repeat,
+    linear-gradient(90deg, rgba(0, 0, 0, 0.8) 60%, rgba(0, 0, 0, 0.2));
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+}
+.hud-currency-icon {
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+}
+/* Coin: highlight, gold body, darker rim, and a punched-in inner ring. */
+.hud-gold-icon {
+  background: radial-gradient(circle at 35% 30%, #fff6c4 0%, var(--gc-gold-500) 38%, #c7901d 68%, #7a5510 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(122, 85, 16, 0.85),
+    inset 0 0 0 5px rgba(255, 231, 160, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.hud-currency-value {
+  font-family: var(--display-font);
+  font-size: 19px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: var(--text-stroke-sm);
+}
+
+.hud-location {
+  text-align: center;
+  line-height: 1.15;
+  min-width: 0;
+  max-width: 60vw;
+}
+.hud-zone,
+.hud-room {
+  font-family: var(--ui-font);
+  font-weight: 500;
+  color: #efe6cf;
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hud-zone {
+  font-size: 18px;
+}
+.hud-room {
+  font-size: 16px;
+  color: #e2d6b8;
+}
+
+.hud-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* The notification bell is fixed at the top-right corner; leave it room. */
+  padding-right: 44px;
+}
+.hud-gear {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hud-gear-img {
+  position: absolute;
+  inset: var(--gc-frame-w);
+  width: calc(100% - 2 * var(--gc-frame-w));
+  height: calc(100% - 2 * var(--gc-frame-w));
+  object-fit: cover;
+  clip-path: var(--gc-octagon);
+}
+.hud-gear.active::before,
+.hud-gear:hover::before {
+  background: var(--gc-frame-edge-gold);
+}
+.hud-gear:active,
+.notif-bell-btn:active {
+  transform: translateY(1px);
+}
+
+/* Notification bell → matching octagon button, aligned with the HUD row. */
+.notif-bell-btn {
+  top: calc(env(safe-area-inset-top, 0px) + 6px);
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  position: fixed;
+  isolation: isolate;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55));
+}
+.notif-bell-btn::before,
+.notif-bell-btn::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+}
+.notif-bell-btn::before {
+  inset: 0;
+  background: var(--gc-frame-edge);
+}
+.notif-bell-btn::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+.notif-bell-btn:hover {
+  border: none;
+}
+.notif-bell-btn:hover::before {
+  background: var(--gc-frame-edge-gold);
+}
+/* Bell + HUD only exist while in game; at drill-down depth the back header
+   owns the top edge, so the bell steps aside too. */
+body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
+  display: none;
+}
+
+/* ── Persistent XP bar ───────────────────────────────────── */
+
+#persistent-xp-bar {
+  position: relative;
+  height: var(--xpbar-height);
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 34px;
+  flex-shrink: 0;
+  /* Under the nav (1000) so the active tab's banner can overhang the bar. */
+  z-index: 999;
+  background:
+    url(/ui-artwork/xp-frame.png) center / 100% 100% no-repeat,
+    linear-gradient(180deg, var(--gc-iron-800) 0%, var(--gc-iron-950) 100%);
+}
+
+.xpbar-track {
+  flex: 1;
+  position: relative;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #0a0b10;
+  border: 2px solid var(--gc-steel-500);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.8);
+}
+.xpbar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(180deg, var(--gc-teal-300) 0%, var(--gc-teal-500) 45%, var(--gc-teal-700) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 0 6px rgba(54, 184, 192, 0.5);
+  transition: width 0.4s ease-out;
+}
+.xpbar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+}
+
+/* Level badge on the bar's left end, overlapping the portrait's base. */
+.xpbar-level {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #2e3242 0%, var(--gc-iron-950) 80%);
+  border: 2px solid var(--gc-steel-300);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.6);
+  font-family: var(--display-font);
+  font-size: 16px;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* Class portrait perched above the bar's left end. */
+.xpbar-portrait {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% - 8px);
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.xpbar-portrait-img {
+  position: absolute;
+  inset: var(--gc-frame-w);
+  width: calc(100% - 2 * var(--gc-frame-w));
+  height: calc(100% - 2 * var(--gc-frame-w));
+  object-fit: cover;
+  object-position: top;
+  clip-path: var(--gc-octagon);
+  transition: opacity 0.12s linear;
+}
+.xpbar-portrait:hover::before {
+  background: var(--gc-frame-edge-gold);
+}
+
+/* ── Bottom nav ──────────────────────────────────────────── */
+
+#bottom-nav {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 1000;
+  /* The perch row overhangs upward; the bar itself is the only in-flow child. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--gc-iron-950);
+}
+
+.nav-bar {
+  height: var(--nav-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 2px;
+  /* Phone-width cluster even on desktop — the buttons shouldn't drift apart. */
+  padding: 0 max(6px, calc((100% - 480px) / 2));
+  background:
+    url(/ui-artwork/nav-bar.png) center / 100% 100% no-repeat,
+    linear-gradient(180deg, #4a4f5c 0%, #2d3039 6px, #23262e 55%, #191a20 100%);
+  border-top: 2px solid var(--gc-steel-500);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 -3px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Screen-reader-only labels — the icons carry the meaning on screen. */
+.nav-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.nav-tab {
+  position: relative;
+  /* Keeps the active banner's z-index:-1 behind this button, not the bar. */
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-tab-bar {
+  flex: 1;
+  max-width: 78px;
+  height: 100%;
+}
+
+.nav-frame {
+  display: block;
+  transition: transform 0.18s ease-out;
+}
+.nav-tab-bar .nav-frame {
+  width: 56px;
+  height: 56px;
+}
+.nav-tab-bar .nav-frame::before {
+  background:
+    url(/ui-artwork/nav-button.png) center / 100% 100% no-repeat,
+    var(--gc-frame-edge);
+}
+
+.nav-icon {
+  position: absolute;
+  inset: var(--gc-frame-w);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  clip-path: var(--gc-octagon);
+  overflow: hidden;
+}
+.nav-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nav-icon-svg {
+  width: 62%;
+  height: 62%;
+}
+
+/* Active tab: a purple banner rises behind it and the frame turns gold. */
+.nav-banner {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  bottom: 2px;
+  width: 66px;
+  transform: translate(-50%, 10px);
+  opacity: 0;
+  z-index: -1;
+  clip-path: polygon(50% 0, 100% 12%, 100% 80%, 50% 100%, 0 80%, 0 12%);
+  background:
+    url(/ui-artwork/nav-button-active.png) center / 100% 100% no-repeat,
+    linear-gradient(180deg, var(--gc-arcane-400) 0%, var(--gc-arcane-600) 40%, var(--gc-arcane-800) 100%);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.2);
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+.nav-tab-bar.active .nav-banner {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+.nav-tab-bar.active .nav-frame {
+  transform: translateY(-5px) scale(1.1);
+}
+.nav-tab-bar.active .nav-frame::before,
+.nav-tab-bar.submenu-open .nav-frame::before {
+  background: var(--gc-frame-edge-gold);
+}
+.nav-tab-bar:not(.active):active .nav-frame {
+  transform: translateY(1px);
+}
+
+@media (hover: hover) {
+  .nav-tab-bar:not(.active):hover .nav-frame::before {
+    background: linear-gradient(160deg, #ffffff 0%, var(--gc-steel-300) 35%, #5a606c 70%, #a5acb7 100%);
+  }
+}
+
+.nav-badge {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 28px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff9a8a, var(--gc-ember) 60%, #8a1f17);
+  border: 2px solid var(--gc-iron-950);
+  display: none;
+  z-index: 2;
+}
+.nav-badge.visible {
+  display: block;
+}
+.nav-tab-bar.active .nav-badge {
+  top: -2px;
+}
+
+/* Combat/map status cues, carried over from the old nav. */
+/* Pulse the glyph, not its container — the container is the octagon clip,
+   and scaling it would paint over the frame edge. */
+.nav-tab.fighting-pulse .nav-icon > * {
+  animation: icon-pulse 0.6s ease-in-out infinite;
+}
+.nav-tab.victory-flash .nav-frame::before {
+  background: linear-gradient(160deg, #d6ffe4, #44ff88 40%, #1b7a3f);
+}
+.nav-tab.defeat-flash .nav-frame::before {
+  background: linear-gradient(160deg, #ffd6d6, var(--accent-red) 40%, #7a1b1b);
+}
+.nav-tab.has-path:not(.active) .nav-frame::before {
+  background: linear-gradient(160deg, #e4fff0, #6fd89a 40%, #2d6b47 75%, #8fd3aa);
+}
+
+/* ── Perch: overlay buttons resting on a plinth above the XP bar ── */
+
+.nav-perch {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + var(--xpbar-height));
+  height: var(--perch-height);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  padding-bottom: 4px;
+  pointer-events: none;
+}
+.nav-perch:empty {
+  display: none;
+}
+/* Iron plinth the perched buttons sit on. */
+.nav-perch::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 96px;
+  height: 20px;
+  transform: translateX(-50%);
+  clip-path: polygon(12% 0, 88% 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, var(--gc-steel-500) 0%, var(--gc-iron-700) 25%, var(--gc-iron-900) 100%);
+  z-index: -1;
+}
+.nav-tab-perch {
+  pointer-events: auto;
+}
+.nav-tab-perch .nav-frame {
+  width: 46px;
+  height: 46px;
+}
+.nav-tab-perch .nav-banner {
+  display: none;
+}
+.nav-tab-perch.overlay-active .nav-frame::before {
+  background: var(--gc-frame-edge-gold);
+}
+.nav-tab-perch.overlay-active .nav-frame {
+  filter: drop-shadow(0 0 6px rgba(245, 200, 66, 0.6));
+}
+.nav-tab-perch .nav-badge {
+  top: -2px;
+  right: -2px;
+}
+
+/* Scroll regions get room to scroll their last rows clear of the perch. */
+.screen-scroll {
+  padding-bottom: var(--perch-height);
+}
+
+/* ── Social fly-out submenu ──────────────────────────────── */
+
+.nav-submenu {
+  background: linear-gradient(180deg, var(--gc-iron-800) 0%, var(--gc-iron-950) 100%);
+  border: 2px solid var(--gc-steel-500);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.nav-submenu-item {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: #efe6cf;
+  min-height: 44px;
+}
+.nav-submenu-item:hover {
+  color: var(--gc-gold-300);
+}
+
+@media (min-width: 768px) {
+  .nav-tab-bar {
+    max-width: 96px;
+  }
+  .nav-tab-bar .nav-frame {
+    width: 60px;
+    height: 60px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-frame,
+  .nav-banner,
+  .xpbar-fill {
+    transition: none;
+  }
+  .nav-tab.fighting-pulse .nav-icon > * {
+    animation: none;
+  }
+}

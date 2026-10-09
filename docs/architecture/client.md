@@ -2,7 +2,7 @@
 
 ## Multi-screen app shell
 
-DOM-based screen switching. `ScreenManager` handles show/hide with `onActivate`/`onDeactivate` lifecycle. Combat is the default screen; Map lazy-creates the three.js world map on first visit. A persistent XP bar sits directly above the bottom nav, visible on every game screen.
+DOM-based screen switching. `ScreenManager` handles show/hide with `onActivate`/`onDeactivate` lifecycle. Combat is the default screen; Map lazy-creates the three.js world map on first visit. A top HUD sits above the screens and a persistent XP bar sits directly above the bottom nav, both visible on every root game screen (see "Game chrome" below).
 
 ### Navigation stack (roots + pushes)
 
@@ -23,15 +23,29 @@ DOM-based screen switching. `ScreenManager` handles show/hide with `onActivate`/
 
 The app is built to read as a mobile app rather than a set of long pages: **screens do not scroll, designated regions inside them do.** `.screen` is `overflow: hidden`, and content that genuinely needs to scroll opts in by wrapping in `.screen-scroll` (a `flex: 1; min-height: 0; overflow-y: auto` region with `overscroll-behavior: contain`). Content that would otherwise stack into one tall screen becomes a `push` instead.
 
+## Game chrome (WorldQuest-style shell)
+
+The shell is styled after WorldQuest — painted fantasy mobile chrome. Plan, slices, and the art shopping list live in `ideas/ui-revamp-worldquest.md`. Styles are in `client/src/styles/game-chrome.css`, loaded after `pixel-theme.css`.
+
+**Hybrid art model.** Every chrome piece is drawn in CSS, and the ones that want painted art layer `/ui-artwork/{id}.png` (the `ui` asset kind, ids in `UI_CHROME_IDS`) over the CSS fallback as a stacked `background`. A missing PNG leaves the CSS look showing, so art can be dropped in through the normal asset pipeline one piece at a time with no code change.
+
+**Octagon frame (`.gc-frame`).** The signature shape. The octagon is painted on `::before` (edge) and `::after` (fill) rather than clipping the element, so badges and focus rings aren't clipped; content that must sit inside the octagon (icons, portraits) carries the same `clip-path`. Swap edge paints with `--gc-frame-edge` / `--gc-frame-edge-gold`.
+
+**Vertical stack (top → bottom):** `#top-hud` → `#screen-header` (depth > 1 only) → `#screen-container` → `#persistent-xp-bar` → `#bottom-nav`. `--chrome-bottom` (nav + XP bar + perch) is what overlays docking above the chrome (mobile chat sheet, maximized desktop chat) subtract.
+
+- **Top HUD** (`TopHud.ts`) — gold pill on the left, current zone + room name centered, settings gear on the right beside the notification bell. Hidden at nav depth > 1 (the back header owns the top edge), as is the bell.
+- **XP bar** (`PersistentXpBar.ts`) — teal fill with `xp / next XP` centered, round level badge on the left end, and the class portrait perched above it (tap → Character). Sits at z-index 999, under the nav, so the active tab's banner can overhang it.
+- **Perch** — overlay buttons resting on a plinth above the XP bar, overhanging screen content (`.screen-scroll` regions get `--perch-height` of bottom padding so their last rows can scroll clear).
+
 ## Bottom nav structure
 
-Six tabs, three behavioral modes:
+Five framed buttons in the bar, plus perched buttons above it:
 
-- **Combat**, **Map**, **Char** (the merged Char+Items "Inventory" tab), **Craft**, **Settings** — standard screen switches via `ScreenManager`.
-- **Social** — `mode: 'submenu'`. Tapping opens a fly-out with three sub-views: Party (default, badge `party-invites`), Guild, Leaderboard (badge `friend-requests`). The legacy in-screen pill bar is gone.
-- **Chat** — `mode: 'overlay'`. Pinned to the far right as a chevron button (▲ when closed, ▼ when open). Tapping toggles the global `ChatPopout` overlay rather than swapping screens. Unread state lights up the Chat nav badge.
+- **Social**, **Character** (the merged Char+Items tab, id `items`), **Map** (center), **Combat**, **Craft** — bar tabs. The active one rises on a purple banner with a gold frame. Social is `mode: 'submenu'`: tapping opens a fly-out with Party (default, badge `party-invites`), Guild, Leaderboard (badge `friend-requests`).
+- **Chat** — `mode: 'overlay'`, `placement: 'perch'`. Toggles the global `ChatPopout` rather than swapping screens. Unread state lights up its badge.
+- **Settings** is no longer a nav tab — the HUD gear opens it (still a root screen via `switchTo`), and the gear lights gold while it's showing.
 
-Nav icons render as `<img>` tags from `/nav-icons/{id}.png` with a `placehold.co` fallback (`navImg(id, label)` helper in `App.ts`). Static mount lives in `server/src/index.ts`.
+Labels are screen-reader only (`aria-label` + visually hidden `.nav-label`); icons carry the meaning. Nav icons render as `<img>` tags from `/nav-icons/{id}.png` with a `placehold.co` fallback (`navImg(id, label)` helper in `App.ts`); Chat uses an inline SVG.
 
 ## Per-player game state
 
@@ -123,7 +137,7 @@ Per-turn animations (`updateCombatAnimations`) toggle `.attacking` / `.hit` / `.
 
 `client/src/ui/assets.ts` exposes `artworkUrl(kind, id)`, `placeholderUrl(name, opts?)`, and `renderAssetImg(kind, id, opts)`. Convention: `<mount>/{id}.png`, falling through to `placehold.co` (and finally to the surrounding background color via CSS) so layouts always have shape.
 
-The kinds themselves live in `ASSET_KIND_INFO` (`shared/src/assets/AssetKinds.ts`) — the single source of truth that the client `AssetKind` union, the server's Express static mounts, the vite dev proxy, the admin upload API, and the MCP asset tools all derive from, so adding a kind is one row there rather than five hand-kept lists that drift. (A static mount still needs a matching dev-proxy entry or the request silently falls through to the SPA index in dev; both lists are now generated from the registry, so they can't disagree.) `artworkUrl` just delegates to the shared `assetPublicPath(kind, id)` rather than spelling `/${kind}-artwork/`, because the three **icon sets** — `class-icon` → `/class-icons`, `slot-icon` → `/slot-icons`, `nav-icon` → `/nav-icons` — predate that convention and serve from their own mounts (a few older call sites in `App.ts`/`ItemIcon.ts` still hard-code those icon paths). All 16 kinds and their id formats are tabled in [`content.md`](content.md) → "Artwork & imagery".
+The kinds themselves live in `ASSET_KIND_INFO` (`shared/src/assets/AssetKinds.ts`) — the single source of truth that the client `AssetKind` union, the server's Express static mounts, the vite dev proxy, the admin upload API, and the MCP asset tools all derive from, so adding a kind is one row there rather than five hand-kept lists that drift. (A static mount still needs a matching dev-proxy entry or the request silently falls through to the SPA index in dev; both lists are now generated from the registry, so they can't disagree.) `artworkUrl` just delegates to the shared `assetPublicPath(kind, id)` rather than spelling `/${kind}-artwork/`, because the three **icon sets** — `class-icon` → `/class-icons`, `slot-icon` → `/slot-icons`, `nav-icon` → `/nav-icons` — predate that convention and serve from their own mounts (a few older call sites in `App.ts`/`ItemIcon.ts` still hard-code those icon paths). All 18 kinds and their id formats are tabled in [`content.md`](content.md) → "Artwork & imagery".
 
 **Fade-in on fallback**: every fallback-capable `<img>` (renderAssetImg, item-square art, slot dogear, item popup, nav icon) renders with inline `opacity:0` and an `onload` handler that flips it to `1`. The browser never paints its broken-image glyph during the swap from a 404 real source to the placehold.co fallback — the surrounding slot's background / initials stand in until either the real or placeholder load resolves. A 120 ms `transition: opacity` is set on the affected image classes so the reveal feels smooth rather than snapping.
 
