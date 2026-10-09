@@ -171,4 +171,63 @@ describe('RoomView modal pipeline', () => {
     view.show(makeInfo({ col: 5 }));
     expect(parent.querySelectorAll('.room-view-overlay').length).toBe(1);
   });
+
+  it('current room renders as a place view below the modal stack (nav + perch stay on top)', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new RoomView(parent, () => {});
+    view.show(makeInfo({ isCurrentTile: false }));
+    view.show(makeInfo({ isCurrentTile: true }));
+    const overlay = parent.querySelector('.room-view-overlay') as HTMLElement;
+    expect(overlay.classList.contains('rv-place')).toBe(true);
+    expect(overlay.style.zIndex).toBe('');
+    // Interacting with the place view must not promote it into the stack.
+    overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(overlay.style.zIndex).toBe('');
+  });
+
+  it('current room lists the viewer first in "Your party" and opens their popup', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const onUser = vi.fn();
+    const view = new RoomView(parent, () => {}, onUser);
+    view.self = { username: 'me', className: 'Knight', level: 7 };
+    view.show(makeInfo({
+      isCurrentTile: true,
+      partyMemberUsernames: ['me', 'pal'],
+      playersHere: [{ username: 'pal', className: 'Mage', partyId: 'p1' }, { username: 'stranger', partyId: 'p2' }],
+    }));
+    const self = parent.querySelector('.rv-party--self') as HTMLElement;
+    const names = Array.from(self.querySelectorAll('.room-party-member')).map(el => el.getAttribute('data-username'));
+    expect(names).toEqual(['me', 'pal']);
+    expect(self.querySelector('.rv-member__level')?.textContent).toBe('7');
+    expect(parent.querySelectorAll('.rv-party--other').length).toBe(1);
+    (self.querySelector('[data-username="me"]') as HTMLElement).click();
+    expect(onUser).toHaveBeenCalledWith('me', expect.anything(), 3, 4);
+  });
+
+  it('current room makes exactly the first action the gold primary and wires each action', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const onShop = vi.fn();
+    const onTransition = vi.fn();
+    const view = new RoomView(parent, () => {}, undefined, onShop, undefined, undefined, onTransition);
+    view.hasShop = true;
+    view.transitions = [{ tileId: 'tile-9', name: 'The Deep' }];
+    view.show(makeInfo({ isCurrentTile: true }));
+    const gold = parent.querySelectorAll('.rv-place__actions .gc-btn--gold');
+    expect(gold.length).toBe(1);
+    expect(gold[0].classList.contains('room-view-action-shop')).toBe(true);
+    (parent.querySelector('.room-view-action-transition') as HTMLElement).click();
+    expect(onTransition).toHaveBeenCalledWith('tile-9');
+  });
+
+  it('escapes room and zone names', () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new RoomView(parent, () => {});
+    view.show(makeInfo({ roomName: '<img src=x onerror=alert(1)>', zoneName: '<b>z</b>' }));
+    expect(parent.querySelector('img[src="x"]')).toBeNull();
+    expect(parent.querySelector('.rv-preview__title')?.textContent).toBe('<img src=x onerror=alert(1)>');
+  });
 });

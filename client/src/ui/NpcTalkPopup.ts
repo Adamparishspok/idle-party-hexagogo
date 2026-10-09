@@ -8,7 +8,25 @@ import type {
   QuestReward,
 } from '@idle-party-rpg/shared';
 import { canAcceptQuest, getObjectiveTarget } from '@idle-party-rpg/shared';
+import { artworkUrl } from './assets';
+import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
+import { renderKitItem } from './KitItem';
+import '../styles/screens/map.css';
 
+type QuestKind = 'ready' | 'progress' | 'available';
+interface QuestEntry { def: QuestDefinition; kind: QuestKind; progress?: QuestProgressEntry }
+
+/** Inline onerror for an <img> with a `data-fallbacks` JSON list (see RoomView). */
+const IMG_CHAIN_ONERROR = "var l=JSON.parse(this.dataset.fallbacks||'[]');if(l.length){this.dataset.fallbacks=JSON.stringify(l.slice(1));this.src=l[0];}else{this.remove();}";
+
+/**
+ * NPC dialog in the WorldQuest quest style: parchment modal with the NPC's
+ * round portrait top-left, their name and greeting, then one quest in focus
+ * — description, objectives in the accent color, a "Rewards" divider with
+ * item frames — and the quest's action (Accept / Turn In) as the primary
+ * button on the panel's bottom edge. Other quests from the same NPC list
+ * below as rows; tapping one brings it into focus.
+ */
 export class NpcTalkPopup {
   private overlay: HTMLElement;
   private gameClient: GameClient;
@@ -18,23 +36,34 @@ export class NpcTalkPopup {
   private pendingTurnIns: Set<string> = new Set();
   /** Completion speech bubbles to render until the player dismisses them. */
   private completionMessages: { questId: string; questName: string; text: string }[] = [];
+  /** Quest shown in full; others list as rows. Re-resolved on every render. */
+  private focusQuestId: string | null = null;
+  /** Last markup written — state ticks that change nothing skip the rewrite (no image flicker). */
+  private lastHtml = '';
 
   constructor(gameClient: GameClient) {
     this.gameClient = gameClient;
     this.overlay = document.createElement('div');
-    this.overlay.className = 'npc-talk-overlay';
+    this.overlay.className = 'gc-modal npc-modal';
     this.overlay.style.display = 'none';
     this.overlay.addEventListener('click', (e) => {
       if (e.target === this.overlay) this.hide();
     });
+    // One delegated handler survives the innerHTML rewrites.
+    this.overlay.addEventListener('click', (e) => this.handleClick(e));
+    wireFocusOnInteract(this.overlay);
     document.body.appendChild(this.overlay);
   }
 
   show(npc: NpcDefinition): void {
     this.currentNpc = npc;
+    this.focusQuestId = null;
+    this.lastHtml = '';
     const state = this.gameClient.lastState;
     this.render(state ?? null);
     this.overlay.style.display = 'flex';
+    bringToFront(this.overlay);
+    (this.overlay.querySelector('.gc-modal__close') as HTMLElement | null)?.focus({ preventScroll: true });
 
     this.unsubscribe?.();
     this.unsubscribe = this.gameClient.subscribe((s) => {
@@ -46,11 +75,46 @@ export class NpcTalkPopup {
   hide(): void {
     this.overlay.style.display = 'none';
     this.overlay.innerHTML = '';
+    this.lastHtml = '';
+    release(this.overlay);
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.currentNpc = null;
+    this.focusQuestId = null;
     this.pendingTurnIns.clear();
     this.completionMessages = [];
+  }
+
+  private handleClick(e: Event): void {
+    const target = e.target as HTMLElement;
+    const btn = target.closest<HTMLElement>('button');
+    if (!btn || !this.overlay.contains(btn)) return;
+
+    if (btn.classList.contains('gc-modal__close') || btn.dataset.npcClose !== undefined) {
+      this.hide();
+      return;
+    }
+    if (btn.dataset.questAccept) {
+      this.gameClient.sendAcceptQuest(btn.dataset.questAccept);
+      return;
+    }
+    if (btn.dataset.questTurnin) {
+      const qid = btn.dataset.questTurnin;
+      this.pendingTurnIns.add(qid);
+      this.gameClient.sendTurnInQuest(qid);
+      return;
+    }
+    if (btn.dataset.questFocus) {
+      this.focusQuestId = btn.dataset.questFocus;
+      this.render(this.gameClient.lastState ?? null);
+      (this.overlay.querySelector('.gc-modal__body') as HTMLElement | null)?.scrollTo({ top: 0 });
+      return;
+    }
+    if (btn.dataset.dismissCompletion) {
+      const qid = btn.dataset.dismissCompletion;
+      this.completionMessages = this.completionMessages.filter(m => m.questId !== qid);
+      this.render(this.gameClient.lastState ?? null);
+    }
   }
 
   private resolveMonster(id: string): string {
@@ -65,15 +129,13 @@ export class NpcTalkPopup {
   }
 
   private lastResolutions: ServerStateMessage['questResolutions'] | undefined;
+  private lastState: ServerStateMessage | null = null;
 
   private render(state: ServerStateMessage | null): void {
     const npc = this.currentNpc;
     if (!npc) return;
     this.lastResolutions = state?.questResolutions;
-
-    const portrait = npc.artworkUrl
-      ? `<img class="npc-talk-portrait-img" src="${this.escape(npc.artworkUrl)}" alt="">`
-      : `<div class="npc-talk-portrait-emoji">${this.escape(npc.emoji)}</div>`;
+    this.lastState = state;
 
     const offered = state?.offeredQuestIds ?? [];
     const defs = state?.questDefinitions ?? {};
@@ -97,28 +159,17 @@ export class NpcTalkPopup {
       }
     }
 
-    const completionHtml = this.completionMessages.length > 0
-      ? this.completionMessages.map(m => `
-          <div class="npc-talk-completion" data-quest-id="${this.escape(m.questId)}">
-            <div class="npc-talk-completion-label">Quest complete: ${this.escape(m.questName)}</div>
-            <div class="npc-talk-completion-text">"${this.escape(m.text)}"</div>
-            <button class="npc-talk-completion-dismiss" data-dismiss-completion="${this.escape(m.questId)}" type="button">OK</button>
-          </div>
-        `).join('')
-      : '';
-
-    // Quests this NPC offers — split into sections
-    const availableQuests: QuestDefinition[] = [];
-    const inProgressQuests: { def: QuestDefinition; progress: QuestProgressEntry }[] = [];
-    const readyQuests: { def: QuestDefinition; progress: QuestProgressEntry }[] = [];
-
+    // Quests this NPC offers, in priority order: ready → available → in progress.
+    const ready: QuestEntry[] = [];
+    const available: QuestEntry[] = [];
+    const inProgress: QuestEntry[] = [];
     for (const qid of offered) {
       const def = defs[qid];
       if (!def) continue;
       const prog = activeMap.get(qid);
       if (prog) {
-        if (prog.status === 'ready') readyQuests.push({ def, progress: prog });
-        else inProgressQuests.push({ def, progress: prog });
+        if (prog.status === 'ready') ready.push({ def, kind: 'ready', progress: prog });
+        else inProgress.push({ def, kind: 'progress', progress: prog });
       } else {
         // Show "Available" only if eligible to accept
         const reason = canAcceptQuest(def, {
@@ -127,123 +178,128 @@ export class NpcTalkPopup {
           completedQuestIds: completedSet,
           weeklyCompletions: {},
         });
-        if (!reason) availableQuests.push(def);
+        if (!reason) available.push({ def, kind: 'available' });
       }
     }
+    const quests = [...ready, ...available, ...inProgress];
+    const focus = quests.find(q => q.def.id === this.focusQuestId) ?? quests[0] ?? null;
+    this.focusQuestId = focus?.def.id ?? null;
 
-    const readyHtml = readyQuests.length > 0
-      ? `<div class="npc-quest-section npc-quest-ready">
-           <div class="npc-quest-section-title">Ready to Turn In</div>
-           ${readyQuests.map(q => this.renderReady(q.def)).join('')}
-         </div>`
+    const completionHtml = this.completionMessages.map(m => `
+      <div class="npc-modal__done" data-quest-id="${this.escape(m.questId)}">
+        <div class="npc-modal__done-label">Quest complete: ${this.escape(m.questName)}</div>
+        <p class="npc-modal__done-text">"${this.escape(m.text)}"</p>
+        <button type="button" class="gc-btn gc-btn--green npc-modal__done-ok" data-dismiss-completion="${this.escape(m.questId)}">OK</button>
+      </div>
+    `).join('');
+
+    const focusHtml = focus ? this.renderFocus(focus) : '';
+    const others = quests.filter(q => q !== focus);
+    const othersHtml = others.length > 0
+      ? `<div class="gc-divider npc-modal__divider">More quests</div>
+         <div class="npc-modal__others">${others.map(q => this.renderRow(q)).join('')}</div>`
+      : '';
+    const emptyHtml = (offered.length > 0 && quests.length === 0)
+      ? `<p class="npc-modal__empty">Nothing for you right now.</p>`
       : '';
 
-    const inProgressHtml = inProgressQuests.length > 0
-      ? `<div class="npc-quest-section">
-           <div class="npc-quest-section-title">In Progress</div>
-           ${inProgressQuests.map(q => this.renderInProgress(q.def, q.progress)).join('')}
-         </div>`
-      : '';
+    let primary: string;
+    if (focus?.kind === 'ready') {
+      primary = `<button type="button" class="gc-btn gc-btn--gold gc-btn--lg" data-quest-turnin="${this.escape(focus.def.id)}">Turn In</button>`;
+    } else if (focus?.kind === 'available') {
+      primary = `<button type="button" class="gc-btn gc-btn--gold gc-btn--lg" data-quest-accept="${this.escape(focus.def.id)}">Accept</button>`;
+    } else {
+      primary = `<button type="button" class="gc-btn gc-btn--lg" data-npc-close>${focus ? 'On my way' : 'Farewell'}</button>`;
+    }
 
-    const availableHtml = availableQuests.length > 0
-      ? `<div class="npc-quest-section">
-           <div class="npc-quest-section-title">Available</div>
-           ${availableQuests.map(q => this.renderAvailable(q)).join('')}
-         </div>`
-      : '';
-
-    const noQuestsHtml = (offered.length > 0 && readyQuests.length + inProgressQuests.length + availableQuests.length === 0)
-      ? `<div class="npc-quest-section-empty">Nothing for you right now.</div>`
-      : '';
-
-    this.overlay.innerHTML = `
-      <div class="npc-talk-modal">
-        <div class="npc-talk-header">
-          ${portrait}
-          <div class="npc-talk-name">${this.escape(npc.name)}</div>
+    const html = `
+      <div class="gc-modal__panel gc-parchment npc-modal__panel" role="dialog" aria-modal="true" aria-label="${this.escape(npc.name)}">
+        ${this.renderPortrait(npc)}
+        <button type="button" class="gc-close gc-modal__close" aria-label="Close"></button>
+        <div class="gc-modal__body npc-modal__body">
+          <h2 class="npc-modal__name">${this.escape(npc.name)}</h2>
+          <p class="npc-modal__greeting">"${this.escape(npc.greeting)}"</p>
+          ${completionHtml}
+          ${focusHtml}
+          ${othersHtml}
+          ${emptyHtml}
         </div>
-        <div class="npc-talk-greeting">"${this.escape(npc.greeting)}"</div>
-        ${completionHtml}
-        ${readyHtml}
-        ${inProgressHtml}
-        ${availableHtml}
-        ${noQuestsHtml}
-        <div class="npc-talk-actions">
-          <button class="npc-talk-btn npc-talk-close">Close</button>
-        </div>
+        <div class="gc-modal__actions">${primary}</div>
       </div>
     `;
-
-    this.overlay.querySelector('.npc-talk-close')?.addEventListener('click', () => this.hide());
-
-    for (const btn of this.overlay.querySelectorAll<HTMLButtonElement>('[data-quest-accept]')) {
-      btn.addEventListener('click', () => {
-        const qid = btn.dataset.questAccept!;
-        this.gameClient.sendAcceptQuest(qid);
-      });
-    }
-    for (const btn of this.overlay.querySelectorAll<HTMLButtonElement>('[data-quest-turnin]')) {
-      btn.addEventListener('click', () => {
-        const qid = btn.dataset.questTurnin!;
-        this.pendingTurnIns.add(qid);
-        this.gameClient.sendTurnInQuest(qid);
-      });
-    }
-    for (const btn of this.overlay.querySelectorAll<HTMLButtonElement>('[data-dismiss-completion]')) {
-      btn.addEventListener('click', () => {
-        const qid = btn.dataset.dismissCompletion!;
-        this.completionMessages = this.completionMessages.filter(m => m.questId !== qid);
-        this.render(this.gameClient.lastState ?? null);
-      });
-    }
+    if (html === this.lastHtml) return;
+    const scrollTop = (this.overlay.querySelector('.gc-modal__body') as HTMLElement | null)?.scrollTop ?? 0;
+    this.lastHtml = html;
+    this.overlay.innerHTML = html;
+    const body = this.overlay.querySelector('.gc-modal__body') as HTMLElement | null;
+    if (body) body.scrollTop = scrollTop;
   }
 
-  private renderAvailable(def: QuestDefinition): string {
+  /** NPC portrait: authored artworkUrl → /npc-artwork/{id}.png → emoji. */
+  private renderPortrait(npc: NpcDefinition): string {
+    const urls = [npc.artworkUrl, artworkUrl('npc', encodeURIComponent(npc.id))].filter((u): u is string => !!u);
     return `
-      <div class="npc-quest-card npc-quest-card-available">
-        <div class="npc-quest-card-header">
-          <span class="npc-quest-card-name">${this.escape(def.name)}</span>
-          ${this.scopeBadge(def.scope)}
-        </div>
-        <div class="npc-quest-card-desc">${this.escape(def.description)}</div>
-        <div class="npc-quest-card-objectives">
-          ${def.objectives.map(o => `<div class="npc-quest-objective">• ${this.objectiveText(o, 0)}</div>`).join('')}
-        </div>
-        <div class="npc-quest-card-rewards">Rewards: ${def.rewards.map(r => this.rewardText(r)).join(', ') || 'none'}</div>
-        <div class="npc-quest-card-actions">
-          <button class="npc-talk-btn" data-quest-accept="${this.escape(def.id)}">Accept</button>
-        </div>
-      </div>
-    `;
+      <div class="gc-modal__portrait npc-modal__portrait">
+        <span class="npc-modal__emoji" aria-hidden="true">${this.escape(npc.emoji)}</span>
+        <img src="${this.escape(urls[0])}" alt="" data-fallbacks="${this.escape(JSON.stringify(urls.slice(1)))}" onerror="${IMG_CHAIN_ONERROR}" />
+      </div>`;
   }
 
-  private renderInProgress(def: QuestDefinition, progress: QuestProgressEntry): string {
+  private renderFocus(q: QuestEntry): string {
+    const def = q.def;
+    const objectives = def.objectives
+      .map((o, i) => {
+        const progress = q.progress?.progress[i] ?? 0;
+        const done = progress >= getObjectiveTarget(o);
+        return `<li class="npc-quest__goal${done && q.progress ? ' is-done' : ''}">${this.objectiveText(o, progress)}</li>`;
+      })
+      .join('');
+    const rewards = def.rewards.length > 0
+      ? `<div class="gc-divider npc-quest__divider">Rewards</div>
+         <div class="npc-quest__rewards">${def.rewards.map(r => this.renderReward(r)).join('')}</div>`
+      : '';
+    const desc = q.kind === 'available' || q.kind === 'progress'
+      ? `<p class="npc-quest__desc">${this.escape(def.description)}</p>`
+      : '';
     return `
-      <div class="npc-quest-card">
-        <div class="npc-quest-card-header">
-          <span class="npc-quest-card-name">${this.escape(def.name)}</span>
-          <span class="npc-quest-status-pill npc-quest-status-${progress.status}">${this.statusLabel(progress.status)}</span>
+      <section class="npc-quest npc-quest--${q.kind}">
+        <div class="npc-quest__head">
+          <h3 class="npc-quest__name">${this.escape(def.name)}</h3>
+          ${this.statusChip(q)}
+          ${this.scopeChip(def.scope)}
         </div>
-        <div class="npc-quest-card-objectives">
-          ${def.objectives.map((o, i) => `<div class="npc-quest-objective">• ${this.objectiveText(o, progress.progress[i] ?? 0)}</div>`).join('')}
-        </div>
-      </div>
+        ${desc}
+        <ul class="npc-quest__goals">${objectives}</ul>
+        ${rewards}
+      </section>
     `;
   }
 
-  private renderReady(def: QuestDefinition): string {
+  private renderRow(q: QuestEntry): string {
     return `
-      <div class="npc-quest-card npc-quest-card-ready">
-        <div class="npc-quest-card-header">
-          <span class="npc-quest-card-name">${this.escape(def.name)}</span>
-          <span class="npc-quest-status-pill npc-quest-status-ready">Ready</span>
-        </div>
-        <div class="npc-quest-card-rewards">Rewards: ${def.rewards.map(r => this.rewardText(r)).join(', ') || 'none'}</div>
-        <div class="npc-quest-card-actions">
-          <button class="npc-talk-btn npc-talk-btn-primary" data-quest-turnin="${this.escape(def.id)}">Turn In</button>
-        </div>
-      </div>
-    `;
+      <button type="button" class="npc-quest-row npc-quest-row--${q.kind}" data-quest-focus="${this.escape(q.def.id)}">
+        <span class="npc-quest-row__name">${this.escape(q.def.name)}</span>
+        ${this.statusChip(q)}
+      </button>`;
+  }
+
+  private renderReward(reward: QuestReward): string {
+    if (reward.kind === 'item') {
+      const def = this.lastState?.itemDefinitions?.[reward.itemId];
+      const name = def?.name ?? this.resolveItem(reward.itemId);
+      return renderKitItem(reward.itemId, def, {
+        size: 'sm',
+        count: reward.quantity,
+        label: `${reward.quantity}× ${name}`,
+      });
+    }
+    const label = reward.kind === 'xp' ? `${reward.amount} XP` : `${reward.amount} Gold`;
+    const glyph = reward.kind === 'xp'
+      ? '<span class="gc-item__glyph npc-reward__xp" aria-hidden="true">XP</span>'
+      : '<span class="gc-coin npc-reward__coin" aria-hidden="true"></span>';
+    return `<span class="gc-item gc-item--sm npc-reward" data-rarity="${reward.kind === 'xp' ? 'rare' : 'legendary'}" role="img" aria-label="${label}">
+      ${glyph}<span class="gc-item__count">${reward.amount}</span>
+    </span>`;
   }
 
   private objectiveText(obj: QuestObjective, progress: number): string {
@@ -259,25 +315,17 @@ export class NpcTalkPopup {
     return cap >= 1 ? `Visit ${place} — done` : `Visit ${place}`;
   }
 
-  private rewardText(reward: QuestReward): string {
-    if (reward.kind === 'xp') return `${reward.amount} XP`;
-    if (reward.kind === 'gold') return `${reward.amount} Gold`;
-    return `${reward.quantity}× ${this.escape(this.resolveItem(reward.itemId))}`;
+  private statusChip(q: QuestEntry): string {
+    if (q.kind === 'ready') return '<span class="npc-chip npc-chip--ready">Ready</span>';
+    if (q.kind === 'available') return '<span class="npc-chip npc-chip--new">New</span>';
+    const label = q.progress?.status === 'accepted' ? 'Accepted' : 'In Progress';
+    return `<span class="npc-chip">${label}</span>`;
   }
 
-  private scopeBadge(scope: 'solo' | 'party_shared'): string {
+  private scopeChip(scope: 'solo' | 'party_shared'): string {
     return scope === 'solo'
-      ? `<span class="npc-quest-scope-pill npc-quest-scope-solo">Solo</span>`
-      : `<span class="npc-quest-scope-pill npc-quest-scope-party">Party</span>`;
-  }
-
-  private statusLabel(status: string): string {
-    switch (status) {
-      case 'accepted': return 'Accepted';
-      case 'in_progress': return 'In Progress';
-      case 'ready': return 'Ready';
-      default: return status;
-    }
+      ? '<span class="npc-chip npc-chip--scope">Solo</span>'
+      : '<span class="npc-chip npc-chip--scope npc-chip--party">Party</span>';
   }
 
   private escape(s: string): string {
