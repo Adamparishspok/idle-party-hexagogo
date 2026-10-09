@@ -1,0 +1,604 @@
+/*
+ * Chat pop-out (ChatPopout.ts) — a dark slate panel that floats over every
+ * screen. Desktop: draggable, resizable window (optionally maximized above
+ * the chrome). Mobile (<768px): a bottom sheet docked above the chrome, or
+ * full screen. The docking contract with the shell is at the bottom of this
+ * file (body[data-chat-open][data-chat-layout] + --chrome-bottom).
+ *
+ * New reusable pattern defined here: .gc-chip (toggle chip with a 48px hit
+ * area around a compact pill face) — candidate for components.css.
+ */
+
+/* ── Toggle chips (.gc-chip) ──────────────────────────────────
+   The button is a full 48px tap target; the visible pill (__face) is
+   compact so a row of chips doesn't eat the panel. --chip-color tints it. */
+
+.gc-chips {
+  display: flex;
+  gap: var(--s-1);
+}
+.gc-chip {
+  --chip-color: var(--gold-300);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: 0 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.gc-chip__face {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 var(--s-3);
+  border: 2px solid var(--slate-700);
+  border-radius: var(--r-pill);
+  background: var(--slate-900);
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-small);
+  line-height: 1;
+  color: #7d879b;
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.gc-chip__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  flex-shrink: 0;
+}
+.gc-chip.active .gc-chip__face,
+.gc-chip[aria-pressed="true"] .gc-chip__face {
+  border-color: var(--chip-color);
+  background: color-mix(in srgb, var(--chip-color) 20%, var(--slate-900));
+  color: #fff;
+}
+.gc-chip.active .gc-chip__dot,
+.gc-chip[aria-pressed="true"] .gc-chip__dot {
+  border-color: var(--ink-900);
+  background: var(--chip-color);
+}
+.gc-chip:hover .gc-chip__face {
+  filter: brightness(1.12);
+}
+.gc-chip:active .gc-chip__face {
+  transform: scale(0.94);
+}
+.gc-chip:focus-visible {
+  outline: none;
+}
+.gc-chip:focus-visible .gc-chip__face {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
+/* ── Root + window ───────────────────────────────────────── */
+
+#chat-popout-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.chat-popout {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 3px solid var(--slate-500);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--slate-800) 0%, var(--slate-900) 100%);
+  box-shadow:
+    0 0 0 2px var(--ink-900),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 16px 40px rgba(0, 0, 0, 0.7);
+  font-family: var(--ui-font);
+  color: #eef2fa;
+  animation: gc-pop-in 0.26s var(--ease-spring);
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+
+.chat-popout-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 60px;
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  border-bottom: 2px solid var(--ink-900);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 rgba(255, 255, 255, 0.05);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.chat-popout-header:active {
+  cursor: grabbing;
+}
+.chat-popout-title {
+  margin: 0;
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.chat-popout-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+/* Dense header: compact 44px icon buttons. */
+.chat-popout-layout-btn.gc-btn--icon {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  height: 44px;
+}
+.chat-popout-layout-btn svg {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 1px 0 var(--ink-900));
+}
+
+/* ── Channel filter chips ────────────────────────────────── */
+
+.chat-popout-filters {
+  flex-shrink: 0;
+  padding: 2px var(--s-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  background: rgba(10, 11, 16, 0.35);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.06);
+}
+.chat-popout-filters::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Timeline ────────────────────────────────────────────── */
+
+.chat-popout-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: rgba(10, 11, 16, 0.45);
+  box-shadow: inset 0 6px 10px -6px rgba(0, 0, 0, 0.7);
+}
+.chat-popout-timeline {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s-2) var(--s-3) var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--slate-500) transparent;
+}
+.chat-empty {
+  margin: auto;
+  padding: var(--s-5) var(--s-4);
+  text-align: center;
+  font-size: var(--t-body);
+  line-height: 1.45;
+  color: #a9b3c7;
+}
+
+.chat-day-separator {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-2) 0 var(--s-1);
+}
+.chat-day-separator::before,
+.chat-day-separator::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--slate-500) 25%, var(--slate-500) 75%, transparent);
+}
+.chat-day-separator span {
+  padding: 4px var(--s-3);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--slate-500);
+  background: var(--slate-800);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: var(--slate-text);
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* ── Messages ────────────────────────────────────────────── */
+
+.chat-msg {
+  --ch-color: var(--gold-300);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 100%;
+}
+.chat-msg--cont {
+  margin-top: calc(-1 * var(--s-1));
+}
+.chat-msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 var(--s-1);
+}
+.chat-msg-sender,
+.chat-msg-tag {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Inline name/tag buttons stay compact visually; the hit area grows to
+   ~44px tall without overlapping each other (gap is 8px, 4px each side).
+   The sender clips for its ellipsis, so it grows via padding instead of a
+   pseudo element (which the clip would cut off). */
+.chat-msg-tag::after {
+  content: '';
+  position: absolute;
+  inset: -10px -4px;
+}
+.chat-msg-sender {
+  min-width: 0;
+  padding: 10px 4px;
+  margin: -10px -4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--display-font);
+  font-size: var(--t-body);
+  line-height: 1.2;
+  color: var(--ch-color);
+  text-shadow: var(--text-stroke-sm);
+}
+.chat-msg-tag {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid color-mix(in srgb, var(--ch-color) 60%, transparent);
+  background: color-mix(in srgb, var(--ch-color) 14%, transparent);
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1.2;
+  color: var(--ch-color);
+}
+.chat-msg-sender:hover,
+.chat-msg-sender:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+.chat-msg-tag:hover,
+.chat-msg-tag:focus-visible {
+  background: color-mix(in srgb, var(--ch-color) 30%, transparent);
+  outline: none;
+}
+.chat-msg-sender:active,
+.chat-msg-tag:active {
+  transform: translateY(1px);
+  filter: brightness(1.2);
+}
+.chat-msg-time {
+  flex-shrink: 0;
+  font-size: var(--t-caption);
+  line-height: 1.2;
+  color: #8a93a6;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-msg-bubble {
+  max-width: 92%;
+  margin-top: 2px;
+  padding: var(--s-2) var(--s-3);
+  border-radius: 4px var(--r-md) var(--r-md) var(--r-md);
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  border-left: 4px solid var(--ch-color);
+  background: linear-gradient(180deg, var(--slate-700) 0%, color-mix(in srgb, var(--slate-700) 70%, var(--slate-800)) 100%);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+.chat-msg--cont .chat-msg-bubble {
+  border-radius: 4px var(--r-md) var(--r-md) 4px;
+}
+.chat-msg-text {
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: #eef2fa;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Your own messages: right-aligned, warm gold bubble. */
+.chat-msg--own {
+  align-items: flex-end;
+}
+.chat-msg--own .chat-msg-meta {
+  flex-direction: row-reverse;
+}
+.chat-msg--own .chat-msg-bubble {
+  border-left-width: 2px;
+  border-left-color: rgba(255, 255, 255, 0.06);
+  border-right: 4px solid var(--gold-500);
+  border-radius: var(--r-md) 4px var(--r-md) var(--r-md);
+  background: linear-gradient(180deg, #4a4026 0%, #3a3220 100%);
+}
+.chat-msg--own.chat-msg--cont .chat-msg-bubble {
+  border-radius: var(--r-md) 4px 4px var(--r-md);
+}
+
+/* Server / system lines: centered, quiet. */
+.chat-msg--server {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-4);
+  text-align: center;
+}
+.chat-msg--server .chat-msg-text {
+  font-style: italic;
+  color: var(--slate-text);
+}
+
+/* "New messages" pill when scrolled up. */
+.chat-popout-jump {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s-3);
+  transform: translateX(-50%);
+  padding: 0 var(--s-4);
+  font-size: var(--t-small);
+  white-space: nowrap;
+  animation: chat-jump-in 0.24s var(--ease-spring);
+}
+.chat-popout-jump:active:not(:disabled) {
+  transform: translate(-50%, 3px);
+}
+.chat-popout-jump[hidden] {
+  display: none;
+}
+@keyframes chat-jump-in {
+  from { opacity: 0; transform: translate(-50%, 12px) scale(0.9); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+/* ── Composer ────────────────────────────────────────────── */
+
+.chat-popout-composer {
+  --ch-color: var(--gold-300);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  border-top: 2px solid var(--ink-900);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.chat-popout-dm-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.chat-popout-dm-row[hidden] {
+  display: none;
+}
+.chat-popout-dm-label {
+  flex-shrink: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--ch-color);
+  text-shadow: var(--text-stroke-sm);
+}
+.chat-popout-dm-target.gc-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-min);
+}
+.chat-popout-send-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-2);
+}
+/* Channel picker: a native <select> dressed as a colored chip. */
+.chat-popout-channel {
+  flex-shrink: 0;
+  min-height: var(--tap-lg);
+  max-width: 108px;
+  padding: 0 28px 0 var(--s-3);
+  border: 2px solid var(--ch-color);
+  border-radius: var(--r-md);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 10px center / 12px 8px no-repeat,
+    color-mix(in srgb, var(--ch-color) 18%, var(--slate-900));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 0 var(--ink-900);
+  font-family: var(--display-font);
+  font-size: var(--t-body);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.chat-popout-channel:active {
+  transform: translateY(2px);
+}
+.chat-popout-channel:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+.chat-popout-channel option {
+  background: var(--slate-900);
+  color: #fff;
+  text-shadow: none;
+}
+.chat-popout-input.gc-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--s-3);
+}
+.chat-popout-input.gc-input:focus {
+  border-color: var(--ch-color);
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.55), 0 0 0 3px color-mix(in srgb, var(--ch-color) 35%, transparent);
+}
+.chat-popout-send.gc-btn {
+  flex-shrink: 0;
+  min-height: var(--tap-lg);
+  padding: 0 var(--s-4);
+}
+
+/* ── Desktop resize grip ─────────────────────────────────── */
+
+.chat-popout-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 24px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg,
+    transparent 45%, var(--slate-500) 45%, var(--slate-500) 55%,
+    transparent 55%, transparent 68%, var(--slate-500) 68%, var(--slate-500) 78%,
+    transparent 78%);
+  border-bottom-right-radius: var(--r-lg);
+}
+
+/* Desktop maximized — toggled via the layout button. Fills the viewport
+   above the chrome (XP bar, perch row, bottom nav). */
+.chat-popout-desktop-max {
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: var(--chrome-bottom) !important;
+  width: 100vw !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  border-width: 0 0 3px;
+}
+.chat-popout-desktop-max .chat-popout-header {
+  cursor: default;
+}
+.chat-popout-desktop-max .chat-popout-resize {
+  display: none;
+}
+.chat-popout-desktop-max .chat-popout-timeline {
+  padding-left: max(var(--s-3), calc((100% - 860px) / 2));
+  padding-right: max(var(--s-3), calc((100% - 860px) / 2));
+}
+
+/* ── Mobile layouts ──────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  /* Mobile chat is a top-level layout element, not a floating popup: no
+     outer outline or drop shadow. In sheet mode the screen container shrinks
+     above it, so the chat docks instead of overlaying the active screen. */
+  .chat-popout {
+    box-shadow: none;
+  }
+  .chat-popout-header {
+    cursor: default;
+    touch-action: auto;
+  }
+  .chat-popout-resize {
+    display: none;
+  }
+  .chat-popout-mobile-full {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-width: none !important;
+    max-height: none !important;
+    border: none;
+    border-radius: 0;
+    animation: chat-full-in 0.24s var(--ease-out);
+  }
+  .chat-popout-mobile-full .chat-popout-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + var(--s-2));
+  }
+  .chat-popout-mobile-full .chat-popout-composer {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--s-3));
+  }
+  .chat-popout-mobile-sheet {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: var(--chrome-bottom) !important;
+    top: auto !important;
+    width: 100vw !important;
+    height: var(--chat-sheet-height, 50vh) !important;
+    max-width: none !important;
+    border-width: 3px 0 0;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.5);
+    animation: chat-sheet-in 0.28s var(--ease-out);
+  }
+
+  /* Dock the chat sheet: shrink the screen container so the active screen
+     centers itself in the visible area above the chat (instead of being
+     overlaid by it). The xp bar gets margin-top:auto so it (and the nav
+     after it) push to the actual bottom of #app — otherwise flex's default
+     flex-start would pack them right under the shrunk screen-container and
+     they'd visually sit inside the chat's overlay rect. The sheet itself
+     stays fixed at bottom: --chrome-bottom, so once the chrome is at the
+     viewport bottom, the chat slots cleanly between it and the screen. */
+  body[data-chat-open="1"][data-chat-layout="sheet"] #screen-container {
+    flex: 0 1 calc(100% - var(--chat-sheet-height, 50vh) - var(--chrome-bottom));
+    min-height: 0;
+  }
+  body[data-chat-open="1"][data-chat-layout="sheet"] #persistent-xp-bar {
+    margin-top: auto;
+  }
+}
+
+@media (min-width: 768px) {
+  .chat-popout-filters {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+
+@keyframes chat-sheet-in {
+  from { opacity: 0.4; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes chat-full-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-popout,
+  .chat-popout-mobile-full,
+  .chat-popout-mobile-sheet,
+  .chat-popout-jump {
+    animation: none;
+  }
+  .gc-chip__face {
+    transition: none;
+  }
+}
