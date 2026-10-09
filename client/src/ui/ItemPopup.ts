@@ -1,6 +1,6 @@
 import type { ItemDefinition, SetDefinition, SkillDefinition } from '@idle-party-rpg/shared';
 import { getItemEffectText, getSetsForItem, getSetBonusText, getSetDisplayName, getActiveBreakpoint } from '@idle-party-rpg/shared';
-import { RARITY_COLORS, SLOT_LABELS, SHINY_RARITIES, getItemInitials, escapeHtml } from './ItemIcon';
+import { RARITY_COLORS, SLOT_LABELS, SHINY_RARITIES, getItemInitials, escapeHtml, renderItemFrame } from './ItemIcon';
 
 export interface ItemPopupOptions {
   /** Item definitions for looking up set piece names */
@@ -128,6 +128,94 @@ export function renderItemPopupContent(def: ItemDefinition, options?: ItemPopupO
     ${extraHtml}
     ${actionsHtml ? `<div class="item-popup-actions">${actionsHtml}</div>` : ''}
   `;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Kit version of the item details: the body of a parchment `.gc-modal`
+ * (large rarity frame, name in rarity color, stat rows, class restriction,
+ * set progress, then `extraHtml`). The caller owns the modal shell and the
+ * action buttons. Styles live in styles/screens/items.css.
+ *
+ * Takes the same options as renderItemPopupContent minus `actionsHtml`.
+ */
+export function renderItemDetail(def: ItemDefinition, options?: Omit<ItemPopupOptions, 'actionsHtml'>): string {
+  const rows: string[] = [];
+  const row = (label: string, value: string, attrs = '') =>
+    `<div class="gc-item-detail__row"${attrs}><span class="gc-item-detail__label">${label}</span><span class="gc-item-detail__value">${value}</span></div>`;
+
+  const effect = getItemEffectText(def, options?.skills);
+  if (effect && effect !== 'Material' && effect !== 'No bonus') {
+    rows.push(row('Effect', escapeHtml(effect)));
+  }
+  if (def.consumable) {
+    rows.push(row('Use', '<span class="gc-item-detail__soon">Not usable yet — coming soon!</span>'));
+  }
+  if (def.value != null && def.value > 0) {
+    rows.push(row('Value', `${def.value.toLocaleString()} gold`));
+  }
+
+  const className = options?.className;
+  if (def.classRestriction && def.classRestriction.length > 0) {
+    // Green when the viewing class can equip it, red when not. The data
+    // attribute lets the screen pulse this row when Equip is refused.
+    const allowed = !!className && def.classRestriction.includes(className);
+    const names = def.classRestriction.map(c => escapeHtml(c)).join(', ');
+    rows.push(row(
+      'Class',
+      `<span class="gc-item-detail__class ${allowed ? 'is-allowed' : 'is-blocked'}">${names}</span>`,
+      ' data-class-restriction="1"',
+    ));
+  }
+
+  const typeLabel = def.equipSlot
+    ? (SLOT_LABELS[def.equipSlot] ?? def.equipSlot)
+    : def.consumable ? 'Consumable' : 'Material';
+
+  const setDefs = options?.setDefs ?? {};
+  const owned = options?.ownedItemIds;
+  const equipped = options?.equippedItemIds;
+  const itemDefs = options?.itemDefs ?? {};
+  const setsHtml = getSetsForItem(def.id, setDefs, className).map(set => {
+    let equippedCount = 0;
+    for (const id of set.itemIds) {
+      if (equipped?.has(id)) equippedCount++;
+    }
+    const pieces = set.itemIds.map(pieceId => {
+      const isEquipped = equipped?.has(pieceId) ?? false;
+      const isOwned = owned?.has(pieceId) ?? false;
+      const state = isEquipped ? 'is-equipped' : isOwned ? 'is-owned' : '';
+      const mark = isEquipped ? '&#9745;' : '&#9744;';
+      return `<li class="gc-item-detail__piece ${state}">${mark} ${escapeHtml(itemDefs[pieceId]?.name ?? pieceId)}</li>`;
+    }).join('');
+    const activeBp = getActiveBreakpoint(set, equippedCount);
+    const bps = (set.breakpoints ?? []).map(bp => {
+      const isActive = !!activeBp && activeBp.piecesRequired === bp.piecesRequired;
+      const isUnlocked = bp.piecesRequired <= equippedCount;
+      const state = isActive ? 'is-active' : isUnlocked ? 'is-unlocked' : '';
+      const mark = isActive ? '&#9656;' : isUnlocked ? '&#10003;' : '&#9744;';
+      return `<li class="gc-item-detail__bp ${state}">${mark} ${bp.piecesRequired}pc: ${escapeHtml(getSetBonusText(bp.bonuses, options?.skills))}</li>`;
+    }).join('');
+    return `
+      <section class="gc-item-detail__set">
+        <div class="gc-item-detail__set-name">${escapeHtml(getSetDisplayName(set))} <span class="gc-item-detail__set-count">${equippedCount}/${set.itemIds.length}</span></div>
+        <ul class="gc-item-detail__pieces">${pieces}</ul>
+        ${bps ? `<ul class="gc-item-detail__bps">${bps}</ul>` : ''}
+      </section>`;
+  }).join('');
+
+  return `
+    <div class="gc-item-detail" data-rarity="${escapeHtml(def.rarity ?? 'common')}">
+      <div class="gc-item-detail__art">${renderItemFrame(def.id, def, { size: 'lg', decorative: true })}</div>
+      <h2 class="gc-item-detail__name">${escapeHtml(def.name)}</h2>
+      <div class="gc-item-detail__sub">${escapeHtml(capitalize(def.rarity ?? 'common'))} · ${escapeHtml(typeLabel)}</div>
+      ${rows.length ? `<div class="gc-item-detail__rows">${rows.join('')}</div>` : ''}
+      ${setsHtml}
+      ${options?.extraHtml ?? ''}
+    </div>`;
 }
 
 /**

@@ -1,0 +1,266 @@
+/*
+ * Item frames + item detail — kit extensions used by ui/ItemIcon.ts
+ * (renderItemFrame / renderEmptySlotFrame) and ui/ItemPopup.ts
+ * (renderItemDetail). Imported from ItemIcon.ts so any screen that renders a
+ * kit item frame gets these rules. Candidates for promotion to components.css.
+ */
+
+/* ── Rarity: the two tiers the kit doesn't know about ────────── */
+
+.gc-item-detail,
+.gc-rarity-text {
+  --rarity: var(--rarity-common);
+}
+:is(.gc-item-detail, .gc-rarity-text)[data-rarity="uncommon"] { --rarity: var(--rarity-uncommon); }
+:is(.gc-item-detail, .gc-rarity-text)[data-rarity="rare"] { --rarity: var(--rarity-rare); }
+:is(.gc-item-detail, .gc-rarity-text)[data-rarity="epic"] { --rarity: var(--rarity-epic); }
+:is(.gc-item-detail, .gc-rarity-text)[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
+:is(.gc-item, .gc-item-detail, .gc-rarity-text)[data-rarity="heirloom"] { --rarity: var(--gold-500); }
+:is(.gc-item, .gc-item-detail, .gc-rarity-text)[data-rarity="janky"] { --rarity: #7a706a; }
+
+/* Item name in its rarity color, outlined so pale tiers read on parchment. */
+.gc-rarity-text {
+  font-family: var(--display-font);
+  color: var(--rarity);
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* ── Frame contents ──────────────────────────────────────────── */
+
+/* Art fades in on load. The initials are hidden while the img exists (so
+   they don't flash during loading) and appear only when a 404 removes the
+   img — the graceful no-art fallback. Same pattern for the empty-slot glyph,
+   the hero art and skill art. */
+.gc-item__img {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--dur-fast) linear;
+}
+.gc-item__img.is-loaded {
+  opacity: 1;
+}
+.gc-item__initials,
+.gc-item__emoji,
+.gc-item__slot-name {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  line-height: 1;
+}
+.gc-item__initials {
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.gc-item__img ~ .gc-item__initials {
+  display: none;
+}
+.gc-item__emoji {
+  font-size: 32px;
+}
+.gc-item--sm .gc-item__emoji { font-size: 26px; }
+.gc-item--lg .gc-item__emoji { font-size: 44px; }
+.gc-item--sm .gc-item__initials { font-size: var(--t-label); }
+.gc-item--lg .gc-item__initials { font-size: var(--t-heading); }
+
+/* Count/badges sit above the art. */
+.gc-item__count,
+.gc-item__set,
+.gc-item__slot {
+  z-index: 2;
+}
+
+/* Set pip — small gold coin, top-left. */
+.gc-item__set {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 35% 30%, var(--gold-300), var(--gold-500) 55%, var(--gold-700));
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* Slot badge — optional art, top-right; hidden until (unless) it loads. */
+.gc-item__slot {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  opacity: 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8));
+}
+.gc-item__slot.is-loaded {
+  opacity: 0.9;
+}
+
+/* Empty equipment slot: faint slot glyph, or its short name when the glyph
+   art is missing. */
+.gc-item__slot-glyph {
+  position: absolute;
+  inset: 26%;
+  width: 48%;
+  height: 48%;
+  object-fit: contain;
+  opacity: 0;
+}
+.gc-item__slot-glyph.is-loaded {
+  opacity: 0.45;
+}
+.gc-item__slot-glyph ~ .gc-item__slot-name {
+  display: none;
+}
+.gc-item__slot-name {
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  color: var(--gc-steel-300);
+  opacity: 0.8;
+}
+
+/* Epic and better get a soft glow in their rarity color. Static on purpose:
+   a pulsing filter on a whole inventory grid is expensive on phones. */
+.gc-item--shiny {
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 6px color-mix(in srgb, var(--rarity) 70%, transparent));
+}
+
+button.gc-item {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+button.gc-item:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
+/* ── Item detail (body of a parchment .gc-modal) ───────────── */
+
+.gc-item-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.gc-item-detail__art {
+  padding-top: var(--s-2);
+}
+.gc-parchment .gc-item-detail__name {
+  margin: var(--s-3) 0 0;
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  line-height: 1.1;
+  color: var(--rarity);
+  text-shadow: var(--text-stroke-sm);
+  overflow-wrap: anywhere;
+}
+.gc-item-detail__sub {
+  margin-top: var(--s-1);
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.gc-item-detail__rows {
+  width: 100%;
+  margin-top: var(--s-4);
+  border-top: 2px solid rgba(138, 106, 60, 0.35);
+}
+.gc-item-detail__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-bottom: 1px dashed rgba(138, 106, 60, 0.4);
+  text-align: left;
+}
+.gc-item-detail__label {
+  flex-shrink: 0;
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.gc-item-detail__value {
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--parch-ink);
+  text-align: right;
+}
+.gc-item-detail__soon {
+  color: var(--parch-accent);
+}
+.gc-item-detail__class.is-allowed { color: var(--green-700); }
+.gc-item-detail__class.is-blocked { color: var(--red-700); }
+
+/* Quick pulse on the class row when Equip is refused for this class. */
+@keyframes gc-class-restriction-pulse {
+  0% { background: rgba(224, 70, 58, 0); }
+  20% { background: rgba(224, 70, 58, 0.3); }
+  100% { background: rgba(224, 70, 58, 0); }
+}
+[data-class-restriction].class-restriction-pulse {
+  animation: gc-class-restriction-pulse 0.6s var(--ease-out);
+  border-radius: var(--r-sm);
+}
+
+.gc-item-detail__set {
+  width: 100%;
+  margin-top: var(--s-4);
+  padding: var(--s-3);
+  border: 2px solid var(--parch-500);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.3);
+  text-align: left;
+}
+.gc-item-detail__set-name {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--parch-accent);
+}
+.gc-item-detail__set-count {
+  color: var(--parch-ink-soft);
+}
+.gc-item-detail__pieces,
+.gc-item-detail__bps {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-small);
+  line-height: 1.4;
+}
+.gc-item-detail__piece { color: var(--parch-ink-soft); }
+.gc-item-detail__piece.is-owned { color: var(--parch-ink); }
+.gc-item-detail__piece.is-equipped { color: var(--green-700); font-weight: 600; }
+.gc-item-detail__bps {
+  padding-top: var(--s-2);
+  border-top: 1px dashed rgba(138, 106, 60, 0.4);
+}
+.gc-item-detail__bp { color: var(--parch-ink-soft); }
+.gc-item-detail__bp.is-unlocked { color: var(--parch-ink); }
+.gc-item-detail__bp.is-active { color: var(--green-700); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-item__img,
+  button.gc-item {
+    transition: none;
+  }
+  [data-class-restriction].class-restriction-pulse {
+    animation: none;
+    background: rgba(224, 70, 58, 0.25);
+  }
+}

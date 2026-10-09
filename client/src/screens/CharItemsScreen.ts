@@ -12,7 +12,6 @@ import type {
 } from '@idle-party-rpg/shared';
 import {
   computeEquipmentBonuses,
-  classIconHtml,
   CLASS_DEFINITIONS,
   getSkillsForClass,
   getOwnedItemIds,
@@ -20,19 +19,28 @@ import {
 } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import type { WorldCache } from '../network/WorldCache';
-import { RARITY_ORDER, SLOT_LABELS, renderItemIcon, renderEmptySlotIcon, RARITY_COLORS } from '../ui/ItemIcon';
-import { renderItemPopupContent } from '../ui/ItemPopup';
-import { renderAssetImg, artworkUrl } from '../ui/assets';
-import { bringToFront, release } from '../ui/ModalStack';
+import {
+  RARITY_ORDER,
+  SLOT_LABELS,
+  renderItemFrame,
+  renderEmptySlotFrame,
+  escapeHtml,
+} from '../ui/ItemIcon';
+import { renderItemDetail } from '../ui/ItemPopup';
+import { artworkUrl } from '../ui/assets';
+import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
+import '../styles/screens/character.css';
 
-/** Left column slots (top to bottom). Mainhand sits at the bottom of the
- *  left column with a small visual gap (no separate row anymore). */
+/** Left column slots (top to bottom). Mainhand closes the column, set apart
+ *  by a small gap so the two weapon slots read as a pair. */
 const LEFT_SLOTS: EquipSlot[] = ['head', 'shoulders', 'chest', 'gloves', 'foot', 'mainhand'];
 
-/** Right column slots (top to bottom). Offhand mirrors mainhand on the right. */
+/** Right column slots (top to bottom). Offhand mirrors mainhand. */
 const RIGHT_SLOTS: EquipSlot[] = ['back', 'necklace', 'bracers', 'ring', 'relic', 'offhand'];
 
 type SortMode = 'rarity' | 'type' | 'newest';
+
+const SORT_LABELS: Record<SortMode, string> = { type: 'Type', rarity: 'Rarity', newest: 'Newest' };
 
 /** Display order within the inventory when sorting by type (and matching header buckets). */
 const SLOT_ORDER: Record<string, number> = {
@@ -44,605 +52,54 @@ const SLOT_ORDER: Record<string, number> = {
 /** Rarity buckets in display order (best first). */
 const RARITY_BUCKET_ORDER = ['heirloom', 'legendary', 'epic', 'rare', 'uncommon', 'common', 'janky'];
 
-/** Tooltip descriptions for the condensed stat-card abbreviations. */
+/** Tap-for-info descriptions for the character stats. */
 const STAT_TOOLTIPS: Record<string, { full: string; desc: string }> = {
   ATK: { full: 'Attack', desc: 'Damage you deal per attack (base + equipment).' },
   DR: { full: 'Damage Reduction', desc: 'Reduces incoming physical damage (per hit).' },
   MR: { full: 'Magic Resistance', desc: 'Reduces incoming magical damage. Holy damage is unaffected.' },
   HP: { full: 'Hit Points', desc: 'Maximum health pool.' },
+  GOLD: { full: 'Gold', desc: 'Spent at shops and earned from battles and selling loot.' },
 };
 
-function injectCharItemsStyles(): void {
-  if (document.getElementById('charitems-screen-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'charitems-screen-styles';
-  style.textContent = `
-    .charitems-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 12px;
-      overflow-y: auto;
-    }
-
-    .charitems-hero {
-      background: var(--bg-panel);
-      border: 2px solid var(--border-pixel);
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .charitems-hero-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 8px;
-      align-items: start;
-    }
-
-    /* Class portrait now lives in the equipment-panel center slot
-       (grid area .items-equip-figure, formerly the silhouette). */
-    .charitems-portrait {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 0;
-      overflow: hidden;
-    }
-    .charitems-portrait img {
-      max-width: 100%;
-      max-height: 100%;
-      width: auto;
-      height: 100%;
-      object-fit: contain;
-      image-rendering: pixelated;
-    }
-
-    .charitems-skills-strip {
-      display: flex;
-      gap: 6px;
-      justify-content: center;
-      flex-wrap: wrap;
-      padding-top: 4px;
-      border-top: 1px dashed var(--border-pixel);
-    }
-    .charitems-skill-slot {
-      flex: 1 1 80px;
-      min-width: 76px;
-      max-width: 120px;
-      padding: 6px 4px;
-      background: var(--bg-input);
-      border: 2px solid var(--border-pixel);
-      cursor: pointer;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .charitems-skill-slot.locked {
-      cursor: not-allowed;
-      opacity: 0.45;
-    }
-    .charitems-skill-slot.empty {
-      background: rgba(0,0,0,0.2);
-    }
-    .charitems-skill-slot.filled.passive { border-color: #5c8a5c; }
-    .charitems-skill-slot.filled.active { border-color: #c89b3c; }
-    /*
-     * Skill art is optional. The img starts hidden and only reveals on a
-     * successful load, so a skill with no artwork collapses to the existing
-     * name+meta layout rather than leaving a gap or a broken-image glyph.
-     * No placehold.co fallback here — 55 skills would mean 55 third-party
-     * requests on one screen.
-     */
-    .charitems-skill-icon {
-      width: 34px;
-      height: 34px;
-      align-self: center;
-      border-radius: 3px;
-      opacity: 0;
-      transition: opacity 120ms;
-    }
-    /*
-     * Floated rather than a flex/grid child: the row is a flex column, and a
-     * float lets the name/meta/desc wrap alongside the icon without
-     * restructuring the row markup. It also means the removed-on-404 case
-     * needs no fallback rule — the layout is simply what it was before.
-     */
-    .charitems-skill-row-icon {
-      float: left;
-      width: 32px;
-      height: 32px;
-      margin: 0 8px 2px 0;
-      border-radius: 3px;
-      opacity: 0;
-      transition: opacity 120ms;
-    }
-    .charitems-skill-slot-name {
-      font-size: 11px;
-      color: var(--text-primary);
-      line-height: 1.1;
-      word-break: break-word;
-    }
-    .charitems-skill-slot-meta {
-      font-size: 8px;
-      color: var(--text-dim);
-      text-transform: uppercase;
-    }
-
-    .charitems-skill-popup-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-    .charitems-skill-popup {
-      background: #1a1a2e;
-      border: 2px solid #444;
-      border-radius: 6px;
-      padding: 14px;
-      width: 90%;
-      max-width: 360px;
-      max-height: 80vh;
-      overflow-y: auto;
-      color: #e8e8e8;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .charitems-skill-popup-title {
-      font-size: 14px;
-      color: var(--accent-gold);
-      margin-bottom: 4px;
-    }
-    .charitems-skill-popup-empty {
-      font-size: 12px;
-      color: var(--text-dim);
-      font-style: italic;
-      text-align: center;
-      padding: 8px 0;
-    }
-    .charitems-skill-row {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding: 6px 8px;
-      border: 1px solid #333;
-      background: #0f0f1c;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-    .charitems-skill-row:hover {
-      border-color: var(--accent-gold);
-    }
-    .charitems-skill-row.passive { border-left: 4px solid #5c8a5c; }
-    .charitems-skill-row.active { border-left: 4px solid #c89b3c; }
-    .charitems-skill-row.locked {
-      opacity: 0.55;
-      cursor: default;
-    }
-    .charitems-skill-row.locked:hover { border-color: #333; }
-    .charitems-skill-row-locklabel {
-      font-size: 10px;
-      color: var(--accent-gold, #c89b3c);
-      text-transform: uppercase;
-    }
-    .charitems-skill-row-name {
-      font-size: 13px;
-      color: #f5f5f5;
-    }
-    .charitems-skill-row-meta {
-      font-size: 10px;
-      color: #888;
-      text-transform: uppercase;
-    }
-    .charitems-skill-row-desc {
-      font-size: 11px;
-      color: #bbb;
-      line-height: 1.3;
-    }
-    .charitems-skill-popup-actions {
-      display: flex;
-      justify-content: space-between;
-      gap: 6px;
-      margin-top: 6px;
-    }
-    .charitems-skill-popup-btn {
-      padding: 6px 10px;
-      background: #2a2a40;
-      border: 1px solid #555;
-      color: #e8e8e8;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 12px;
-      border-radius: 4px;
-    }
-    .charitems-skill-popup-btn:hover { background: #3a3a55; }
-    .charitems-skill-popup-btn.danger { border-color: #a33; color: #f88; }
-
-    .charitems-stat-card {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      background: var(--bg-panel);
-      border: 2px solid var(--border-pixel);
-      padding: 10px;
-    }
-    .charitems-stat {
-      flex: 1 1 64px;
-      min-width: 64px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-    }
-    .charitems-stat-label {
-      font-size: 11px;
-      color: var(--text-secondary);
-      cursor: help;
-      text-decoration: underline dotted;
-      letter-spacing: 1px;
-    }
-    .charitems-stat-value {
-      font-size: 13px;
-      color: var(--text-primary);
-    }
-    .charitems-stat-tooltip {
-      position: fixed;
-      background: #222;
-      color: #e8e8e8;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 12px;
-      max-width: 220px;
-      line-height: 1.4;
-      z-index: 2000;
-      border: 1px solid #555;
-      pointer-events: none;
-    }
-    .charitems-stat-tooltip-title {
-      color: var(--accent-gold);
-      font-size: 13px;
-      margin-bottom: 4px;
-    }
-
-    .charitems-meta-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-    .charitems-meta-row strong { color: var(--text-primary); }
-
-    .charitems-xp-bar-wrap {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-    .charitems-xp-bar {
-      height: 8px;
-      background: var(--bg-input);
-      border: 1px solid var(--border-pixel);
-      overflow: hidden;
-    }
-    .charitems-xp-fill {
-      height: 100%;
-      background: var(--accent-gold);
-    }
-    .charitems-xp-rate-row {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      font-size: 10px;
-      color: var(--text-dim);
-    }
-    .charitems-xp-rate-reset {
-      cursor: pointer;
-      color: var(--accent-gold);
-    }
-
-    .charitems-passive-info {
-      background: var(--bg-panel);
-      border: 1px dashed var(--border-pixel);
-      padding: 8px;
-      font-size: 11px;
-      color: var(--text-secondary);
-      line-height: 1.4;
-    }
-
-    .charitems-inv-group-header {
-      grid-column: 1 / -1;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: var(--text-secondary);
-      margin-top: 4px;
-      padding: 4px 0 2px;
-      border-bottom: 1px dashed var(--border-pixel);
-    }
-
-    @media (min-width: 1000px) {
-      .charitems-hero-grid {
-        gap: 16px;
-      }
-    }
-  `;
-  document.head.appendChild(style);
+interface ModalOptions {
+  /** Slate title tab across the panel's top edge. */
+  title?: string;
+  bodyHtml: string;
+  /** Buttons rendered in the row overlapping the panel's bottom edge. */
+  actionsHtml?: string;
+  extraClass?: string;
 }
 
-function injectItemsStyles(): void {
-  if (document.getElementById('items-screen-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'items-screen-styles';
-  style.textContent = `
-    .item-square {
-      position: relative;
-      aspect-ratio: 1;
-      border-radius: 4px;
-      cursor: pointer;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 2px solid rgba(180,180,180,0.25);
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3);
-      box-sizing: border-box;
-      min-width: 0;
-    }
-    .item-square-img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-    /* isolation: isolate on the parent square keeps the inner z-indexed
-       overlays (initials, qty, dogear, set indicator) inside their own
-       stacking context so they cannot bleed up over the chat popout. */
-    .item-square { isolation: isolate; }
-    .item-square-initials {
-      font-size: 17px;
-      color: rgba(255,255,255,0.85);
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-      z-index: 1;
-      pointer-events: none;
-      text-align: center;
-      line-height: 1;
-    }
-    .item-dogear {
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 18px;
-      height: 18px;
-      background: rgba(240,240,240,0.85);
-      border-top-left-radius: 4px;
-      border-top: 1px solid rgba(0,0,0,0.2);
-      border-left: 1px solid rgba(0,0,0,0.2);
-      pointer-events: none;
-      z-index: 3;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .item-dogear-icon {
-      font-size: 14px;
-      line-height: 1;
-      pointer-events: none;
-    }
-    .item-square-empty {
-      cursor: default;
-    }
-    .item-square-empty .item-dogear {
-      width: 16px;
-      height: 16px;
-    }
-    .item-square-empty .item-dogear-icon {
-      font-size: 13px;
-    }
-    .item-square-qty {
-      position: absolute;
-      top: 1px;
-      right: 2px;
-      font-size: 11px;
-      color: #fff;
-      background: rgba(0,0,0,0.6);
-      padding: 0 2px;
-      border-radius: 2px;
-      pointer-events: none;
-      z-index: 2;
-      line-height: 1.2;
-    }
-    .item-square-set {
-      position: absolute;
-      top: 1px;
-      left: 2px;
-      font-size: 11px;
-      color: #e9bc18;
-      pointer-events: none;
-      z-index: 2;
-      line-height: 1;
-    }
-
-    @keyframes item-border-epic {
-      0%, 100% { border-color: rgba(180,180,180,0.4); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 4px rgba(238,102,227,0.3); }
-      50% { border-color: rgba(200,200,200,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 8px rgba(238,102,227,0.6), inset 0 0 4px rgba(238,102,227,0.15); }
-    }
-    @keyframes item-border-legendary {
-      0%, 100% { border-color: rgba(180,180,180,0.4); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 4px rgba(146,51,223,0.3); }
-      33% { border-color: rgba(200,200,200,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 8px rgba(199,125,255,0.6), inset 0 0 4px rgba(199,125,255,0.15); }
-      66% { border-color: rgba(210,210,210,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 12px rgba(224,170,255,0.7), inset 0 0 6px rgba(224,170,255,0.2); }
-    }
-    @keyframes item-border-heirloom {
-      0%, 100% { border-color: rgba(180,180,180,0.4); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 4px rgba(233,188,24,0.3); }
-      50% { border-color: rgba(200,200,200,0.5); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.3), 0 0 10px rgba(255,241,118,0.6), inset 0 0 5px rgba(255,241,118,0.15); }
-    }
-    .item-rarity-epic { animation: item-border-epic 2s ease-in-out infinite; }
-    .item-rarity-legendary { animation: item-border-legendary 3s ease-in-out infinite; }
-    .item-rarity-heirloom { animation: item-border-heirloom 2.5s ease-in-out infinite; }
-
-    .item-popup-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-    .item-popup {
-      background: #1a1a2e;
-      border: 2px solid #444;
-      border-radius: 8px;
-      padding: 16px;
-      max-width: 320px;
-      width: 90%;
-      max-height: 80vh;
-      overflow-y: auto;
-      color: #e8e8e8;
-    }
-    .item-popup-artwork {
-      width: 80px;
-      height: 80px;
-      margin: 0 auto 12px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      position: relative;
-    }
-    .item-popup-artwork img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-    }
-    .item-popup-artwork .item-popup-initials {
-      font-size: 32px;
-      color: rgba(255,255,255,0.85);
-      text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
-    }
-    .item-popup-name { text-align: center; font-size: 19px; margin-bottom: 8px; }
-    .item-popup-stats { font-size: 15px; margin-bottom: 8px; line-height: 1.6; }
-    .item-popup-stats div { display: flex; justify-content: space-between; }
-    .item-popup-stats .stat-label { color: #999; }
-    .item-popup-set-section { border-top: 1px solid #333; padding-top: 8px; margin-top: 8px; font-size: 15px; }
-    .item-popup-set-name { color: #e9bc18; margin-bottom: 4px; }
-    .item-popup-set-pieces { margin-bottom: 4px; }
-    .item-popup-set-piece { color: #888; margin-left: 8px; }
-    .item-popup-set-piece.owned { color: #ccc; }
-    .item-popup-set-piece.equipped { color: #66bb6a; }
-    .item-popup-set-bonus { color: #aaa; font-style: italic; }
-    .item-popup-set-breakpoints { margin-top: 4px; }
-    .item-popup-set-bp { color: #666; font-size: 14px; line-height: 1.4; }
-    .item-popup-set-bp.unlocked { color: #aaa; }
-    .item-popup-set-bp.active { color: #66bb6a; }
-    .item-popup-actions { margin-top: 12px; display: flex; gap: 8px; justify-content: center; }
-    .item-popup-actions button {
-      padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
-      background: #2a2a40; color: #e8e8e8; cursor: pointer; font-family: inherit; font-size: 15px;
-    }
-    .item-popup-actions button:hover { background: #3a3a55; }
-    .item-popup-actions button.danger { border-color: #a33; color: #f88; }
-    .item-popup-actions button.danger:hover { background: #4a2020; }
-    .item-popup-actions button[disabled],
-    .item-popup-actions button[disabled]:hover {
-      background: #1a1a28;
-      color: #555;
-      border-color: #2a2a3a;
-      cursor: not-allowed;
-      opacity: 0.7;
-    }
-
-    .items-search-sort {
-      display: flex; gap: 6px; margin-bottom: 8px; align-items: center;
-    }
-    .items-search-sort input {
-      flex: 1; min-width: 0; padding: 4px 8px; border-radius: 4px;
-      border: 1px solid #555; background: #1a1a2e; color: #e8e8e8;
-      font-family: inherit; font-size: 14px;
-    }
-    .items-search-sort select {
-      padding: 4px 6px; border-radius: 4px; border: 1px solid #555;
-      background: #1a1a2e; color: #e8e8e8; font-family: inherit; font-size: 14px;
-    }
-
-    .items-inv-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
-      gap: 4px;
-    }
-
-    .items-equip-slot-square { width: 44px; height: 44px; }
-
-    @media (min-width: 768px) {
-      .items-inv-grid {
-        grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-        gap: 6px;
-      }
-      .items-equip-slot-square { width: 52px; height: 52px; }
-      .item-square-initials { font-size: 19px; }
-      .item-dogear { width: 22px; height: 22px; }
-      .item-dogear-icon { font-size: 16px; }
-      .item-square-qty { font-size: 12px; }
-      .item-popup { max-width: 380px; }
-    }
-
-    .items-section-count { color: #888; font-size: 13px; margin-left: 4px; }
-    .items-mailbox, .items-trades { margin-top: 8px; }
-    .mailbox-list, .trade-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-    .mailbox-row, .trade-row {
-      display: flex; gap: 6px; align-items: center; padding: 6px 8px;
-      border: 1px solid #444; border-radius: 4px; background: #1a1a2e; font-size: 14px;
-    }
-    .trade-row-attention { border-color: #d4af37; box-shadow: 0 0 4px rgba(212,175,55,0.3); }
-    .mailbox-info, .trade-row-main { flex: 1; min-width: 0; }
-    .mailbox-from { color: #aaa; font-size: 13px; }
-    .mailbox-note { color: #d77; font-style: italic; margin-left: 4px; }
-    .mailbox-item { margin-top: 2px; }
-    .mailbox-item-qty { color: #888; margin-left: 4px; }
-    .mailbox-warn { color: #d77; font-size: 13px; margin-top: 2px; }
-    .mailbox-actions, .trade-row-actions {
-      display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
-    }
-    .mailbox-actions button, .trade-row-actions button {
-      padding: 3px 8px; font-size: 13px; min-width: 60px;
-    }
-    .trade-row-partner { }
-    .trade-row-status { color: #aaa; font-size: 13px; }
-    .trade-row-attention .trade-row-status { color: #d4af37; }
-    .trade-row-offers { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
-    .trade-row-side { font-size: 13px; }
-    .trade-row-label { color: #666; margin-right: 4px; }
-    .trade-row-empty { color: #555; font-style: italic; }
-    .trade-row-item { display: inline-block; }
-  `;
-  document.head.appendChild(style);
-}
-
+/**
+ * Character screen ("Character" nav tab) — WorldQuest-style character sheet
+ * over the inventory, in one scroll region.
+ *
+ *  - Character sheet (parchment, player name on the title tab): equipment
+ *    slots as rarity frames in two columns flanking the class art, the big
+ *    Health / Attack numbers over the hero, "Level N · Class" under it, then
+ *    DR / MR / Gold chips, the skill loadout, XP + XP/hr, and the class passive.
+ *  - Mailbox gifts and proposed trades (only when there are any) as slate rows.
+ *  - Inventory (parchment): search, Type / Rarity / Newest segmented sort, and
+ *    a grid of rarity frames grouped under dividers when sorted by type/rarity.
+ *
+ * Every popup (item details, destroy, skill picker, confirms) is a kit
+ * `.gc-modal`; only one is open at a time.
+ */
 export class CharItemsScreen implements Screen {
   private container: HTMLElement;
   private gameClient: GameClient;
   private worldCache: WorldCache;
   private isActive = false;
 
-  // Hero section refs
-  private portraitEl!: HTMLElement;
+  // Sheet refs
+  private sheetTitleEl!: HTMLElement;
+  private heroArtEl!: HTMLElement;
+  private heroStatsEl!: HTMLElement;
+  private heroLevelEl!: HTMLElement;
   private equipLeftCol!: HTMLElement;
   private equipRightCol!: HTMLElement;
+  private chipsEl!: HTMLElement;
   private skillStripEl!: HTMLElement;
-
-  // Stat & meta refs
-  private statCardEl!: HTMLElement;
-  private metaRowEl!: HTMLElement;
   private xpFill!: HTMLElement;
   private xpLabelEl!: HTMLElement;
   private xpRateEl!: HTMLElement;
@@ -650,12 +107,18 @@ export class CharItemsScreen implements Screen {
   private classPassiveEl!: HTMLElement;
 
   // Inventory refs
+  private bagTitleEl!: HTMLElement;
   private inventoryGrid!: HTMLElement;
   private mailboxContainer!: HTMLElement;
   private tradesContainer!: HTMLElement;
-  private modalOverlay!: HTMLElement;
   private searchInput!: HTMLInputElement;
-  private sortSelect!: HTMLSelectElement;
+  private sortTabs!: HTMLElement;
+
+  /** The one open modal (item details, confirms, skill picker). */
+  private modalEl: HTMLElement | null = null;
+  private onModalKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') this.hideModal();
+  };
 
   private unsubscribe?: () => void;
   private unsubEquipBlocked?: () => void;
@@ -683,8 +146,8 @@ export class CharItemsScreen implements Screen {
 
   /** Search/sort filter state. */
   private searchFilter = '';
-  /** Default to type; will be overridden by the per-user persisted choice
-   *  after the first state lands (when we know the username). */
+  /** Default to type; replaced by the per-user persisted choice once the
+   *  first state lands (when we know the username). */
   private sortMode: SortMode = 'type';
   private sortPrefLoaded = false;
 
@@ -698,8 +161,6 @@ export class CharItemsScreen implements Screen {
     this.gameClient = gameClient;
     this.worldCache = worldCache;
 
-    injectCharItemsStyles();
-    injectItemsStyles();
     this.buildDOM();
   }
 
@@ -729,87 +190,98 @@ export class CharItemsScreen implements Screen {
     this.unsubEquipBlocked?.();
     this.unsubEquipBlocked = undefined;
     this.hideModal();
-    this.closeSkillPopup();
-    this.removeStatTooltip();
+    this.removeTip();
   }
 
   private buildDOM(): void {
+    this.container.classList.add('ci');
     this.container.innerHTML = `
-      <div class="charitems-content">
-        <div class="charitems-hero">
-          <div class="charitems-hero-grid">
-            <div class="items-equip-panel">
-              <div class="items-equip-col items-equip-left"></div>
-              <div class="items-equip-figure charitems-portrait"></div>
-              <div class="items-equip-col items-equip-right"></div>
+      <div class="ci-scroll screen-scroll">
+        <div class="ci-stack">
+          <section class="ci-panel ci-sheet gc-parchment" aria-label="Character">
+            <div class="gc-title-tab ci-panel__title ci-sheet__name">Character</div>
+            <div class="ci-doll">
+              <div class="ci-doll__col ci-doll__col--left"></div>
+              <div class="ci-hero">
+                <div class="ci-hero__stats"></div>
+                <div class="ci-hero__art"></div>
+                <div class="ci-hero__level"></div>
+              </div>
+              <div class="ci-doll__col ci-doll__col--right"></div>
             </div>
-          </div>
-          <div class="charitems-skills-strip"></div>
+            <div class="ci-chips"></div>
+
+            <div class="gc-divider">Skills</div>
+            <div class="ci-skills"></div>
+
+            <div class="gc-divider">Experience</div>
+            <div class="ci-xp">
+              <div class="gc-bar gc-bar--xp gc-bar--lg">
+                <div class="gc-bar__fill ci-xp__fill" style="width:0%"></div>
+                <div class="gc-bar__text ci-xp__numbers">0 / 100 XP</div>
+              </div>
+              <div class="ci-xp__rate">
+                <div class="ci-xp__rate-text">
+                  <span class="ci-xp__rate-value">0/hr</span>
+                  <span class="ci-xp__rate-from"></span>
+                </div>
+                <button type="button" class="gc-btn gc-btn--steel gc-btn--icon ci-xp__reset" aria-label="Reset XP rate counter" title="Reset XP rate counter">&#x21bb;</button>
+              </div>
+            </div>
+
+            <div class="ci-class"></div>
+          </section>
+
+          <section class="ci-section ci-mailbox" hidden></section>
+          <section class="ci-section ci-trades" hidden></section>
+
+          <section class="ci-panel ci-bag gc-parchment" aria-label="Inventory">
+            <div class="gc-title-tab ci-panel__title ci-bag__title">Inventory</div>
+            <div class="ci-bag__controls">
+              <input type="search" class="gc-input ci-bag__search" placeholder="Search items…" aria-label="Search items" autocomplete="off" />
+              <div class="gc-tabs ci-bag__sort" role="tablist" aria-label="Sort inventory by">
+                ${(Object.keys(SORT_LABELS) as SortMode[]).map(m =>
+                  `<button type="button" class="gc-tab" role="tab" data-sort="${m}" aria-selected="${m === this.sortMode}">${SORT_LABELS[m]}</button>`,
+                ).join('')}
+              </div>
+            </div>
+            <div class="ci-bag__grid"></div>
+          </section>
         </div>
-
-        <div class="charitems-stat-card"></div>
-
-        <div class="charitems-meta-row"></div>
-        <div class="charitems-xp-bar-wrap">
-          <div class="character-xp-label">
-            <span>XP</span>
-            <span class="charitems-xp-numbers">0 / 100</span>
-          </div>
-          <div class="charitems-xp-bar">
-            <div class="charitems-xp-fill" style="width: 0%"></div>
-          </div>
-          <div class="charitems-xp-rate-row">
-            <span>XP Rate</span>
-            <span class="charitems-xp-rate-value">0/hr</span>
-            <span class="charitems-xp-rate-reset" title="Reset XP rate counter">&#x21bb;</span>
-            <span class="charitems-xp-rate-from"></span>
-          </div>
-        </div>
-
-        <div class="charitems-passive-info"></div>
-
-        <div class="items-mailbox"></div>
-        <div class="items-trades"></div>
-
-        <div class="items-section-label">Inventory</div>
-        <div class="items-search-sort">
-          <input type="text" class="items-search-input" placeholder="Search items..." />
-          <select class="items-sort-select">
-            <option value="type">Type</option>
-            <option value="rarity">Rarity</option>
-            <option value="newest">Newest</option>
-          </select>
-        </div>
-        <div class="items-inv-grid"></div>
       </div>
-      <div class="items-modal-overlay" style="display:none"></div>
     `;
 
-    this.portraitEl = this.container.querySelector('.charitems-portrait')!;
-    const slotsContainer = this.container.querySelector('.items-equip-panel')!;
-    this.equipLeftCol = slotsContainer.querySelector('.items-equip-left')!;
-    this.equipRightCol = slotsContainer.querySelector('.items-equip-right')!;
+    const q = <T extends HTMLElement>(sel: string) => this.container.querySelector(sel) as T;
+    this.sheetTitleEl = q('.ci-sheet__name');
+    this.heroArtEl = q('.ci-hero__art');
+    this.heroStatsEl = q('.ci-hero__stats');
+    this.heroLevelEl = q('.ci-hero__level');
+    this.equipLeftCol = q('.ci-doll__col--left');
+    this.equipRightCol = q('.ci-doll__col--right');
+    this.chipsEl = q('.ci-chips');
+    this.skillStripEl = q('.ci-skills');
+    this.xpFill = q('.ci-xp__fill');
+    this.xpLabelEl = q('.ci-xp__numbers');
+    this.xpRateEl = q('.ci-xp__rate-value');
+    this.xpRateFromEl = q('.ci-xp__rate-from');
+    this.classPassiveEl = q('.ci-class');
 
-    this.skillStripEl = this.container.querySelector('.charitems-skills-strip')!;
-    this.statCardEl = this.container.querySelector('.charitems-stat-card')!;
-    this.metaRowEl = this.container.querySelector('.charitems-meta-row')!;
-    this.xpFill = this.container.querySelector('.charitems-xp-fill')!;
-    this.xpLabelEl = this.container.querySelector('.charitems-xp-numbers')!;
-    this.xpRateEl = this.container.querySelector('.charitems-xp-rate-value')!;
-    this.xpRateFromEl = this.container.querySelector('.charitems-xp-rate-from')!;
-    this.classPassiveEl = this.container.querySelector('.charitems-passive-info')!;
-
-    this.inventoryGrid = this.container.querySelector('.items-inv-grid')!;
-    this.mailboxContainer = this.container.querySelector('.items-mailbox')!;
-    this.tradesContainer = this.container.querySelector('.items-trades')!;
-    this.modalOverlay = this.container.querySelector('.items-modal-overlay')!;
-    this.searchInput = this.container.querySelector('.items-search-input')!;
-    this.sortSelect = this.container.querySelector('.items-sort-select')!;
+    this.bagTitleEl = q('.ci-bag__title');
+    this.inventoryGrid = q('.ci-bag__grid');
+    this.mailboxContainer = q('.ci-mailbox');
+    this.tradesContainer = q('.ci-trades');
+    this.searchInput = q<HTMLInputElement>('.ci-bag__search');
+    this.sortTabs = q('.ci-bag__sort');
 
     // XP rate reset
-    this.container.querySelector('.charitems-xp-rate-reset')!.addEventListener('click', () => {
-      if (!confirm('Reset XP rate counter?')) return;
-      this.gameClient.resetXpRate();
+    q('.ci-xp__reset').addEventListener('click', () => {
+      this.showConfirmModal({
+        title: 'Reset XP rate?',
+        message: 'The XP per hour counter will start again from now.',
+        confirmLabel: 'Reset',
+        confirmVariant: 'gold',
+        onConfirm: () => { this.gameClient.resetXpRate(); this.hideModal(); },
+      });
     });
 
     // Mailbox / trades click delegation
@@ -837,60 +309,59 @@ export class CharItemsScreen implements Screen {
       }
     });
 
-    this.modalOverlay.addEventListener('click', (e) => {
-      if (e.target === this.modalOverlay) this.hideModal();
-    });
-
-    // Search/sort
+    // Search / sort
     this.searchInput.addEventListener('input', () => {
       this.searchFilter = this.searchInput.value.toLowerCase();
       this.renderInventory();
     });
-    this.sortSelect.addEventListener('change', () => {
-      this.sortMode = this.sortSelect.value as SortMode;
+    this.sortTabs.addEventListener('click', (e) => {
+      const tab = (e.target as HTMLElement).closest('[data-sort]') as HTMLElement | null;
+      if (!tab) return;
+      const mode = tab.getAttribute('data-sort') as SortMode;
+      if (mode === this.sortMode) return;
+      this.setSortMode(mode);
       this.persistSortPref();
       this.renderInventory();
     });
 
-    // Equipment slot delegation
-    slotsContainer.addEventListener('click', (e) => {
-      const slotEl = (e.target as HTMLElement).closest('.items-equip-slot-square[data-slot]') as HTMLElement | null;
+    // Equipment slot delegation (both columns)
+    q('.ci-doll').addEventListener('click', (e) => {
+      const slotEl = (e.target as HTMLElement).closest('.gc-item[data-slot]') as HTMLElement | null;
       if (!slotEl) return;
       const slot = slotEl.getAttribute('data-slot') as EquipSlot;
       const itemId = slotEl.getAttribute('data-item-id');
       if (slot && itemId) {
         this.showItemPopup(itemId, 'equipped', slot);
       } else if (slot) {
-        this.showSlotTooltip(slotEl, slot);
+        this.showTip(slotEl, `${SLOT_LABELS[slot] ?? slot}`, 'Empty slot', 1500);
       }
     });
 
-    // Inventory grid click delegation
+    // Inventory grid delegation
     this.inventoryGrid.addEventListener('click', (e) => {
-      const square = (e.target as HTMLElement).closest('.item-square[data-item]') as HTMLElement | null;
-      if (!square) return;
-      const itemId = square.getAttribute('data-item');
-      if (itemId) {
-        this.showItemPopup(itemId, 'inventory', undefined);
-      }
+      const frame = (e.target as HTMLElement).closest('.gc-item[data-item]') as HTMLElement | null;
+      if (!frame) return;
+      const itemId = frame.getAttribute('data-item');
+      if (itemId) this.showItemPopup(itemId, 'inventory', undefined);
     });
 
-    // Skill slot click delegation
+    // Skill slot delegation (locked slots are disabled buttons)
     this.skillStripEl.addEventListener('click', (e) => {
-      const slot = (e.target as HTMLElement).closest('.charitems-skill-slot[data-slot-index]') as HTMLElement | null;
-      if (!slot) return;
-      if (slot.classList.contains('locked')) return;
-      const idx = parseInt(slot.getAttribute('data-slot-index')!, 10);
-      this.openSkillPopup(idx);
+      const slot = (e.target as HTMLElement).closest('.ci-skill[data-slot-index]') as HTMLButtonElement | null;
+      if (!slot || slot.disabled) return;
+      this.openSkillPopup(parseInt(slot.getAttribute('data-slot-index')!, 10));
     });
 
-    // Stat card tooltip — click to show, click anywhere else to dismiss
-    this.statCardEl.addEventListener('click', (e) => {
-      const labelEl = (e.target as HTMLElement).closest('.charitems-stat-label[data-tooltip]') as HTMLElement | null;
-      if (!labelEl) return;
+    // Stat tap → explanation tip (hero stats + chips share the data attribute)
+    const onStatClick = (e: Event) => {
+      const statEl = (e.target as HTMLElement).closest('[data-tooltip]') as HTMLElement | null;
+      if (!statEl) return;
       e.stopPropagation();
-      this.showStatTooltip(labelEl);
-    });
+      const info = STAT_TOOLTIPS[statEl.getAttribute('data-tooltip') ?? ''];
+      if (info) this.showTip(statEl, info.full, info.desc);
+    };
+    this.heroStatsEl.addEventListener('click', onStatClick);
+    this.chipsEl.addEventListener('click', onStatClick);
   }
 
   private updateFromState(state: ServerStateMessage): void {
@@ -904,31 +375,30 @@ export class CharItemsScreen implements Screen {
     this.lastClassName = char.className;
     this.lastMailbox = state.social?.mailbox ?? [];
     this.lastProposedTrades = state.social?.proposedTrades ?? [];
-    this.lastUsername = state.username ?? '';
+    const username = state.username ?? '';
+    if (username !== this.lastUsername) {
+      this.lastUsername = username;
+      this.sheetTitleEl.textContent = username || 'Character';
+    }
 
     // Once we know who's logged in, restore their persisted sort choice.
     if (!this.sortPrefLoaded && this.lastUsername) {
       this.sortPrefLoaded = true;
       const saved = this.loadSortPref();
-      if (saved && saved !== this.sortMode) {
-        this.sortMode = saved;
-        this.sortSelect.value = saved;
-      }
+      if (saved && saved !== this.sortMode) this.setSortMode(saved);
     }
 
-    // Hero portrait + class info — only re-render when className changes
-    const heroKey = char.className;
-    if (heroKey !== this.lastHeroKey) {
-      this.lastHeroKey = heroKey;
-      this.renderPortrait(char.className);
+    // Hero art + class passive — only when the class changes
+    if (char.className !== this.lastHeroKey) {
+      this.lastHeroKey = char.className;
+      this.renderHeroArt(char.className);
       this.renderClassPassive(char.className);
     }
 
-    // Equipment / inventory key — re-render when items actually change
     const equipKey = JSON.stringify(char.equipment);
     if (equipKey !== this.lastEquipKey) {
       this.lastEquipKey = equipKey;
-      this.renderEquipment(char);
+      this.renderEquipment(char.equipment);
     }
 
     const invKey = JSON.stringify(char.inventory);
@@ -947,7 +417,6 @@ export class CharItemsScreen implements Screen {
       this.renderSkillStrip(state);
     }
 
-    // Stat card — re-render when stats change
     const statKey = JSON.stringify({
       d: char.baseDamage,
       hp: char.maxHp,
@@ -959,15 +428,13 @@ export class CharItemsScreen implements Screen {
     });
     if (statKey !== this.lastStatKey) {
       this.lastStatKey = statKey;
-      this.renderStatCard(state);
-      this.renderMetaRow(char.className, char.level, char.gold);
+      this.renderStats(state);
       this.renderXpBar(char.xp, char.xpForNextLevel);
     }
 
     // XP rate — every tick (cheap)
     this.renderXpRate(char.xpRate);
 
-    // Mailbox & trades — re-render on change
     const mailboxKey = JSON.stringify(this.lastMailbox.map(e => [e.id, e.itemId, e.quantity, e.fromUsername, e.returned ?? false]));
     if (mailboxKey !== this.lastMailboxKey) {
       this.lastMailboxKey = mailboxKey;
@@ -981,54 +448,49 @@ export class CharItemsScreen implements Screen {
     }
   }
 
-  // ── Hero / portrait ──────────────────────────────────────────
+  // ── Hero ────────────────────────────────────────────────────
 
-  private renderPortrait(className: string): void {
-    // TODO: drop-in `class-artwork/Knight.png` etc. when art exists; placeholder shows class name + icon for now.
-    this.portraitEl.innerHTML = renderAssetImg('class', className, {
-      label: className,
-      width: 360,
-      height: 440,
-      alt: `${className} portrait`,
-    });
+  /**
+   * Class art over a big initial. The img is invisible until it loads; if it
+   * 404s it removes itself and the initial (styled as a medallion) shows.
+   */
+  private renderHeroArt(className: string): void {
+    const def = CLASS_DEFINITIONS[className as ClassName];
+    const name = def?.displayName ?? className;
+    this.heroArtEl.innerHTML = `
+      <img class="ci-hero__img" src="${artworkUrl('class', className.toLowerCase())}" alt="${escapeHtml(name)}"
+        onload="this.classList.add('is-loaded')" onerror="this.remove()" decoding="async" />
+      <span class="ci-hero__initial" aria-hidden="true">${escapeHtml(name.charAt(0).toUpperCase())}</span>
+    `;
   }
 
   private renderClassPassive(className: string): void {
     const def = CLASS_DEFINITIONS[className as ClassName];
     if (!def) {
-      this.classPassiveEl.textContent = '';
+      this.classPassiveEl.innerHTML = '';
       return;
     }
     this.classPassiveEl.innerHTML = `
-      <strong>${this.escapeHtml(def.displayName)}</strong> &middot; <em>${this.escapeHtml(def.damageType)}</em><br>
-      ${this.escapeHtml(def.description)}
+      <div class="gc-divider">${escapeHtml(def.displayName)}</div>
+      <div class="ci-class__type">${escapeHtml(def.damageType)} damage</div>
+      <p class="ci-class__desc">${escapeHtml(def.description)}</p>
     `;
   }
 
   // ── Equipment slots ─────────────────────────────────────────
 
-  private renderEquipment(char: { equipment: Record<string, string | null>; className: string }): void {
-    const renderSlotSquare = (slot: EquipSlot) => {
-      const itemId = char.equipment[slot];
+  private renderEquipment(equipment: Record<string, string | null>): void {
+    const renderSlot = (slot: EquipSlot) => {
+      const itemId = equipment[slot];
       const def = itemId ? this.itemDefs[itemId] : null;
       const dataAttrs: Record<string, string> = { slot, 'item-id': itemId ?? '' };
       if (def && itemId) {
-        return renderItemIcon(itemId, def, {
-          showSlotIcon: true,
-          slotOverride: slot,
-          showSetIndicator: true,
-          setDefs: this.setDefs,
-          extraClass: 'items-equip-slot-square',
-          dataAttrs,
-        });
+        return renderItemFrame(itemId, def, { setDefs: this.setDefs, dataAttrs });
       }
-      return renderEmptySlotIcon(slot, { extraClass: 'items-equip-slot-square', dataAttrs });
+      return renderEmptySlotFrame(slot, { dataAttrs });
     };
-
-    // Mainhand/offhand are now the last items in LEFT_SLOTS / RIGHT_SLOTS;
-    // the standalone bottom row is gone.
-    this.equipLeftCol.innerHTML = LEFT_SLOTS.map(renderSlotSquare).join('');
-    this.equipRightCol.innerHTML = RIGHT_SLOTS.map(renderSlotSquare).join('');
+    this.equipLeftCol.innerHTML = LEFT_SLOTS.map(renderSlot).join('');
+    this.equipRightCol.innerHTML = RIGHT_SLOTS.map(renderSlot).join('');
   }
 
   // ── Skill loadout strip ─────────────────────────────────────
@@ -1044,31 +506,33 @@ export class CharItemsScreen implements Screen {
       const isUnlocked = char.level >= slot.unlocksAtLevel;
       const equippedId = char.skillLoadout.equippedSkills[i] ?? null;
       const skill = equippedId ? this.worldCache.getSkill(equippedId) : null;
+      const typeLabel = slot.type === 'passive' ? 'Passive' : 'Active';
 
       if (!isUnlocked) {
-        html += `<div class="charitems-skill-slot locked">
-          <span class="charitems-skill-slot-name">Lv ${slot.unlocksAtLevel}</span>
-          <span class="charitems-skill-slot-meta">${slot.type}</span>
-        </div>`;
+        html += `<button type="button" class="ci-skill is-locked" disabled aria-label="${typeLabel} slot, unlocks at level ${slot.unlocksAtLevel}">
+          <span class="gc-item gc-item--sm gc-item--empty ci-skill__frame"><span class="ci-skill__glyph ci-skill__glyph--lock">Lv ${slot.unlocksAtLevel}</span></span>
+          <span class="ci-skill__name">${typeLabel}</span>
+        </button>`;
       } else if (skill) {
-        html += `<div class="charitems-skill-slot filled ${skill.type}" data-slot-index="${i}">
-          ${this.skillIconHtml(skill, 'charitems-skill-icon')}
-          <span class="charitems-skill-slot-name">${this.escapeHtml(skill.name)}</span>
-          <span class="charitems-skill-slot-meta">${skill.type}${skill.cooldown ? ` &middot; CD${skill.cooldown}` : ''}</span>
-        </div>`;
+        html += `<button type="button" class="ci-skill ci-skill--${skill.type}" data-slot-index="${i}" aria-label="${escapeHtml(skill.name)}, ${typeLabel} slot ${i + 1}">
+          <span class="gc-item gc-item--sm ci-skill__frame">
+            ${this.skillIconHtml(skill, 'ci-skill__img')}
+            <span class="ci-skill__glyph">${escapeHtml(this.skillInitials(skill.name))}</span>
+          </span>
+          <span class="ci-skill__name">${escapeHtml(skill.name)}</span>
+          ${skill.cooldown ? `<span class="ci-skill__meta">CD ${skill.cooldown}</span>` : ''}
+        </button>`;
       } else {
-        html += `<div class="charitems-skill-slot empty" data-slot-index="${i}">
-          <span class="charitems-skill-slot-name">+ ${slot.type}</span>
-          <span class="charitems-skill-slot-meta">slot ${i + 1}</span>
-        </div>`;
+        html += `<button type="button" class="ci-skill is-empty" data-slot-index="${i}" aria-label="Empty ${typeLabel} slot ${i + 1}">
+          <span class="gc-item gc-item--sm gc-item--empty ci-skill__frame"><span class="ci-skill__glyph ci-skill__glyph--add">+</span></span>
+          <span class="ci-skill__name">${typeLabel}</span>
+        </button>`;
       }
     }
     this.skillStripEl.innerHTML = html;
   }
 
   private openSkillPopup(slotIndex: number): void {
-    this.closeSkillPopup();
-
     const state = this.gameClient.lastState;
     if (!state?.character) return;
     const char = state.character;
@@ -1083,11 +547,10 @@ export class CharItemsScreen implements Screen {
     const grantedIds = new Set(char.grantedSkillIds ?? []);
     const classSkills = getSkillsForClass(char.className as ClassName, this.worldCache.getSkillContent());
 
-    // Build a single list of candidates (available + future-locked) so the
-    // player can see what's coming. Locked rows are visually dimmed and
-    // non-clickable; available rows behave as before. Availability comes from
-    // level unlocks OR equipment grants; grant-only skills (unlockLevel null)
-    // never appear in the future-locked list.
+    // One list of candidates (available + future-locked) so the player can
+    // see what's coming. Locked rows are dimmed and disabled. Availability
+    // comes from level unlocks OR equipment grants; grant-only skills
+    // (unlockLevel null) never appear in the future-locked list.
     type Candidate = { skill: SkillDefinition; locked: boolean; granted: boolean };
     const candidates: Candidate[] = [];
     const seen = new Set<string>();
@@ -1097,7 +560,7 @@ export class CharItemsScreen implements Screen {
       const isUnlocked = unlockedIds.has(skill.id);
       const isGranted = grantedIds.has(skill.id);
       if (isUnlocked || isGranted) {
-        // Hide already-equipped-elsewhere available skills (the existing rule).
+        // Hide skills already equipped in another slot.
         if (equippedIds.has(skill.id) && skill.id !== equippedId) continue;
         candidates.push({ skill, locked: false, granted: !isUnlocked });
       } else if (skill.unlockLevel !== null) {
@@ -1121,145 +584,112 @@ export class CharItemsScreen implements Screen {
       candidates.push({ skill, locked: false, granted: true });
     }
 
-    const overlay = document.createElement('div');
-    overlay.className = 'charitems-skill-popup-overlay';
-
-    let rowsHtml = '';
-    if (candidates.length === 0) {
-      rowsHtml = `<div class="charitems-skill-popup-empty">No other ${slot.type} skills available.</div>`;
-    } else {
-      rowsHtml = candidates.map(({ skill: s, locked, granted }) => {
+    const typeLabel = slot.type === 'passive' ? 'Passive' : 'Active';
+    const rowsHtml = candidates.length === 0
+      ? `<p class="ci-pick-empty">No other ${slot.type} skills available.</p>`
+      : candidates.map(({ skill: s, locked, granted }) => {
         const isCurrent = s.id === equippedId;
-        const classes = ['charitems-skill-row', s.type];
-        if (locked) classes.push('locked');
+        const classes = ['ci-pick', `ci-pick--${s.type}`];
+        if (locked) classes.push('is-locked');
+        if (isCurrent) classes.push('is-current');
         const attrs = locked
-          ? `data-locked="1"`
-          : `data-skill-id="${this.escapeHtml(s.id)}" ${isCurrent ? 'data-current="1"' : ''}`;
-        const tagline = locked
-          ? `<div class="charitems-skill-row-locklabel">Unlocks at Lv ${s.unlockLevel}</div>`
-          : granted
-            ? `<div class="charitems-skill-row-locklabel">Granted by equipment</div>`
-            : '';
-        return `<div class="${classes.join(' ')}" ${attrs}>
-          ${this.skillIconHtml(s, 'charitems-skill-row-icon')}
-          <div class="charitems-skill-row-name">${this.escapeHtml(s.name)}${isCurrent ? ' &middot; equipped' : ''}</div>
-          <div class="charitems-skill-row-meta">${s.type}${s.cooldown ? ` &middot; CD ${s.cooldown}` : ''}</div>
-          ${tagline}
-          <div class="charitems-skill-row-desc">${this.escapeHtml(s.description)}</div>
-        </div>`;
+          ? 'disabled'
+          : `data-skill-id="${escapeHtml(s.id)}"${isCurrent ? ' data-current="1"' : ''}`;
+        const tag = locked
+          ? `<span class="ci-pick__tag">Unlocks at Lv ${s.unlockLevel}</span>`
+          : isCurrent
+            ? '<span class="ci-pick__tag ci-pick__tag--current">Equipped</span>'
+            : granted
+              ? '<span class="ci-pick__tag">Granted by equipment</span>'
+              : '';
+        return `<button type="button" class="${classes.join(' ')}" ${attrs}>
+          <span class="gc-item gc-item--sm ci-pick__frame">
+            ${this.skillIconHtml(s, 'ci-skill__img')}
+            <span class="ci-skill__glyph">${escapeHtml(this.skillInitials(s.name))}</span>
+          </span>
+          <span class="ci-pick__main">
+            <span class="ci-pick__name">${escapeHtml(s.name)}</span>
+            <span class="ci-pick__meta">${typeLabel}${s.cooldown ? ` · Cooldown ${s.cooldown}` : ''}</span>
+            ${tag}
+            <span class="ci-pick__desc">${escapeHtml(s.description)}</span>
+          </span>
+        </button>`;
       }).join('');
-    }
 
-    overlay.innerHTML = `
-      <div class="charitems-skill-popup">
-        <div class="charitems-skill-popup-title">Slot ${slotIndex + 1} &middot; ${slot.type} (Lv ${slot.unlocksAtLevel}+)</div>
-        ${equippedNow ? `<div style="font-size: 12px;color:var(--text-secondary)">Currently: <strong>${this.escapeHtml(equippedNow.name)}</strong></div>` : ''}
-        <div style="display:flex;flex-direction:column;gap:6px;">${rowsHtml}</div>
-        <div class="charitems-skill-popup-actions">
-          <button class="charitems-skill-popup-btn cancel-btn">Cancel</button>
-          ${equippedNow ? `<button class="charitems-skill-popup-btn danger clear-btn">Clear slot</button>` : ''}
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(overlay);
-    bringToFront(overlay);
+    const modal = this.openModal({
+      title: `Slot ${slotIndex + 1} · ${typeLabel}`,
+      extraClass: 'ci-skill-modal',
+      bodyHtml: `
+        <p class="ci-pick-head">Unlocks at level ${slot.unlocksAtLevel}${equippedNow ? ` · Equipped: <strong>${escapeHtml(equippedNow.name)}</strong>` : ''}</p>
+        <div class="ci-pick-list">${rowsHtml}</div>
+      `,
+      actionsHtml: `
+        <button type="button" class="gc-btn gc-btn--steel ci-modal-cancel">Cancel</button>
+        ${equippedNow ? '<button type="button" class="gc-btn gc-btn--red ci-skill-clear">Clear slot</button>' : ''}
+      `,
+    });
     this.skillPopupOpen = true;
 
-    const close = () => this.closeSkillPopup();
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
-    overlay.querySelector('.cancel-btn')?.addEventListener('click', close);
-    overlay.querySelector('.clear-btn')?.addEventListener('click', () => {
+    modal.querySelector('.ci-modal-cancel')?.addEventListener('click', () => this.hideModal());
+    modal.querySelector('.ci-skill-clear')?.addEventListener('click', () => {
       this.gameClient.sendUnequipSkill(slotIndex);
-      close();
+      this.hideModal();
     });
-
-    overlay.querySelectorAll<HTMLElement>('.charitems-skill-row').forEach(row => {
+    modal.querySelectorAll<HTMLButtonElement>('.ci-pick[data-skill-id]').forEach(row => {
       row.addEventListener('click', () => {
-        if (row.getAttribute('data-locked') === '1') return;
         const id = row.getAttribute('data-skill-id');
-        const isCurrent = row.getAttribute('data-current') === '1';
-        if (!id || isCurrent) return;
+        if (!id || row.getAttribute('data-current') === '1') return;
         this.gameClient.sendEquipSkill(id, slotIndex);
-        close();
+        this.hideModal();
       });
     });
   }
 
-  private closeSkillPopup(): void {
-    document.querySelectorAll<HTMLElement>('.charitems-skill-popup-overlay').forEach(el => {
-      release(el);
-      el.remove();
-    });
-    this.skillPopupOpen = false;
-  }
+  // ── Stats / XP ──────────────────────────────────────────────
 
-  // ── Stat card / meta / XP ───────────────────────────────────
-
-  private renderStatCard(state: ServerStateMessage): void {
+  private renderStats(state: ServerStateMessage): void {
     const char = state.character;
     if (!char) return;
     const bonuses = computeEquipmentBonuses(char.equipment, this.itemDefs, char.level);
 
-    const baseAtk = char.baseDamage;
-    const atkLow = baseAtk + bonuses.bonusAttackMin;
-    const atkHigh = baseAtk + bonuses.bonusAttackMax;
-    const atkVal = atkLow === atkHigh ? `${atkLow}` : `${atkLow}-${atkHigh}`;
-    const atkType = char.damageType ? ` ${char.damageType}` : '';
+    const range = (lo: number, hi: number) => (lo === hi ? `${lo}` : `${lo}-${hi}`);
+    const atkVal = range(char.baseDamage + bonuses.bonusAttackMin, char.baseDamage + bonuses.bonusAttackMax);
+    const drVal = bonuses.damageReductionMax > 0 ? range(bonuses.damageReductionMin, bonuses.damageReductionMax) : '0';
+    const mrVal = bonuses.magicReductionMax > 0 ? range(bonuses.magicReductionMin, bonuses.magicReductionMax) : '0';
 
-    const drVal = bonuses.damageReductionMax > 0
-      ? (bonuses.damageReductionMin === bonuses.damageReductionMax
-          ? `${bonuses.damageReductionMax}`
-          : `${bonuses.damageReductionMin}-${bonuses.damageReductionMax}`)
-      : '0';
-    const mrVal = bonuses.magicReductionMax > 0
-      ? (bonuses.magicReductionMin === bonuses.magicReductionMax
-          ? `${bonuses.magicReductionMax}`
-          : `${bonuses.magicReductionMin}-${bonuses.magicReductionMax}`)
-      : '0';
-
-    this.statCardEl.innerHTML = `
-      <div class="charitems-stat">
-        <span class="charitems-stat-label" data-tooltip="ATK">ATK</span>
-        <span class="charitems-stat-value">${atkVal}${atkType}</span>
-      </div>
-      <div class="charitems-stat">
-        <span class="charitems-stat-label" data-tooltip="DR">DR</span>
-        <span class="charitems-stat-value">${drVal}</span>
-      </div>
-      <div class="charitems-stat">
-        <span class="charitems-stat-label" data-tooltip="MR">MR</span>
-        <span class="charitems-stat-value">${mrVal}</span>
-      </div>
-      <div class="charitems-stat">
-        <span class="charitems-stat-label" data-tooltip="HP">HP</span>
-        <span class="charitems-stat-value">${char.maxHp}</span>
-      </div>
+    this.heroStatsEl.innerHTML = `
+      <button type="button" class="gc-stat ci-stat" data-tooltip="HP" aria-label="Health ${char.maxHp}">
+        <span class="gc-stat__label">Health</span>
+        <span class="gc-stat__value ci-stat__value--hp">${char.maxHp}</span>
+      </button>
+      <button type="button" class="gc-stat ci-stat" data-tooltip="ATK" aria-label="Attack ${atkVal} ${escapeHtml(char.damageType ?? '')}">
+        <span class="gc-stat__label">Attack</span>
+        <span class="gc-stat__value">${atkVal}</span>
+        ${char.damageType ? `<span class="ci-stat__sub">${escapeHtml(char.damageType)}</span>` : ''}
+      </button>
     `;
-  }
 
-  private renderMetaRow(className: string, level: number, gold: number): void {
-    this.metaRowEl.innerHTML = `
-      <span><strong>${classIconHtml(className)} ${this.escapeHtml(className)}</strong></span>
-      <span>Lv <strong>${level}</strong></span>
-      <span>Gold <strong>${gold.toLocaleString()}</strong></span>
+    const def = CLASS_DEFINITIONS[char.className as ClassName];
+    this.heroLevelEl.textContent = `Level ${char.level} · ${def?.displayName ?? char.className}`;
+
+    this.chipsEl.innerHTML = `
+      <button type="button" class="ci-chip" data-tooltip="DR"><span class="ci-chip__label">DR</span><span class="ci-chip__value">${drVal}</span></button>
+      <button type="button" class="ci-chip" data-tooltip="MR"><span class="ci-chip__label">MR</span><span class="ci-chip__value">${mrVal}</span></button>
+      <button type="button" class="ci-chip ci-chip--gold" data-tooltip="GOLD"><span class="ci-chip__label">Gold</span><span class="ci-chip__value">${char.gold.toLocaleString()}</span></button>
     `;
   }
 
   private renderXpBar(xp: number, xpForNextLevel: number): void {
-    this.xpLabelEl.textContent = `${xp.toLocaleString()} / ${xpForNextLevel.toLocaleString()}`;
-    const pct = xpForNextLevel > 0 ? (xp / xpForNextLevel) * 100 : 0;
+    this.xpLabelEl.textContent = `${xp.toLocaleString()} / ${xpForNextLevel.toLocaleString()} XP`;
+    const pct = xpForNextLevel > 0 ? Math.min(100, (xp / xpForNextLevel) * 100) : 0;
     this.xpFill.style.width = `${pct}%`;
   }
 
   private renderXpRate(xpRate: { startTime: number; totalXp: number }): void {
     const elapsedHours = (Date.now() - xpRate.startTime) / 3_600_000;
     const rate = elapsedHours > 0 ? xpRate.totalXp / elapsedHours : 0;
-    this.xpRateEl.textContent = CharItemsScreen.formatXpRate(rate);
-    this.xpRateFromEl.textContent = `from ${CharItemsScreen.formatDateTime(xpRate.startTime)}`;
+    this.xpRateEl.textContent = `${CharItemsScreen.formatXpRate(rate)} XP`;
+    this.xpRateFromEl.textContent = `since ${CharItemsScreen.formatDateTime(xpRate.startTime)}`;
   }
 
   private static formatXpRate(rate: number): string {
@@ -1280,43 +710,50 @@ export class CharItemsScreen implements Screen {
     return `${mon}/${day} ${h}:${m}`;
   }
 
-  // ── Stat tooltip ────────────────────────────────────────────
+  // ── Tap tips (stats, empty slots) ───────────────────────────
 
-  private showStatTooltip(anchor: HTMLElement): void {
-    this.removeStatTooltip();
-    const key = anchor.getAttribute('data-tooltip') ?? '';
-    const info = STAT_TOOLTIPS[key];
-    if (!info) return;
-
-    const tooltip = document.createElement('div');
-    tooltip.className = 'charitems-stat-tooltip';
-    tooltip.innerHTML = `
-      <div class="charitems-stat-tooltip-title">${this.escapeHtml(info.full)}</div>
-      <div>${this.escapeHtml(info.desc)}</div>
-    `;
-    document.body.appendChild(tooltip);
+  /** Small slate bubble under `anchor`; any tap dismisses it. */
+  private showTip(anchor: HTMLElement, title: string, text: string, autoHideMs?: number): void {
+    this.removeTip();
+    const tip = document.createElement('div');
+    tip.className = 'ci-tip';
+    tip.setAttribute('role', 'status');
+    tip.innerHTML = `<div class="ci-tip__title">${escapeHtml(title)}</div><div>${escapeHtml(text)}</div>`;
+    document.body.appendChild(tip);
 
     const rect = anchor.getBoundingClientRect();
-    tooltip.style.left = `${Math.max(8, rect.left + rect.width / 2 - tooltip.offsetWidth / 2)}px`;
-    tooltip.style.top = `${rect.bottom + 6}px`;
+    const left = rect.left + rect.width / 2 - tip.offsetWidth / 2;
+    tip.style.left = `${Math.max(8, Math.min(window.innerWidth - tip.offsetWidth - 8, left))}px`;
+    tip.style.top = `${rect.bottom + 6}px`;
 
     const dismiss = () => {
-      this.removeStatTooltip();
+      this.removeTip();
       document.removeEventListener('click', dismiss);
     };
     setTimeout(() => document.addEventListener('click', dismiss), 0);
+    if (autoHideMs) setTimeout(() => { if (tip.isConnected) dismiss(); }, autoHideMs);
   }
 
-  private removeStatTooltip(): void {
-    document.querySelectorAll('.charitems-stat-tooltip').forEach(el => el.remove());
+  private removeTip(): void {
+    document.querySelectorAll('.ci-tip').forEach(el => el.remove());
   }
 
   // ── Inventory ───────────────────────────────────────────────
 
+  private setSortMode(mode: SortMode): void {
+    this.sortMode = mode;
+    this.sortTabs.querySelectorAll<HTMLElement>('[data-sort]').forEach(tab => {
+      tab.setAttribute('aria-selected', String(tab.getAttribute('data-sort') === mode));
+    });
+  }
+
   private renderInventory(): void {
     const entries = Object.entries(this.lastInventory).filter(([, count]) => count > 0);
+    const total = entries.reduce((sum, [, c]) => sum + c, 0);
+    this.bagTitleEl.textContent = total > 0 ? `Inventory · ${total}` : 'Inventory';
+
     if (entries.length === 0) {
-      this.inventoryGrid.innerHTML = '<div class="items-empty" style="grid-column:1/-1">No items yet</div>';
+      this.inventoryGrid.innerHTML = '<p class="ci-bag__empty">Your bags are empty. Loot from battles lands here.</p>';
       return;
     }
 
@@ -1339,8 +776,8 @@ export class CharItemsScreen implements Screen {
     if (this.sortMode === 'rarity') {
       filtered.sort(([aId], [bId]) => rarityRank(aId) - rarityRank(bId));
     } else if (this.sortMode === 'type') {
-      // Type bucket first, then rarity within each type bucket so the
-      // best-of-each-slot floats to the top of its group.
+      // Type bucket first, then rarity within each bucket so the best of
+      // each slot floats to the top of its group.
       filtered.sort(([aId], [bId]) => {
         const slotDelta = slotRank(aId) - slotRank(bId);
         if (slotDelta !== 0) return slotDelta;
@@ -1350,25 +787,22 @@ export class CharItemsScreen implements Screen {
     // 'newest' keeps original order
 
     if (filtered.length === 0) {
-      this.inventoryGrid.innerHTML = '<div class="items-empty" style="grid-column:1/-1">No matches</div>';
+      this.inventoryGrid.innerHTML = '<p class="ci-bag__empty">No items match your search.</p>';
       return;
     }
 
-    if (this.sortMode === 'rarity' || this.sortMode === 'type') {
-      // Group with headers
-      this.inventoryGrid.innerHTML = this.renderGroupedInventory(filtered);
-    } else {
-      this.inventoryGrid.innerHTML = filtered.map(([itemId, count]) => this.renderInventoryEntry(itemId, count)).join('');
-    }
+    this.inventoryGrid.innerHTML = this.sortMode === 'newest'
+      ? filtered.map(([itemId, count]) => this.renderInventoryEntry(itemId, count)).join('')
+      : this.renderGroupedInventory(filtered);
   }
 
   private renderInventoryEntry(itemId: string, count: number): string {
     const def = this.itemDefs[itemId];
     if (!def) return '';
-    return renderItemIcon(itemId, def, {
+    return renderItemFrame(itemId, def, {
       qty: count,
-      showSlotIcon: true,
-      showSetIndicator: true,
+      // The type grouping already names the slot; other sorts get the badge.
+      slot: this.sortMode === 'type' ? undefined : def.equipSlot ?? undefined,
       setDefs: this.setDefs,
       dataAttrs: { item: itemId },
     });
@@ -1377,8 +811,7 @@ export class CharItemsScreen implements Screen {
   private renderGroupedInventory(entries: [string, number][]): string {
     const buckets = new Map<string, [string, number][]>();
     for (const [id, count] of entries) {
-      const def = this.itemDefs[id];
-      const key = this.getBucketKey(def);
+      const key = this.getBucketKey(this.itemDefs[id]);
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key)!.push([id, count]);
     }
@@ -1391,7 +824,7 @@ export class CharItemsScreen implements Screen {
     for (const key of orderedKeys) {
       const items = buckets.get(key);
       if (!items) continue;
-      html += `<div class="charitems-inv-group-header">${this.escapeHtml(this.formatBucketLabel(key))}</div>`;
+      html += `<div class="gc-divider ci-bag__group">${escapeHtml(this.formatBucketLabel(key))}</div>`;
       html += items.map(([id, count]) => this.renderInventoryEntry(id, count)).join('');
     }
     return html;
@@ -1412,121 +845,143 @@ export class CharItemsScreen implements Screen {
 
   // ── Mailbox / trades ───────────────────────────────────────
 
+  private itemNameHtml(itemId: string): string {
+    const def = this.itemDefs[itemId];
+    return `<span class="gc-rarity-text" data-rarity="${escapeHtml(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? itemId)}</span>`;
+  }
+
   private renderMailbox(): void {
     if (this.lastMailbox.length === 0) {
+      this.mailboxContainer.hidden = true;
       this.mailboxContainer.innerHTML = '';
       return;
     }
     const rows = this.lastMailbox.map(entry => {
       const def = this.itemDefs[entry.itemId];
-      const color = def ? (RARITY_COLORS[def.rarity] ?? '#e8e8e8') : '#e8e8e8';
-      const name = def?.name ?? entry.itemId;
-      const fullCount = (this.lastInventory[entry.itemId] ?? 0) + entry.quantity;
-      const willOverflow = fullCount > 99;
-      const note = entry.returned ? '<span class="mailbox-note">(returned)</span>' : '';
-      const overflow = willOverflow
-        ? `<div class="mailbox-warn">Inventory full — would exceed 99 (${this.lastInventory[entry.itemId] ?? 0} + ${entry.quantity})</div>`
+      const have = this.lastInventory[entry.itemId] ?? 0;
+      const willOverflow = have + entry.quantity > 99;
+      const frame = def
+        ? renderItemFrame(entry.itemId, def, { size: 'sm', qty: entry.quantity, decorative: true })
         : '';
-      return `<div class="mailbox-row">
-        <div class="mailbox-info">
-          <div class="mailbox-from">From <strong>${this.escapeHtml(entry.fromUsername)}</strong> ${note}</div>
-          <div class="mailbox-item">
-            <span class="mailbox-item-name" style="color:${color}">${this.escapeHtml(name)}</span>
-            <span class="mailbox-item-qty">×${entry.quantity}</span>
-          </div>
-          ${overflow}
+      return `<div class="gc-row ci-mail">
+        ${frame}
+        <div class="gc-row__main">
+          <div class="ci-mail__item">${this.itemNameHtml(entry.itemId)} <span class="ci-mail__qty">×${entry.quantity}</span></div>
+          <div class="gc-row__sub">From ${escapeHtml(entry.fromUsername)}${entry.returned ? ' · returned' : ''}</div>
+          ${willOverflow ? `<div class="ci-row-warn">Bag full — would exceed 99 (${have} + ${entry.quantity})</div>` : ''}
         </div>
-        <div class="mailbox-actions">
-          <button class="social-action-btn add-friend" data-mb-action="accept" data-entry-id="${this.escapeHtml(entry.id)}"${willOverflow ? ' disabled' : ''}>Accept</button>
-          <button class="social-action-btn remove-friend" data-mb-action="deny" data-entry-id="${this.escapeHtml(entry.id)}">Decline</button>
+        <div class="ci-row-actions">
+          <button type="button" class="gc-btn gc-btn--green" data-mb-action="accept" data-entry-id="${escapeHtml(entry.id)}"${willOverflow ? ' disabled' : ''}>Accept</button>
+          <button type="button" class="gc-btn gc-btn--steel" data-mb-action="deny" data-entry-id="${escapeHtml(entry.id)}">Decline</button>
         </div>
       </div>`;
     }).join('');
+    this.mailboxContainer.hidden = false;
     this.mailboxContainer.innerHTML = `
-      <div class="items-section-label">Mailbox <span class="items-section-count">(${this.lastMailbox.length})</span></div>
-      <div class="mailbox-list">${rows}</div>
+      <h2 class="ci-section__title">Mailbox <span class="gc-badge">${this.lastMailbox.length}</span></h2>
+      <div class="ci-section__list">${rows}</div>
     `;
   }
 
   private renderProposedTrades(): void {
     if (this.lastProposedTrades.length === 0) {
+      this.tradesContainer.hidden = true;
       this.tradesContainer.innerHTML = '';
       return;
     }
     const rows = this.lastProposedTrades.map(t => {
-      const partner = t.initiator.username === this.lastUsername
-        ? (t.target?.username ?? '')
-        : t.initiator.username;
+      const iAmInitiator = t.initiator.username === this.lastUsername;
+      const partner = iAmInitiator ? (t.target?.username ?? '') : t.initiator.username;
       const waitingOnMe = t.lastUpdatedBy !== this.lastUsername;
       const status = waitingOnMe
         ? (t.status === 'countered' ? 'Confirm or counter' : 'Awaiting your response')
         : (t.status === 'countered' ? 'Waiting for partner to confirm' : 'Waiting for partner');
-      const myItems = t.initiator.username === this.lastUsername
-        ? t.initiator.items
-        : (t.target?.items ?? []);
-      const theirItems = t.initiator.username === this.lastUsername
-        ? (t.target?.items ?? [])
-        : t.initiator.items;
+      const myItems = iAmInitiator ? t.initiator.items : (t.target?.items ?? []);
+      const theirItems = iAmInitiator ? (t.target?.items ?? []) : t.initiator.items;
       const summarize = (items: { itemId: string; quantity: number }[]) =>
         items.length === 0
-          ? '<span class="trade-row-empty">— nothing —</span>'
-          : items.map(({ itemId, quantity }) => {
-              const def = this.itemDefs[itemId];
-              const color = def ? (RARITY_COLORS[def.rarity] ?? '#e8e8e8') : '#e8e8e8';
-              return `<span class="trade-row-item" style="color:${color}">${this.escapeHtml(def?.name ?? itemId)} ×${quantity}</span>`;
-            }).join(', ');
-      return `<div class="trade-row${waitingOnMe ? ' trade-row-attention' : ''}" data-trade-id="${this.escapeHtml(t.id)}">
-        <div class="trade-row-main">
-          <div class="trade-row-partner">${this.escapeHtml(partner)}</div>
-          <div class="trade-row-status">${this.escapeHtml(status)}</div>
-          <div class="trade-row-offers">
-            <div class="trade-row-side"><span class="trade-row-label">You:</span> ${summarize(myItems)}</div>
-            <div class="trade-row-side"><span class="trade-row-label">Them:</span> ${summarize(theirItems)}</div>
-          </div>
+          ? '<span class="ci-trade__none">nothing</span>'
+          : items.map(({ itemId, quantity }) => `${this.itemNameHtml(itemId)} ×${quantity}`).join(', ');
+      return `<div class="gc-row ci-trade${waitingOnMe ? ' is-attention' : ''}" data-trade-id="${escapeHtml(t.id)}">
+        <div class="gc-row__main">
+          <div class="gc-row__title">${escapeHtml(partner)}</div>
+          <div class="ci-trade__status">${escapeHtml(status)}</div>
+          <div class="ci-trade__offer"><span class="ci-trade__side">You:</span> ${summarize(myItems)}</div>
+          <div class="ci-trade__offer"><span class="ci-trade__side">Them:</span> ${summarize(theirItems)}</div>
         </div>
-        <div class="trade-row-actions">
-          <button class="social-action-btn add-friend" data-trade-id="${this.escapeHtml(t.id)}">Open</button>
-          <button class="social-action-btn remove-friend" data-trade-cancel="${this.escapeHtml(t.id)}">Cancel</button>
+        <div class="ci-row-actions">
+          <button type="button" class="gc-btn${waitingOnMe ? ' gc-btn--gold' : ''}" data-trade-id="${escapeHtml(t.id)}">Open</button>
+          <button type="button" class="gc-btn gc-btn--red" data-trade-cancel="${escapeHtml(t.id)}">Cancel</button>
         </div>
       </div>`;
     }).join('');
+    this.tradesContainer.hidden = false;
     this.tradesContainer.innerHTML = `
-      <div class="items-section-label">Proposed Trades <span class="items-section-count">(${this.lastProposedTrades.length})</span></div>
-      <div class="trade-list">${rows}</div>
+      <h2 class="ci-section__title">Proposed Trades <span class="gc-badge">${this.lastProposedTrades.length}</span></h2>
+      <div class="ci-section__list">${rows}</div>
     `;
   }
 
-  // ── Item popups (preserved from ItemsScreen) ───────────────
+  // ── Modals ─────────────────────────────────────────────────
+
+  /** Open a kit parchment modal, replacing any open one. Returns the scrim. */
+  private openModal(opts: ModalOptions): HTMLElement {
+    this.hideModal();
+    const overlay = document.createElement('div');
+    overlay.className = `gc-modal ci-modal${opts.extraClass ? ` ${opts.extraClass}` : ''}`;
+    overlay.innerHTML = `
+      <div class="gc-modal__panel gc-parchment${opts.title ? ' has-title' : ''}${opts.actionsHtml ? ' has-actions' : ''}" role="dialog" aria-modal="true">
+        ${opts.title ? `<div class="gc-title-tab gc-modal__title">${escapeHtml(opts.title)}</div>` : ''}
+        <button type="button" class="gc-close gc-modal__close" aria-label="Close"></button>
+        <div class="gc-modal__body">${opts.bodyHtml}</div>
+        ${opts.actionsHtml ? `<div class="gc-modal__actions">${opts.actionsHtml}</div>` : ''}
+      </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay || (e.target as HTMLElement).closest('.gc-modal__close')) this.hideModal();
+    });
+    document.body.appendChild(overlay);
+    bringToFront(overlay);
+    wireFocusOnInteract(overlay);
+    document.addEventListener('keydown', this.onModalKey);
+    this.modalEl = overlay;
+    (overlay.querySelector('.gc-modal__close') as HTMLElement).focus({ preventScroll: true });
+    return overlay;
+  }
+
+  private hideModal(): void {
+    if (this.modalEl) {
+      release(this.modalEl);
+      this.modalEl.remove();
+      this.modalEl = null;
+    }
+    document.removeEventListener('keydown', this.onModalKey);
+    this.skillPopupOpen = false;
+  }
 
   private showItemPopup(itemId: string, context: 'equipped' | 'inventory', equippedSlot?: EquipSlot): void {
     const def = this.itemDefs[itemId];
     if (!def) return;
 
-    const ownedItemIds = getOwnedItemIds(this.lastInventory, this.lastEquipment);
-    const equippedItemIds = getEquippedItemIds(this.lastEquipment);
-
     const count = this.lastInventory[itemId] ?? 0;
     let actionsHtml = '';
     if (context === 'equipped' && equippedSlot) {
-      actionsHtml = `<button class="popup-action-unequip" data-slot="${equippedSlot}">Unequip</button>`;
+      actionsHtml = `<button type="button" class="gc-btn gc-btn--lg ci-act-unequip" data-slot="${equippedSlot}">Unequip</button>`;
     } else if (context === 'inventory') {
       if (def.equipSlot) {
-        // If a copy of this exact item is already in the slot, show
-        // "Equipped" disabled instead of an Equip button — clicking would be
-        // a no-op and the player should know it's already on.
+        // A copy of this exact item is already in the slot → "Equipped",
+        // disabled, rather than an Equip that would be a no-op.
         const alreadyEquipped = this.lastEquipment[def.equipSlot] === itemId;
-        if (alreadyEquipped) {
-          actionsHtml += `<button class="popup-action-equip" data-item="${itemId}" disabled aria-disabled="true">Equipped</button>`;
-        } else {
-          actionsHtml += `<button class="popup-action-equip" data-item="${itemId}">Equip</button>`;
-        }
+        actionsHtml += alreadyEquipped
+          ? '<button type="button" class="gc-btn gc-btn--green gc-btn--lg" disabled>Equipped</button>'
+          : `<button type="button" class="gc-btn gc-btn--green gc-btn--lg ci-act-equip" data-item="${escapeHtml(itemId)}">Equip</button>`;
       }
-      actionsHtml += `<button class="popup-action-destroy danger" data-item="${itemId}" data-max="${count}">Destroy</button>`;
+      // Destroy is the secondary action — red, but a size down from Equip.
+      actionsHtml += `<button type="button" class="gc-btn gc-btn--red${def.equipSlot ? '' : ' gc-btn--lg'} ci-act-destroy" data-item="${escapeHtml(itemId)}" data-max="${count}">Destroy</button>`;
     }
 
-    // Inline equip-compare block when viewing an inventory item that would
-    // replace something already equipped — saves the player from having to
-    // click Equip just to see the swap diff.
+    // Inline compare when this inventory item would replace something
+    // already equipped — the diff is visible before tapping Equip.
     let extraHtml = '';
     if (context === 'inventory' && def.equipSlot) {
       const currentId = this.lastEquipment[def.equipSlot];
@@ -1535,177 +990,144 @@ export class CharItemsScreen implements Screen {
         if (oldDef) extraHtml = this.buildEquipCompareBlock(def, oldDef);
       }
     }
+    if (context === 'inventory' && count > 1) {
+      extraHtml = `<p class="ci-owned">You have ${count}</p>` + extraHtml;
+    }
 
-    const popupContent = renderItemPopupContent(def, {
-      itemDefs: this.itemDefs,
-      setDefs: this.setDefs,
-      ownedItemIds,
-      equippedItemIds,
-      className: this.lastClassName || null,
-      skills: this.worldCache.getSkillContent().skills,
+    const modal = this.openModal({
+      extraClass: 'ci-item-modal',
+      bodyHtml: renderItemDetail(def, {
+        itemDefs: this.itemDefs,
+        setDefs: this.setDefs,
+        ownedItemIds: getOwnedItemIds(this.lastInventory, this.lastEquipment),
+        equippedItemIds: getEquippedItemIds(this.lastEquipment),
+        className: this.lastClassName || null,
+        skills: this.worldCache.getSkillContent().skills,
+        extraHtml,
+      }),
       actionsHtml,
-      extraHtml,
     });
 
-    this.modalOverlay.innerHTML = `
-      <div class="item-popup-overlay">
-        <div class="item-popup">${popupContent}</div>
-      </div>
-    `;
-    this.modalOverlay.style.display = 'flex';
-    bringToFront(this.modalOverlay);
-
-    const overlay = this.modalOverlay.querySelector('.item-popup-overlay') as HTMLElement;
-    overlay?.addEventListener('click', (e) => {
-      if (e.target === overlay) this.hideModal();
+    const unequipBtn = modal.querySelector('.ci-act-unequip') as HTMLElement | null;
+    unequipBtn?.addEventListener('click', () => {
+      const slot = unequipBtn.getAttribute('data-slot');
+      if (slot) this.gameClient.sendUnequipItem(slot);
+      this.hideModal();
     });
 
-    const unequipBtn = this.modalOverlay.querySelector('.popup-action-unequip') as HTMLElement | null;
-    if (unequipBtn) {
-      unequipBtn.addEventListener('click', () => {
-        const slot = unequipBtn.getAttribute('data-slot');
-        if (slot) this.gameClient.sendUnequipItem(slot);
-        this.hideModal();
-      });
-    }
+    const equipBtn = modal.querySelector('.ci-act-equip') as HTMLElement | null;
+    equipBtn?.addEventListener('click', () => {
+      const id = equipBtn.getAttribute('data-item');
+      if (!id) { this.hideModal(); return; }
+      const restrict = this.itemDefs[id]?.classRestriction;
+      // Class-restricted item the player can't use → keep the modal open
+      // and pulse the class row so they catch the red text.
+      if (restrict && restrict.length > 0 && this.lastClassName && !restrict.includes(this.lastClassName)) {
+        this.pulseClassRestriction();
+        return;
+      }
+      // The inline compare already showed the diff, so Equip just commits.
+      this.gameClient.sendEquipItem(id);
+      this.hideModal();
+    });
 
-    const equipBtn = this.modalOverlay.querySelector('.popup-action-equip') as HTMLElement | null;
-    if (equipBtn) {
-      equipBtn.addEventListener('click', () => {
-        const id = equipBtn.getAttribute('data-item');
-        if (!id) { this.hideModal(); return; }
-        const eDef = this.itemDefs[id];
-        const restrict = eDef?.classRestriction;
-        // Class-restricted item the player can't use → keep the popup open
-        // and pulse-highlight the class line so they catch the red text.
-        if (restrict && restrict.length > 0 && this.lastClassName && !restrict.includes(this.lastClassName)) {
-          this.pulseClassRestriction();
-          return;
-        }
-        // Inline compare in the popup already shows the swap diff, so
-        // clicking Equip just commits — no second confirmation popup.
-        this.gameClient.sendEquipItem(id);
-        this.hideModal();
-      });
-    }
-
-    const destroyBtn = this.modalOverlay.querySelector('.popup-action-destroy') as HTMLElement | null;
-    if (destroyBtn) {
-      destroyBtn.addEventListener('click', () => {
-        const id = destroyBtn.getAttribute('data-item')!;
-        const max = parseInt(destroyBtn.getAttribute('data-max') ?? '1', 10);
-        const dDef = this.itemDefs[id];
-        if (max === 1) {
-          this.showConfirmModal(
-            `Destroy ${dDef?.name ?? 'item'}?`,
-            'This item will be permanently lost.',
-            () => { this.gameClient.sendDestroyItems(id, 1); this.hideModal(); }
-          );
-        } else {
-          this.showDestroyCountModal(id, dDef?.name ?? 'item', max);
-        }
-      });
-    }
+    const destroyBtn = modal.querySelector('.ci-act-destroy') as HTMLElement | null;
+    destroyBtn?.addEventListener('click', () => {
+      const id = destroyBtn.getAttribute('data-item')!;
+      const max = parseInt(destroyBtn.getAttribute('data-max') ?? '1', 10);
+      const name = this.itemDefs[id]?.name ?? 'item';
+      if (max <= 1) {
+        this.showConfirmModal({
+          title: 'Destroy item?',
+          message: `<strong>${escapeHtml(name)}</strong> will be permanently lost.`,
+          confirmLabel: 'Destroy',
+          confirmVariant: 'red',
+          onConfirm: () => { this.gameClient.sendDestroyItems(id, 1); this.hideModal(); },
+        });
+      } else {
+        this.showDestroyCountModal(id, max);
+      }
+    });
   }
 
-  private showConfirmModal(title: string, message: string, onConfirm: () => void): void {
-    this.modalOverlay.innerHTML = `
-      <div class="item-popup-overlay">
-        <div class="item-popup">
-          <div class="item-popup-name">${title}</div>
-          <div class="item-popup-stats" style="text-align:center">${message}</div>
-          <div class="item-popup-actions">
-            <button class="items-modal-confirm danger">Destroy</button>
-            <button class="items-modal-cancel">Cancel</button>
-          </div>
-        </div>
-      </div>
-    `;
-    this.modalOverlay.style.display = 'flex';
-    bringToFront(this.modalOverlay);
-
-    const overlay = this.modalOverlay.querySelector('.item-popup-overlay') as HTMLElement;
-    overlay?.addEventListener('click', (e) => { if (e.target === overlay) this.hideModal(); });
-    this.modalOverlay.querySelector('.items-modal-confirm')!.addEventListener('click', onConfirm);
-    this.modalOverlay.querySelector('.items-modal-cancel')!.addEventListener('click', () => this.hideModal());
+  private showConfirmModal(opts: {
+    title: string;
+    /** Trusted HTML — escape any content strings before passing them in. */
+    message: string;
+    confirmLabel: string;
+    confirmVariant: 'red' | 'gold' | 'green';
+    onConfirm: () => void;
+  }): void {
+    const modal = this.openModal({
+      title: opts.title,
+      extraClass: 'ci-confirm-modal',
+      bodyHtml: `<p class="ci-confirm__msg">${opts.message}</p>`,
+      actionsHtml: `
+        <button type="button" class="gc-btn gc-btn--steel ci-modal-cancel">Cancel</button>
+        <button type="button" class="gc-btn gc-btn--${opts.confirmVariant} gc-btn--lg ci-modal-confirm">${escapeHtml(opts.confirmLabel)}</button>
+      `,
+    });
+    modal.querySelector('.ci-modal-confirm')!.addEventListener('click', opts.onConfirm);
+    modal.querySelector('.ci-modal-cancel')!.addEventListener('click', () => this.hideModal());
   }
 
-  private showDestroyCountModal(itemId: string, itemName: string, max: number): void {
-    this.modalOverlay.innerHTML = `
-      <div class="item-popup-overlay">
-        <div class="item-popup">
-          <div class="item-popup-name">Destroy ${itemName}</div>
-          <div class="item-popup-stats" style="text-align:center">How many? (1-${max})</div>
-          <div class="items-modal-count-row" style="display:flex;gap:8px;justify-content:center;align-items:center;margin:8px 0">
-            <button class="items-modal-minus" style="padding:4px 10px;border-radius:4px;border:1px solid #555;background:#2a2a40;color:#e8e8e8;cursor:pointer;font-family:inherit">-</button>
-            <span class="items-modal-count-value" style="min-width:24px;text-align:center">1</span>
-            <button class="items-modal-plus" style="padding:4px 10px;border-radius:4px;border:1px solid #555;background:#2a2a40;color:#e8e8e8;cursor:pointer;font-family:inherit">+</button>
-            <button class="items-modal-max" style="padding:4px 10px;border-radius:4px;border:1px solid #555;background:#2a2a40;color:#e8e8e8;cursor:pointer;font-family:inherit">Max</button>
-          </div>
-          <div class="item-popup-actions">
-            <button class="items-modal-confirm danger">Destroy</button>
-            <button class="items-modal-cancel">Cancel</button>
+  private showDestroyCountModal(itemId: string, max: number): void {
+    const def = this.itemDefs[itemId];
+    const frame = def ? renderItemFrame(itemId, def, { qty: max, decorative: true }) : '';
+    const modal = this.openModal({
+      title: 'Destroy items',
+      extraClass: 'ci-confirm-modal',
+      bodyHtml: `
+        <div class="ci-destroy">
+          ${frame}
+          <div class="ci-destroy__name">${def ? this.itemNameHtml(itemId) : 'item'}</div>
+          <p class="ci-confirm__msg">How many? Destroyed items are gone for good.</p>
+          <div class="ci-stepper" role="group" aria-label="Amount to destroy">
+            <button type="button" class="gc-btn gc-btn--steel gc-btn--icon ci-stepper__minus" aria-label="One fewer">&minus;</button>
+            <output class="ci-stepper__value" aria-live="polite">1</output>
+            <button type="button" class="gc-btn gc-btn--steel gc-btn--icon ci-stepper__plus" aria-label="One more">+</button>
+            <button type="button" class="gc-btn gc-btn--steel ci-stepper__max">All ${max}</button>
           </div>
         </div>
-      </div>
-    `;
-    this.modalOverlay.style.display = 'flex';
-    bringToFront(this.modalOverlay);
+      `,
+      actionsHtml: `
+        <button type="button" class="gc-btn gc-btn--steel ci-modal-cancel">Cancel</button>
+        <button type="button" class="gc-btn gc-btn--red gc-btn--lg ci-modal-confirm">Destroy 1</button>
+      `,
+    });
 
-    const overlay = this.modalOverlay.querySelector('.item-popup-overlay') as HTMLElement;
-    overlay?.addEventListener('click', (e) => { if (e.target === overlay) this.hideModal(); });
-
-    const countEl = this.modalOverlay.querySelector('.items-modal-count-value') as HTMLElement;
+    const valueEl = modal.querySelector('.ci-stepper__value') as HTMLElement;
+    const confirmBtn = modal.querySelector('.ci-modal-confirm') as HTMLElement;
     let count = 1;
     const updateCount = (n: number) => {
       count = Math.max(1, Math.min(max, n));
-      countEl.textContent = String(count);
+      valueEl.textContent = String(count);
+      confirmBtn.textContent = `Destroy ${count}`;
     };
 
-    this.modalOverlay.querySelector('.items-modal-minus')!.addEventListener('click', () => updateCount(count - 1));
-    this.modalOverlay.querySelector('.items-modal-plus')!.addEventListener('click', () => updateCount(count + 1));
-    this.modalOverlay.querySelector('.items-modal-max')!.addEventListener('click', () => updateCount(max));
-    this.modalOverlay.querySelector('.items-modal-confirm')!.addEventListener('click', () => {
+    modal.querySelector('.ci-stepper__minus')!.addEventListener('click', () => updateCount(count - 1));
+    modal.querySelector('.ci-stepper__plus')!.addEventListener('click', () => updateCount(count + 1));
+    modal.querySelector('.ci-stepper__max')!.addEventListener('click', () => updateCount(max));
+    confirmBtn.addEventListener('click', () => {
       this.gameClient.sendDestroyItems(itemId, count);
       this.hideModal();
     });
-    this.modalOverlay.querySelector('.items-modal-cancel')!.addEventListener('click', () => this.hideModal());
+    modal.querySelector('.ci-modal-cancel')!.addEventListener('click', () => this.hideModal());
   }
 
   private showEquipBlockedModal(msg: ServerEquipBlockedMessage): void {
-    const newDef = this.itemDefs[msg.itemId];
-    const oldDef = this.itemDefs[msg.blockedByItemId];
-    const newName = newDef?.name ?? 'item';
-    const oldName = oldDef?.name ?? 'item';
-
-    this.showConfirmModal(
-      'Inventory full!',
-      `Destroy equipped ${oldName} to equip ${newName}?`,
-      () => {
+    const newName = this.itemDefs[msg.itemId]?.name ?? 'item';
+    const oldName = this.itemDefs[msg.blockedByItemId]?.name ?? 'item';
+    this.showConfirmModal({
+      title: 'Inventory full!',
+      message: `Destroy your equipped <strong>${escapeHtml(oldName)}</strong> to equip <strong>${escapeHtml(newName)}</strong>?`,
+      confirmLabel: 'Destroy',
+      confirmVariant: 'red',
+      onConfirm: () => {
         this.gameClient.sendEquipItemForceDestroy(msg.itemId);
         this.hideModal();
-      }
-    );
-  }
-
-  private showSlotTooltip(anchor: HTMLElement, slot: EquipSlot): void {
-    document.querySelector('.items-slot-tooltip')?.remove();
-    const label = SLOT_LABELS[slot] ?? slot;
-    const tooltip = document.createElement('div');
-    tooltip.className = 'items-slot-tooltip';
-    tooltip.textContent = label;
-    tooltip.style.cssText = 'position:fixed;background:#222;color:#e8e8e8;padding:4px 10px;border-radius:4px;font-size: 14px;z-index:1000;pointer-events:none;border:1px solid #555;white-space:nowrap;';
-    document.body.appendChild(tooltip);
-    const rect = anchor.getBoundingClientRect();
-    tooltip.style.left = `${rect.left + rect.width / 2 - tooltip.offsetWidth / 2}px`;
-    tooltip.style.top = `${rect.bottom + 4}px`;
-    setTimeout(() => tooltip.remove(), 1500);
-  }
-
-  private hideModal(): void {
-    this.modalOverlay.style.display = 'none';
-    this.modalOverlay.innerHTML = '';
-    release(this.modalOverlay);
+      },
+    });
   }
 
   /** localStorage key for the inventory sort choice — keyed per username so
@@ -1729,14 +1151,11 @@ export class CharItemsScreen implements Screen {
   }
 
   /**
-   * Build the inline equip-comparison HTML block. Rendered inside the item
-   * popup whenever the viewed inventory item would replace something already
-   * equipped — players see the diff up-front instead of having to click
-   * Equip just to preview the swap.
+   * Inline equip-comparison block, rendered inside the item modal whenever the
+   * viewed inventory item would replace something already equipped.
    *
-   * Layout: header line "Replaces: <oldName>" + a 4-col grid (label / new /
-   * arrow / current). Stats shown for both items unconditionally; arrows
-   * only appear when both items contribute to the same stat.
+   * Layout: "Replaces <oldName>" + a 4-col grid (stat / this / arrow /
+   * equipped). Stats show for both items; arrows only when both contribute.
    */
   private buildEquipCompareBlock(newDef: ItemDefinition, oldDef: ItemDefinition): string {
     type StatKey = 'atk' | 'dr' | 'mr';
@@ -1745,29 +1164,22 @@ export class CharItemsScreen implements Screen {
       { key: 'dr', label: 'DR' },
       { key: 'mr', label: 'MR' },
     ];
+    const bounds = (def: ItemDefinition, key: StatKey): [number, number] => {
+      if (key === 'atk') return [def.bonusAttackMin ?? 0, def.bonusAttackMax ?? 0];
+      if (key === 'dr') return [def.damageReductionMin ?? 0, def.damageReductionMax ?? 0];
+      return [def.magicReductionMin ?? 0, def.magicReductionMax ?? 0];
+    };
     const itemStat = (def: ItemDefinition, key: StatKey): string | null => {
-      if (key === 'atk') {
-        const lo = def.bonusAttackMin ?? 0;
-        const hi = def.bonusAttackMax ?? 0;
-        if (lo === 0 && hi === 0) return null;
-        return lo === hi ? `+${lo}` : `+${lo}-${hi}`;
-      }
-      if (key === 'dr') {
-        const lo = def.damageReductionMin ?? 0;
-        const hi = def.damageReductionMax ?? 0;
-        if (lo === 0 && hi === 0) return null;
-        return lo === hi ? `${lo}` : `${lo}-${hi}`;
-      }
-      const lo = def.magicReductionMin ?? 0;
-      const hi = def.magicReductionMax ?? 0;
+      const [lo, hi] = bounds(def, key);
       if (lo === 0 && hi === 0) return null;
-      return lo === hi ? `${lo}` : `${lo}-${hi}`;
+      const prefix = key === 'atk' ? '+' : '';
+      return lo === hi ? `${prefix}${lo}` : `${prefix}${lo}-${hi}`;
     };
     const mid = (def: ItemDefinition, key: StatKey): number => {
-      if (key === 'atk') return ((def.bonusAttackMin ?? 0) + (def.bonusAttackMax ?? 0)) / 2;
-      if (key === 'dr') return ((def.damageReductionMin ?? 0) + (def.damageReductionMax ?? 0)) / 2;
-      return ((def.magicReductionMin ?? 0) + (def.magicReductionMax ?? 0)) / 2;
+      const [lo, hi] = bounds(def, key);
+      return (lo + hi) / 2;
     };
+    const dash = '<span class="ci-compare__dash">—</span>';
 
     const rows = stats.map(({ key, label }) => {
       const newV = itemStat(newDef, key);
@@ -1777,71 +1189,62 @@ export class CharItemsScreen implements Screen {
       if (newV !== null && oldV !== null) {
         const dn = mid(newDef, key);
         const dc = mid(oldDef, key);
-        if (dn > dc) arrow = '<span class="compare-up">↑</span>';
-        else if (dn < dc) arrow = '<span class="compare-down">↓</span>';
-        else arrow = '<span class="compare-eq">=</span>';
+        if (dn > dc) arrow = '<span class="ci-compare__up" aria-label="better">▲</span>';
+        else if (dn < dc) arrow = '<span class="ci-compare__down" aria-label="worse">▼</span>';
+        else arrow = '<span class="ci-compare__eq" aria-label="same">=</span>';
       }
       return `
-        <div class="compare-row">
-          <div class="compare-cell-label">${label}</div>
-          <div class="compare-cell-new">${newV ?? '<span class="compare-dash">—</span>'}</div>
-          <div class="compare-cell-arrow">${arrow}</div>
-          <div class="compare-cell-old">${oldV ?? '<span class="compare-dash">—</span>'}</div>
-        </div>
+        <span class="ci-compare__label">${label}</span>
+        <span class="ci-compare__val">${newV ?? dash}</span>
+        <span class="ci-compare__arrow">${arrow}</span>
+        <span class="ci-compare__val">${oldV ?? dash}</span>
       `;
     }).join('');
 
-    const oldColor = (RARITY_COLORS[oldDef.rarity ?? 'common']) ?? '#e8e8e8';
-
     return `
-      <div class="item-popup-compare">
-        <div class="compare-block-header">
-          <span class="compare-block-label">Replaces equipped</span>
-          <span class="compare-block-old-name" style="color:${oldColor}">${this.escapeHtml(oldDef.name)}</span>
-        </div>
-        <div class="compare-block-subhead">
-          <span class="compare-cell-label">Stat</span>
-          <span class="compare-side-label">This</span>
+      <section class="ci-compare">
+        <div class="ci-compare__head">Replaces ${this.itemNameHtml(oldDef.id)}</div>
+        <div class="ci-compare__grid">
+          <span class="ci-compare__col"></span>
+          <span class="ci-compare__col">This</span>
           <span></span>
-          <span class="compare-side-label">Equipped</span>
+          <span class="ci-compare__col">Equipped</span>
+          ${rows || `<span class="ci-compare__none">No combat stats</span>`}
         </div>
-        <div class="compare-grid">${rows || '<div class="compare-dash" style="text-align:center;grid-column:1/-1">No combat stats</div>'}</div>
-      </div>
+      </section>
     `;
   }
 
   /**
-   * Pulse-highlight the class-restriction line in the open item popup so
-   * the player notices the red class text. The popup itself stays open;
-   * just the class row gets a brief attention animation.
+   * Pulse the class-restriction row in the open item modal so the player
+   * notices the red class text. The modal itself stays open.
    */
   private pulseClassRestriction(): void {
-    const row = this.modalOverlay.querySelector('[data-class-restriction]') as HTMLElement | null;
+    const row = this.modalEl?.querySelector('[data-class-restriction]') as HTMLElement | null;
     if (!row) return;
     row.classList.remove('class-restriction-pulse');
-    // Force reflow so re-adding the class restarts the animation if the
-    // user clicks Equip multiple times in a row.
+    // Force reflow so re-adding the class restarts the animation.
     void row.offsetWidth;
     row.classList.add('class-restriction-pulse');
   }
 
+  /** Up to two initials — the frame's fallback when a skill has no art. */
+  private skillInitials(name: string): string {
+    const words = name.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].charAt(0).toUpperCase();
+    return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+  }
+
   /**
-   * Optional skill art, following the `/<kind>-artwork/{id}.png` convention
-   * keyed on the skill id — same as items, so no schema field is needed.
-   *
-   * Unlike renderAssetImg there is no placehold.co fallback: the picker can
-   * show a dozen skills at once and a missing-art placeholder for each would
-   * be both noisy and a pile of third-party requests. Instead the img is
-   * hidden until it loads and removed outright if it 404s, so skills without
-   * art fall back cleanly to the text-only layout.
+   * Optional skill art, following the `/<kind>-artwork/{id}.png` convention.
+   * No placehold.co fallback (a picker can show a dozen skills): the img is
+   * invisible until it loads and removes itself on 404, so the initials
+   * underneath show instead.
    */
   private skillIconHtml(skill: SkillDefinition, className: string): string {
     const src = artworkUrl('skill', skill.id);
     return `<img class="${className}" src="${src}" alt=""`
-      + ` onload="this.style.opacity='1'" onerror="this.remove()" decoding="async" />`;
-  }
-
-  private escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      + ` onload="this.classList.add('is-loaded')" onerror="this.remove()" decoding="async" />`;
   }
 }
