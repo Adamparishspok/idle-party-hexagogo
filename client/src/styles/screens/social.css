@@ -897,6 +897,24 @@
   color: var(--parch-ink-soft);
 }
 
+.soc-statsheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.soc-stat-tip {
+  min-height: 2.8em;
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-small);
+  line-height: 1.4;
+  text-align: center;
+  color: var(--parch-ink-soft);
+}
+.soc-stat-tip strong {
+  font-family: var(--display-font);
+  color: var(--parch-ink);
+}
+
 /* ── Motion ──────────────────────────────────────────────── */
 
 @keyframes soc-cell-move {

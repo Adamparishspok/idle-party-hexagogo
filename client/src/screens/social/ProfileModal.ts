@@ -4,10 +4,21 @@ import type { GameClient } from '../../network/GameClient';
 import type { WorldCache } from '../../network/WorldCache';
 import { renderItemPopupContent } from '../../ui/ItemPopup';
 import { SLOT_LABELS, renderEmptySlotFrame } from '../../ui/ItemIcon';
+import { renderStatsSheet } from '../../ui/StatsSheet';
 import { bringToFront, release, wireFocusOnInteract } from '../../ui/ModalStack';
 import { esc, classArtUrl, fallbackImg, initialOf, itemFrameHtml, portraitHtml, subtitle } from './socialHtml';
 import { openSocModal } from './socialModal';
 import type { SocModal } from './socialModal';
+
+const STAT_TIP_PROMPT = 'Tap a stat to see what it does.';
+
+/** The read-only stats sheet for a profile, or '' when the server sent none. */
+export function profileStatsHtml(profile: Pick<PlayerProfileMessage, 'derivedStats'>): string {
+  if (!profile.derivedStats) return '';
+  return `<div class="gc-divider soc-divider">Stats</div>
+    <div class="soc-statsheet">${renderStatsSheet(profile.derivedStats)}</div>
+    <p class="soc-stat-tip" aria-live="polite">${STAT_TIP_PROMPT}</p>`;
+}
 
 const LEFT_SLOTS = ['head', 'shoulders', 'chest', 'gloves', 'foot', 'mainhand'];
 const RIGHT_SLOTS = ['back', 'necklace', 'bracers', 'ring', 'relic', 'offhand'];
@@ -107,6 +118,7 @@ export class ProfileModal {
         <div class="gc-stat"><span class="gc-stat__label">Gear</span><span class="gc-stat__value">${equipped}<small>/12</small></span></div>
         <div class="gc-stat"><span class="gc-stat__label">Party</span><span class="gc-stat__value">${Math.max(1, profile.partyMembers.length)}</span></div>
       </div>
+      ${profileStatsHtml(profile)}
       <div class="gc-divider soc-divider">Equipment</div>
       <div class="soc-doll">
         <div class="soc-doll__col">${LEFT_SLOTS.map(slot).join('')}</div>
@@ -125,6 +137,12 @@ export class ProfileModal {
     const setDefs = profile.setDefinitions ?? {};
     const equippedIds = getEquippedItemIds(profile.equipment);
     modal.body.addEventListener('click', (e) => {
+      const stat = (e.target as HTMLElement).closest<HTMLElement>('[data-stat-title]');
+      const tip = modal.body.querySelector('.soc-stat-tip');
+      if (stat && tip) {
+        tip.innerHTML = `<strong>${esc(stat.dataset.statTitle ?? '')}</strong> ${esc(stat.dataset.statDesc ?? '')}`;
+        return;
+      }
       const el = (e.target as HTMLElement).closest<HTMLElement>('button[data-item-id]');
       if (!el) return;
       const def = profile.itemDefinitions[el.getAttribute('data-item-id') ?? ''];

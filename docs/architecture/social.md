@@ -52,7 +52,7 @@ A contextual popup shown when clicking any username across the app (Users tab, G
 
 ## View Player profile
 
-Clicking "View Player" in the popup sends a `view_player` WS request; server responds with `player_profile` containing the target's public "chosen state" — class, level, guild name, equipped items (with item definitions), equipped skills, and party members. No private stats (HP, damage, gold, inventory, XP) are exposed. The client renders a modal overlay (`player-profile-modal`) showing this data. `PlayerListEntry` includes `level` so the popup header can show it without an extra request.
+Clicking "View Player" in the popup sends a `view_player` WS request; server responds with `player_profile` containing the target's public "chosen state" — class, level, guild name, equipped items (with item definitions), equipped skills, party members, and `derivedStats` (attributes and the combat stats they derive, all computable from the public gear). Gold, inventory and XP stay private. `ProfileModal` renders this, with a read-only stats sheet (`renderStatsSheet`) between the summary and the paper-doll when `derivedStats` is present; tapping a stat explains it in a line below. `PlayerListEntry` includes `level` so the popup header can show it without an extra request.
 
 ## Item trading (async)
 
