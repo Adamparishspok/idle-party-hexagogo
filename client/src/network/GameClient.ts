@@ -1,5 +1,5 @@
 import type { ServerStateMessage, ServerEquipBlockedMessage,
-  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode } from '@idle-party-rpg/shared';
+  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage } from '@idle-party-rpg/shared';
 
 const RECONNECT_DELAY = 2000;
 
@@ -15,6 +15,7 @@ type MoveBlockedListener = (msg: ServerMoveBlockedMessage) => void;
 type PlayerProfileListener = (profile: PlayerProfileMessage) => void;
 type NotificationListener = (notification: NotificationEntry) => void;
 type ServerErrorListener = (message: string, code?: ServerErrorCode) => void;
+type WelcomeBackListener = (msg: ServerWelcomeBackMessage) => void;
 
 export class GameClient {
   private ws: WebSocket | null = null;
@@ -35,6 +36,9 @@ export class GameClient {
   private playerProfileListeners = new Set<PlayerProfileListener>();
   private notificationListeners = new Set<NotificationListener>();
   private serverErrorListeners = new Set<ServerErrorListener>();
+  private welcomeBackListeners = new Set<WelcomeBackListener>();
+  /** Held until the first subscriber — it can arrive before the game UI is built. */
+  private pendingWelcomeBack: ServerWelcomeBackMessage | null = null;
 
   /** Pending connect resolve — set during connect() call. */
   private connectResolve?: (result: { success: boolean; error?: string }) => void;
@@ -220,6 +224,18 @@ export class GameClient {
             listener(msg.notification);
           } catch (err) {
             console.error('[GameClient] error in notification listener:', err);
+          }
+        }
+      } else if (msg.type === 'welcome_back') {
+        if (this.welcomeBackListeners.size === 0) {
+          this.pendingWelcomeBack = msg;
+          return;
+        }
+        for (const listener of this.welcomeBackListeners) {
+          try {
+            listener(msg);
+          } catch (err) {
+            console.error('[GameClient] error in welcome_back listener:', err);
           }
         }
       } else if (msg.type === 'error') {
@@ -570,6 +586,17 @@ export class GameClient {
 
   /** Subscribe to server `error` messages. `code` is set only for errors a screen
    *  is expected to react to (see ServerErrorCode). */
+  /** "While you were away" summary. A summary that arrived before anyone subscribed is replayed to the first subscriber. */
+  onWelcomeBack(listener: WelcomeBackListener): () => void {
+    this.welcomeBackListeners.add(listener);
+    const pending = this.pendingWelcomeBack;
+    if (pending) {
+      this.pendingWelcomeBack = null;
+      listener(pending);
+    }
+    return () => { this.welcomeBackListeners.delete(listener); };
+  }
+
   onServerError(listener: ServerErrorListener): () => void {
     this.serverErrorListeners.add(listener);
     return () => { this.serverErrorListeners.delete(listener); };
@@ -626,5 +653,7 @@ export class GameClient {
     this.resumeListeners.clear();
     this.notificationListeners.clear();
     this.serverErrorListeners.clear();
+    this.welcomeBackListeners.clear();
+    this.pendingWelcomeBack = null;
   }
 }

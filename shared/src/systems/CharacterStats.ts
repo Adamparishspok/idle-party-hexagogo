@@ -160,6 +160,13 @@ export function xpForNextLevel(level: number): number {
   return Math.floor(18000 * Math.pow(level, 1.2) * Math.pow(1.06, level));
 }
 
+/** Lifetime XP for a character sitting at `level` with `xp` toward the next level. */
+export function totalXpEarned(level: number, xp: number): number {
+  let total = xp;
+  for (let l = 1; l < level; l++) total += xpForNextLevel(l);
+  return total;
+}
+
 /** Crafting XP required to advance from `level` to `level + 1`. Gentle linear-ish curve. */
 export function xpForCraftLevel(level: number): number {
   return Math.floor(100 * Math.pow(level, 1.3));

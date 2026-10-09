@@ -22,6 +22,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Hired henchmen show in your party on the Social screen — see them in your formation, move them around, or dismiss them. They fight alongside you on the new combat screen too.',
       'Trades now ask you to re-check an offer if it changes while you\'re about to confirm.',
       'The Quest Log has moved to its own parchment window, and the room panel on the map shows what your current room offers as big buttons.',
+      'Coming back after a break? A welcome-back summary now shows everything your party earned while you were away — levels, experience, gold, battles won and loot.',
     ],
   },
   {

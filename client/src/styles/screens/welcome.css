@@ -1,0 +1,125 @@
+/* Welcome Back (kit parchment modal) — time away, count-up stat tiles, loot. */
+
+.wb-modal__panel {
+  width: min(100%, 440px);
+  padding-bottom: var(--s-7);
+}
+.wb-modal__body {
+  padding-top: var(--s-2);
+}
+.wb-modal__lead {
+  margin: 0 0 var(--s-4);
+  text-align: center;
+  font-size: var(--t-body);
+}
+.wb-modal__lead strong {
+  font-family: var(--display-font);
+  font-weight: normal;
+  color: var(--parch-accent);
+}
+
+.wb-modal__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.wb-stat {
+  display: flex;
+  justify-content: center;
+  min-height: 88px;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.35);
+}
+.wb-stat--levels {
+  grid-column: 1 / -1;
+  border-color: var(--parch-accent);
+  background: rgba(245, 200, 66, 0.22);
+}
+.wb-stat .gc-stat__value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wb-stat .gc-stat__label {
+  text-align: center;
+}
+
+.wb-modal__divider {
+  margin-top: var(--s-5);
+}
+.wb-loot {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: var(--s-3) var(--s-2);
+  justify-items: center;
+}
+.wb-loot__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  max-width: 100%;
+}
+.wb-loot__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.wb-loot__more {
+  align-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-sm);
+  border: 2px dashed var(--parch-500);
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: var(--parch-ink);
+  text-align: center;
+}
+
+.wb-modal__collect {
+  min-width: 200px;
+}
+
+.wb-modal.is-collecting {
+  animation: wb-scrim-out 320ms var(--ease-out) forwards;
+}
+.wb-modal.is-collecting .wb-modal__panel {
+  animation: wb-collect 320ms var(--ease-out) forwards;
+}
+.wb-modal.is-collecting .gc-coin {
+  animation: wb-coin-flip 320ms var(--ease-out);
+}
+
+@keyframes wb-collect {
+  0% { transform: scale(1); opacity: 1; }
+  35% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(0.92) translateY(12px); opacity: 0; }
+}
+@keyframes wb-scrim-out {
+  to { opacity: 0; }
+}
+@keyframes wb-coin-flip {
+  to { transform: rotateY(360deg) scale(1.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-modal,
+  .wb-modal__panel,
+  .wb-modal.is-collecting,
+  .wb-modal.is-collecting .wb-modal__panel,
+  .wb-modal.is-collecting .gc-coin {
+    animation: none;
+  }
+}

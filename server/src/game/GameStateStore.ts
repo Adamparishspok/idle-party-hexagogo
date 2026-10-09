@@ -1,5 +1,18 @@
 import type { HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription } from '@idle-party-rpg/shared';
 
+/** Progress baseline taken when a player's last connection closes; diffed on return. */
+export interface AwaySnapshot {
+  /** Epoch ms when the last connection closed. */
+  at: number;
+  level: number;
+  xp: number;
+  gold: number;
+  battleCount: number;
+  /** Victories since `at` (counted live — there is no lifetime win counter). */
+  battlesWon: number;
+  inventory: Record<string, number>;
+}
+
 /**
  * Serializable snapshot of a player's persistent state.
  */
@@ -64,6 +77,8 @@ export interface PlayerSaveData {
   notificationPreferences?: NotificationPreferences;
   /** Registered browser push endpoints for this player. */
   pushSubscriptions?: WebPushSubscription[];
+  /** Present while the player has no open connection; drives the welcome-back summary. */
+  awaySnapshot?: AwaySnapshot;
 }
 
 /**

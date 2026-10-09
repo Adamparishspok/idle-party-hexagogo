@@ -207,6 +207,12 @@ Rebuilt in the WorldQuest style (`CombatScreen.ts` + `styles/screens/combat.css`
 
 **Backdrop.** A CSS `background-image` chain: `/combat-bg-artwork/{zoneId}-{col}-{row}.png` → `/combat-bg-artwork/{zoneId}.png` → `/zone-artwork/{zoneId}.png`, painted over a CSS forest-clearing scene, with a vignette for readability. The key is the room's raw `zone` tag, not a slug of the display name. Every location is expected to get real backdrop art (see `ideas/ui-revamp-worldquest.md`).
 
+## Welcome back
+
+When a player's last connection closes, the server snapshots their progress (`awaySnapshot`, see [`persistence.md`](persistence.md)). On the next connect, `PlayerManager.sendWelcomeBack` diffs it — levels, lifetime XP via the shared `totalXpEarned`, gold, battles fought/won, positive inventory gains — and sends one `welcome_back` message (`ServerWelcomeBackMessage`, with `itemDefinitions` for the loot) to the connecting socket only, then clears the snapshot. Absences under 5 minutes (`WELCOME_BACK_MIN_AWAY_MS`) or with nothing earned send nothing; other tabs never get a copy.
+
+`GameClient.onWelcomeBack` holds a summary that lands before anyone subscribed and replays it to the first subscriber, so `App.enterGame` can subscribe last and still catch it. `client/src/ui/WelcomeBackModal.ts` is a kit `.gc-modal` parchment panel (styles in `styles/screens/welcome.css`): time away, count-up stat tiles (skipped under `prefers-reduced-motion`), up to `MAX_VISIBLE_LOOT` rarity-sorted item frames plus "+N more", and a gold Collect button. Rewards are already granted, so Collect only closes it, playing `level-up` / `loot` / `coin` and a short exit flourish. Escape and the backdrop also close it. Players on the class-select screen never see it — they have no character, so no snapshot is taken.
+
 ## ModalStack
 
 `client/src/ui/ModalStack.ts` manages click-order z-index across overlays. `bringToFront(el)` is called when a modal opens (and on `mousedown` so click-to-focus works like native windows); `release(el)` on close. `wireFocusOnInteract(el)` attaches the focus-on-click handler in one call. Every overlay in the app (RoomView, ChatPopout, the Quest Log and Notifications modals, player popup, monster popup, the notification dropdown, etc.) routes through it.
