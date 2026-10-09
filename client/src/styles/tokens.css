@@ -7,8 +7,10 @@
  * reads over painted art. No text below --t-caption anywhere.
  *
  * Faces:
- *   --display-font  Lilita One — chunky rounded display for titles, buttons,
- *                   numbers. The Rovio-style "game" voice.
+ *   --display-font  Cinzel — carved Roman capitals for titles, buttons and
+ *                   numbers; the serious, WoW-style RPG voice. Loaded only at
+ *                   700/900 so every display rule renders bold without
+ *                   per-rule weights (a lighter request falls back to 700).
  *   --ui-font       Oswald — condensed sans for HUD, labels, and body copy,
  *                   matching WorldQuest's dialog and location text.
  * To swap, change the two variables and the @import.
@@ -16,11 +18,11 @@
  * TODO: self-host as .woff2 — the @import is render-blocking and the PWA can't
  * cache a third-party origin, so offline loads lose the typefaces.
  */
-@import url('https://fonts.googleapis.com/css2?family=Lilita+One&family=Oswald:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Oswald:wght@400;500;600;700&display=swap');
 
 :root {
   /* ── Type ─────────────────────────────────────────────── */
-  --display-font: 'Lilita One', 'Arial Rounded MT Bold', system-ui, sans-serif;
+  --display-font: 'Cinzel', 'Trajan Pro', Georgia, serif;
   --ui-font: 'Oswald', 'Arial Narrow', system-ui, sans-serif;
 
   /* Mobile-first scale. --t-caption is the floor: nothing renders smaller. */

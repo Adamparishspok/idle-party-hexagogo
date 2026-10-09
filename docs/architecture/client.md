@@ -332,7 +332,7 @@ The type scale in `tokens.css` is mobile-first and doesn't change on desktop. Sc
 
 A painted-fantasy mobile-game look modelled on WorldQuest, at Rovio-level polish.
 
-- **Type:** Lilita One for display (titles, buttons, numbers) and Oswald for UI and body text. The floor is 13px and body text is 17px; display text gets an outline (`--text-stroke`).
+- **Type:** Cinzel (bold carved capitals, loaded at 700/900 only) for display — titles, buttons, numbers — and Oswald for UI and body text. The floor is 13px and body text is 17px; display text gets an outline (`--text-stroke`).
 - **Tokens:** `client/src/styles/tokens.css`.
 - **Component kit:** `client/src/styles/components.css`, previewed in the dev-only `client/styleguide.html`. Its families are buttons (incl. `--loading`), close, parchment, card, title tab, modal (with `__footer` and `__why`), divider, item frame (glyph fallback, set/slot pips, shiny, rarity text), portrait, octagon icon, stat, bar, tabs, chips, switch, stepper, row, input, badge, tag, need chip, fact tile, coin, and empty state — screens reuse these instead of restyling locally (helpers: `renderKitItem`/`renderItemFrame` in `ui/ItemIcon.ts`, `renderPortrait` in `ui/Portrait.ts`, `renderEmptyState` in `ui/EmptyState.ts`).
 - **Shell:** `game-chrome.css`.

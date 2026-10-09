@@ -38,7 +38,7 @@ type scale was used in 4 places, and touch targets were routinely <40px.
 
 ### Quality bar (applies to every rebuilt screen)
 
-- **Type**: Lilita One (display) + Oswald (UI). Body 17px; nothing below 13px.
+- **Type**: Cinzel (display, WoW-style carved capitals — chosen over Lilita One for a more serious RPG tone) + Oswald (UI). Body 17px; nothing below 13px.
   Display text is outlined (`--text-stroke`) so it reads over art.
 - **Touch**: every target ≥48px; primary actions 56px. One obvious primary
   action per screen/dialog.

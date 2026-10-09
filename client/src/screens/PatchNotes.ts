@@ -2,7 +2,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
     version: '2026.10.09.1',
     notes: [
-      'A brand-new look for the whole game! Every screen has been redesigned with bigger, bolder text, chunky buttons that are easy to tap, and a storybook fantasy style.',
+      'A brand-new look for the whole game! Every screen has been redesigned with bigger, bolder text, carved fantasy lettering for titles and numbers, chunky buttons that are easy to tap, and a classic RPG style.',
       'The bottom bar has big framed buttons, and the screen you\'re on rises up on a purple banner. The map sits in the middle, Chat has its own button just above the bar, and Settings moved to the gear at the top right.',
       'Your gold and the zone and room you\'re in now show along the top. The experience bar shows your exact progress, with your level and class portrait beside it — tap the portrait to open your character.',
       'Combat: enemies now face your party across the battlefield on big portrait cards with readable health bars. Damage and healing numbers pop off each fighter, and a Victory banner celebrates each win. The combat log runs as a short live feed — tap it for the full log — and tapping a monster shows a larger picture of it.',
