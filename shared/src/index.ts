@@ -524,3 +524,35 @@ export type {
   AssetFileFormat,
   SfxId,
 } from './assets/AssetKinds.js';
+
+export {
+  HOUSE_SELL_REFUND,
+  RESTED_MS_PER_SIT_MS,
+  RESTED_CAP_MS,
+  WELL_RESTED_BONUS,
+  houseSellPrice,
+  accrueRested,
+  isWellRested,
+  applyRestedBonus,
+  canStore,
+  emptyHouse,
+} from './systems/HousingTypes.js';
+export type {
+  HouseDefinition,
+  HouseOffer,
+  PlayerHouse,
+  ClientHouseState,
+  HomeOccupant,
+  HomeView,
+  ClientBuyHouseMessage,
+  ClientSellHouseMessage,
+  ClientEnterHomeMessage,
+  ClientLeaveHomeMessage,
+  ClientHomeStoreMessage,
+  ClientHomeWithdrawMessage,
+  ClientHomeDisplayMessage,
+  ClientCampfireSitMessage,
+  ClientCampfireStandMessage,
+  ClientHomeInviteMessage,
+  ClientHousingMessage,
+} from './systems/HousingTypes.js';

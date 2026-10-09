@@ -57,6 +57,7 @@ Use `Glob`/`Grep`/`ls` to navigate the source tree — no point duplicating it h
 - [`docs/architecture/client.md`](docs/architecture/client.md) — multi-screen DOM shell, `GameClient` subscriber pattern, three.js world map + DOM overlay split, RoomView, ChatPopout, bottom nav structure, CharItems merged tab, persistent XP bar, image-everywhere convention, ModalStack, browser tab resume, hex coordinates, A* pathfinding, visual style, UI state persistence.
 - [`docs/architecture/admin-dashboard.md`](docs/architecture/admin-dashboard.md) — World Manager layout, density tokens, modal forms, per-tab notes.
 - [`docs/architecture/mcp.md`](docs/architecture/mcp.md) — MCP content-authoring server: transport, bearer-token auth, `DraftEditor`, tool catalog (read/notes/write/assets/validate), design notes, guardrails.
+- [`docs/architecture/housing.md`](docs/architecture/housing.md) — player housing: house content type, estate-agent shops, ownership/storage/trophy shelves, home visits, campfire Well Rested buff.
 - [`docs/architecture/persistence.md`](docs/architecture/persistence.md) — `PlayerSaveData` schema, `GameStateStore`/`JsonFileStore`, swappable-store data folder convention.
 
 For game design background see `ideas/skill-trees.md`, `ideas/encounters.md`, `ideas/equipment_update_v1.md`, `ideas/backlog-2026-april.md`, `ideas/ui-overhaul-may-2026.md`.

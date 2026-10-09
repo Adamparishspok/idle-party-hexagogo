@@ -1,3 +1,4 @@
+import type { HouseOffer, ClientHouseState, HomeView, ClientHousingMessage } from './HousingTypes.js';
 import type { EquipSlot, ItemDefinition } from './ItemTypes.js';
 import type { SetDefinition } from './SetTypes.js';
 import type { ShopDefinition } from './ShopTypes.js';
@@ -175,6 +176,14 @@ export interface ServerStateMessage {
   shopDefinition?: ShopDefinition;
   /** Henchmen the current room's shop offers for hire. */
   henchmanOffers?: HenchmanOffer[];
+  /** Houses the current room's shop sells. */
+  houseOffers?: HouseOffer[];
+  /** The player's own house, if they own one. */
+  house?: ClientHouseState;
+  /** The home the player is currently inside (own or visiting). */
+  homeVisit?: HomeView;
+  /** Epoch ms the Well Rested bonus lasts until. */
+  wellRestedUntil?: number;
   /** Crafting state: visible recipes, queue, and progress on the active job. */
   crafting?: ClientCraftingState;
   /** Active quests the player has accepted (with live progress / status). */
@@ -428,4 +437,5 @@ export type ClientMessage =
   | ClientLeaveDungeonMessage
   | ClientEnterTransitionMessage
   | ClientSocialMessage
-  | ClientNotificationMessage;
+  | ClientNotificationMessage
+  | ClientHousingMessage;
