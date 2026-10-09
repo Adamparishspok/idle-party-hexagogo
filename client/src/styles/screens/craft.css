@@ -1,0 +1,635 @@
+/*
+ * Craft screen — WorldQuest-style workshop.
+ * Built on the kit (components.css); see CraftingScreen.ts for the layout model.
+ * Prefix: cr-. The screen never scrolls as a whole; .cr-scroll is the one
+ * scroll region (and pads its bottom clear of the perch row).
+ */
+
+.cr-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Warm workshop backdrop: lamplight over dark timber. */
+  background:
+    radial-gradient(ellipse 90% 45% at 50% 0%, rgba(255, 196, 110, 0.16) 0%, transparent 70%),
+    linear-gradient(180deg, #2b1d12 0%, #1f160f 45%, #15100b 100%);
+}
+
+.cr-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.cr-body[hidden],
+.cr-message[hidden] {
+  display: none;
+}
+
+/* ── Craft-skill header ──────────────────────────────────── */
+
+.cr-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin: var(--s-3) var(--s-3) 0;
+  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-3);
+  border: 2px solid var(--slate-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 10px rgba(0, 0, 0, 0.45);
+}
+
+/* Gold octagon medallion with the big outlined craft level. */
+.cr-level {
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.5));
+}
+.cr-level::before,
+.cr-level::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+}
+.cr-level::before {
+  inset: 0;
+  background: var(--gc-frame-edge-gold);
+}
+.cr-level::after {
+  inset: 4px;
+  background: radial-gradient(circle at 50% 35%, #4a3a20 0%, #1d150b 85%);
+}
+.cr-level__label {
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke-sm);
+}
+.cr-level__num {
+  font-family: var(--display-font);
+  font-size: var(--t-display);
+  line-height: 0.95;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+  font-variant-numeric: tabular-nums;
+}
+
+.cr-header__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.cr-header__name {
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  line-height: 1.05;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Scroll region + sections ────────────────────────────── */
+
+.cr-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-4) var(--s-3) calc(var(--perch-height) + var(--s-4));
+}
+
+.cr-section__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.cr-section__title {
+  margin: 0;
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: 1.1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.cr-section__aside {
+  margin-left: auto;
+  font-size: var(--t-small);
+  color: #cdb79a;
+  font-variant-numeric: tabular-nums;
+}
+
+.cr-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: var(--slate-800);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: var(--slate-text);
+  font-variant-numeric: tabular-nums;
+}
+.cr-pill.is-full {
+  background: linear-gradient(180deg, var(--gold-300), var(--gold-500));
+  color: var(--ink-900);
+}
+
+/* ── Friendly empty states ───────────────────────────────── */
+
+.cr-idle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 2px dashed rgba(205, 183, 154, 0.35);
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.25);
+}
+.cr-idle__slot {
+  opacity: 0.7;
+}
+.cr-idle__title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.cr-idle__sub {
+  margin-top: 2px;
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: #cdb79a;
+}
+
+.cr-message {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4) var(--s-4) calc(var(--perch-height) + var(--s-4));
+}
+.cr-empty-card {
+  width: min(100%, 400px);
+  text-align: center;
+}
+.cr-empty-card strong {
+  color: var(--parch-accent);
+}
+.cr-empty-card__level {
+  margin-top: var(--s-4);
+}
+
+/* ── Queue ───────────────────────────────────────────────── */
+
+.cr-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.cr-job {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 72px;
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border: 2px solid var(--slate-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  color: #eef2fa;
+}
+.cr-job--active {
+  padding-top: var(--s-3);
+  padding-bottom: var(--s-3);
+  border-color: var(--gold-700);
+  background:
+    radial-gradient(ellipse 70% 120% at 0% 50%, rgba(245, 200, 66, 0.18) 0%, transparent 70%),
+    linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  box-shadow: 0 0 0 1px rgba(245, 200, 66, 0.25), 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.cr-job__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.cr-job__name {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cr-job--active .cr-job__name {
+  font-size: var(--t-title);
+}
+.cr-job__status {
+  font-size: var(--t-small);
+  color: #a9b3c7;
+}
+/* The rAF loop drives the width every frame — a transition would lag it. */
+.cr-job__bar .gc-bar__fill {
+  transition: none;
+}
+
+.cr-cancel {
+  flex-shrink: 0;
+}
+.cr-cancel__x {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+.cr-cancel__x::before,
+.cr-cancel__x::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 4px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px var(--ink-900);
+}
+.cr-cancel__x::before { transform: translate(-50%, -50%) rotate(45deg); }
+.cr-cancel__x::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+/* ── Item frames (art fallback + extra rarities) ─────────── */
+
+.cr-item__initials {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: rgba(255, 255, 255, 0.6);
+  text-shadow: var(--text-stroke-sm);
+}
+.gc-item--lg .cr-item__initials {
+  font-size: var(--t-heading);
+}
+.cr-item.is-noart .cr-item__initials {
+  display: flex;
+}
+/* The kit maps common→legendary; the game also has janky and heirloom. */
+.gc-item[data-rarity="janky"] { --rarity: #6f6a62; }
+.gc-item[data-rarity="heirloom"] { --rarity: #e9bc18; }
+
+/* ── Recipe list ─────────────────────────────────────────── */
+
+.cr-recipe-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.cr-recipe {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: 80px;
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--slate-500);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 3px 0 var(--slate-900);
+  color: #eef2fa;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), filter var(--dur-fast);
+}
+.cr-recipe.is-ready {
+  border-color: #6f8f4e;
+}
+.cr-recipe:hover {
+  filter: brightness(1.08);
+}
+.cr-recipe:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 0 var(--slate-900);
+  filter: brightness(1.12);
+}
+.cr-recipe:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+.cr-recipe__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cr-recipe__top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.cr-recipe__name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cr-recipe__meta {
+  font-size: var(--t-caption);
+  color: #a9b3c7;
+}
+
+.cr-status {
+  flex-shrink: 0;
+  padding: 3px var(--s-2);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: var(--slate-900);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #c3cad8;
+}
+.cr-status.is-ready {
+  background: linear-gradient(180deg, var(--green-300), var(--green-500));
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* Ingredient chips: green when you have enough, red when short. */
+.cr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
+}
+.cr-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.3);
+  font-size: var(--t-caption);
+  line-height: 1.3;
+}
+.cr-chip__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #dfe4ee;
+}
+.cr-chip__count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cr-chip.is-ok {
+  border-color: rgba(158, 240, 122, 0.4);
+}
+.cr-chip.is-ok .cr-chip__count {
+  color: var(--green-300);
+}
+.cr-chip.is-short {
+  border-color: rgba(255, 154, 138, 0.45);
+}
+.cr-chip.is-short .cr-chip__count {
+  color: var(--red-300);
+}
+
+/* ── Recipe detail modal ─────────────────────────────────── */
+
+.cr-modal .gc-modal__panel {
+  padding-left: var(--s-4);
+  padding-right: var(--s-4);
+  padding-bottom: calc(var(--tap-lg) / 2 + var(--s-4));
+}
+.cr-modal__body {
+  padding: var(--s-2) var(--s-1) 0;
+}
+.cr-modal__hero {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-2) var(--s-2) 0;
+}
+.cr-modal__hero .gc-item--lg {
+  width: 104px;
+  height: 104px;
+}
+.cr-modal__result {
+  min-width: 0;
+}
+.cr-modal__result-label {
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.cr-modal__result-name {
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1.1;
+  color: var(--parch-ink);
+  overflow-wrap: anywhere;
+}
+.cr-modal__desc {
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-body);
+  line-height: 1.45;
+  color: var(--parch-ink);
+}
+
+.cr-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.cr-fact {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 72px;
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-sm);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.35);
+}
+.cr-fact__k {
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.cr-fact__v {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+  color: var(--parch-ink);
+}
+.cr-fact.is-short {
+  border-color: var(--red-500);
+}
+.cr-fact.is-short .cr-fact__v {
+  color: var(--red-700);
+}
+
+.cr-ings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--s-3) var(--s-2);
+}
+.cr-ing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.cr-ing__count {
+  margin-top: var(--s-1);
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.cr-ing.is-ok .cr-ing__count {
+  color: var(--green-300);
+}
+.cr-ing.is-short .cr-ing__count {
+  color: var(--red-300);
+}
+.cr-ing.is-short .gc-item {
+  opacity: 0.75;
+}
+.cr-ing__name {
+  font-size: var(--t-caption);
+  line-height: 1.2;
+  color: var(--parch-ink);
+  overflow-wrap: anywhere;
+}
+
+/* The "why not" line sits right above the overlapping Craft button. */
+.cr-modal__why {
+  margin: var(--s-4) 0 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background: rgba(224, 70, 58, 0.12);
+  border: 2px solid rgba(224, 70, 58, 0.45);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  text-align: center;
+  color: var(--red-700);
+}
+.cr-modal__why.is-ok {
+  background: rgba(79, 191, 58, 0.12);
+  border-color: rgba(42, 122, 30, 0.4);
+  color: var(--green-700);
+}
+
+.cr-modal__craft {
+  min-width: 200px;
+}
+.cr-modal__craft.is-queued {
+  animation: cr-bump 0.32s var(--ease-spring);
+}
+
+.cr-modal .cr-modal__toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--tap-lg) / 2 + var(--s-3));
+  transform: translateX(-50%);
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, var(--green-300), var(--green-500));
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+.cr-modal .cr-modal__toast.is-shown {
+  animation: cr-toast 1.4s var(--ease-out) forwards;
+}
+
+@keyframes cr-bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes cr-toast {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  15% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cr-recipe {
+    transition: none;
+  }
+  .cr-modal__craft.is-queued {
+    animation: none;
+  }
+  .cr-modal .cr-modal__toast.is-shown {
+    animation-duration: 2s;
+    animation-timing-function: steps(1, end);
+  }
+}
+
+@media (min-width: 768px) {
+  .cr-header {
+    margin-top: var(--s-5);
+  }
+  .cr-recipe-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Long recipe names truncate inside the title tab instead of spilling past it. */
+.cr-modal .gc-modal__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 40px;
+  text-align: center;
+}
