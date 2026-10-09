@@ -147,6 +147,7 @@ export function processCompletions(
   inventory: Record<string, number>,
   queue: CraftQueueState,
   now: number,
+  deliver?: (itemId: string, quantity: number) => { produced: number; lost: number },
 ): CompletedJobEvent[] {
   const events: CompletedJobEvent[] = [];
   while (queue.jobs.length > 0 && queue.activeStartedAtMs !== null) {
@@ -160,11 +161,17 @@ export function processCompletions(
     }
     const completesAt = queue.activeStartedAtMs + recipe.durationSeconds * 1000;
     if (completesAt > now) break;
-    const cur = inventory[recipe.result.itemId] ?? 0;
     const requested = recipe.result.quantity;
-    const fits = Math.max(0, Math.min(MAX_STACK - cur, requested));
-    const lost = requested - fits;
-    if (fits > 0) inventory[recipe.result.itemId] = cur + fits;
+    let fits: number;
+    let lost: number;
+    if (deliver) {
+      ({ produced: fits, lost } = deliver(recipe.result.itemId, requested));
+    } else {
+      const cur = inventory[recipe.result.itemId] ?? 0;
+      fits = Math.max(0, Math.min(MAX_STACK - cur, requested));
+      lost = requested - fits;
+      if (fits > 0) inventory[recipe.result.itemId] = cur + fits;
+    }
     events.push({ recipeId: recipe.id, resultItemId: recipe.result.itemId, quantityProduced: fits, quantityLost: lost });
     queue.jobs.shift();
     queue.activeStartedAtMs = queue.jobs.length > 0 ? completesAt : null;

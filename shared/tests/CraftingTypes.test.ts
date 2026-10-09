@@ -151,6 +151,20 @@ describe('CraftingTypes — cancelJobAt', () => {
 });
 
 describe('CraftingTypes — processCompletions', () => {
+  it('hands output to a delivery callback when given one', () => {
+    const inv: Record<string, number> = { pelt: 5 };
+    const q = emptyCraftQueue();
+    enqueueRecipe(recipe, inv, q, 'Knight', 1, 1000);
+    const delivered: [string, number][] = [];
+    const events = processCompletions(recipes, inv, q, 11_500, (itemId, quantity) => {
+      delivered.push([itemId, quantity]);
+      return { produced: 0, lost: quantity };
+    });
+    expect(delivered).toEqual([['cloak', 1]]);
+    expect(inv.cloak).toBeUndefined();
+    expect(events[0]).toMatchObject({ quantityProduced: 0, quantityLost: 1 });
+  });
+
   it('produces nothing before duration elapses', () => {
     const inv = { pelt: 5 };
     const q = emptyCraftQueue();

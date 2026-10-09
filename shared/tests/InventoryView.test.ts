@@ -9,6 +9,7 @@ import {
   getEquippedItemIds,
   getOwnedItemIds,
   listUnequippedEntries,
+  getBagCount,
 } from '../src/systems/InventoryView';
 
 const emptyEquipment = {
@@ -207,5 +208,17 @@ describe('InventoryView — lists', () => {
     it('returns empty array for empty inventory', () => {
       expect(listUnequippedEntries({})).toEqual([]);
     });
+  });
+});
+
+describe('bags in bag slots', () => {
+  const bags = ['satchel', null, 'satchel', null];
+  it('count as owned but not as unequipped', () => {
+    expect(getBagCount('satchel', bags)).toBe(2);
+    expect(getOwnedCount('satchel', { satchel: 1 }, {}, bags)).toBe(3);
+    expect(ownsItem('satchel', {}, {}, bags)).toBe(true);
+    expect(ownsItem('satchel', {}, {})).toBe(false);
+    expect(getUnequippedCount('satchel', {})).toBe(0);
+    expect(getOwnedItemIds({}, {}, bags).has('satchel')).toBe(true);
   });
 });

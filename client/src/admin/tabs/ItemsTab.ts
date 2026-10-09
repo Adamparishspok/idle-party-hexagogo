@@ -1,7 +1,7 @@
 import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
-import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES } from '@idle-party-rpg/shared';
-import type { ItemDefinition, ItemRarity, EquipSlot, SkillDefinition } from '@idle-party-rpg/shared';
+import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES, ATTRIBUTE_NAMES, ATTRIBUTE_ABBREVIATIONS, MAX_BAG_SIZE, suggestedAttributeBudget } from '@idle-party-rpg/shared';
+import type { ItemDefinition, ItemRarity, EquipSlot, SkillDefinition, PartialAttributes } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
 
@@ -63,6 +63,11 @@ export class ItemsTab implements Tab {
         const names = i.grantedSkillIds.map(sid => content.skills?.[sid]?.name ?? sid).join(', ');
         effects.push(`Grants: ${names}`);
       }
+      for (const attr of ATTRIBUTE_NAMES) {
+        const v = i.attributes?.[attr];
+        if (v) effects.push(`${v > 0 ? '+' : ''}${v} ${ATTRIBUTE_ABBREVIATIONS[attr]}`);
+      }
+      if (i.bagSlots) effects.push(`Bag: ${i.bagSlots} slots`);
       const setName = itemSetMap.get(i.id) ?? '—';
 
       const actions = readOnly
@@ -186,7 +191,16 @@ export class ItemsTab implements Tab {
         <label>MR Min<input type="number" id="if-mrMin" value="${i.magicReductionMin ?? 0}" min="0"></label>
         <label>MR Max<input type="number" id="if-mrMax" value="${i.magicReductionMax ?? 0}" min="0"></label>
         <label>Value<input type="number" id="if-value" value="${i.value ?? 1}" min="0"></label>
+        <label>Bag Slots<input type="number" id="if-bagSlots" value="${i.bagSlots ?? 0}" min="0" max="${MAX_BAG_SIZE}" title="Above 0 makes this a bag (no equip slot)"></label>
       </div>
+      <fieldset class="admin-form-fieldset">
+        <legend>Attributes</legend>
+        <div class="admin-form-grid">
+          ${ATTRIBUTE_NAMES.map(a => `<label>${ATTRIBUTE_ABBREVIATIONS[a]}<input type="number" step="1" class="if-attr" data-attr="${a}" value="${i.attributes?.[a] ?? 0}"></label>`).join('')}
+          <label>Item level (budget helper)<input type="number" id="if-itemLevel" value="10" min="1"></label>
+        </div>
+        <div class="admin-form-hint" id="if-attr-budget"></div>
+      </fieldset>
       <fieldset class="admin-form-fieldset">
         <legend>Display & Type</legend>
         <div class="admin-form-grid">
@@ -259,6 +273,37 @@ export class ItemsTab implements Tab {
     });
 
     this.wireSkillFilter(root);
+    this.wireGearFields(root);
+  }
+
+  private wireGearFields(root: HTMLElement): void {
+    const bagInput = root.querySelector<HTMLInputElement>('#if-bagSlots');
+    const slotSelect = root.querySelector<HTMLSelectElement>('#if-equipSlot');
+    const syncBag = () => {
+      if (!bagInput || !slotSelect) return;
+      const isBag = (parseInt(bagInput.value) || 0) > 0;
+      if (isBag) slotSelect.value = '';
+      slotSelect.disabled = isBag;
+    };
+    bagInput?.addEventListener('input', syncBag);
+    syncBag();
+
+    const budget = root.querySelector<HTMLElement>('#if-attr-budget');
+    const syncBudget = () => {
+      if (!budget) return;
+      const level = parseInt(root.querySelector<HTMLInputElement>('#if-itemLevel')?.value ?? '') || 1;
+      const rarity = (root.querySelector<HTMLSelectElement>('#if-rarity')?.value ?? 'common') as ItemRarity;
+      const twoHanded = slotSelect?.value === 'twohanded';
+      let used = 0;
+      root.querySelectorAll<HTMLInputElement>('.if-attr').forEach(input => { used += Math.abs(parseInt(input.value) || 0); });
+      const per = rarity === 'heirloom' ? ' (per level)' : '';
+      budget.textContent = `Suggested budget: ${suggestedAttributeBudget(level, rarity, twoHanded)} points${per} · using ${used}. Guidance only.`;
+    };
+    root.querySelectorAll('.if-attr, #if-itemLevel, #if-rarity, #if-equipSlot').forEach(el => {
+      el.addEventListener('input', syncBudget);
+      el.addEventListener('change', syncBudget);
+    });
+    syncBudget();
   }
 
   private skillChecklistRowHtml(skill: SkillDefinition, checked: boolean): string {
@@ -354,6 +399,12 @@ export class ItemsTab implements Tab {
     const magicReductionMin = parseInt((root.querySelector('#if-mrMin') as HTMLInputElement).value) || 0;
     const magicReductionMax = parseInt((root.querySelector('#if-mrMax') as HTMLInputElement).value) || 0;
     const value = parseInt((root.querySelector('#if-value') as HTMLInputElement).value) || 1;
+    const bagSlots = parseInt((root.querySelector('#if-bagSlots') as HTMLInputElement).value) || 0;
+    const attributes: PartialAttributes = {};
+    root.querySelectorAll<HTMLInputElement>('.if-attr').forEach(input => {
+      const v = parseInt(input.value) || 0;
+      if (v !== 0) attributes[input.dataset.attr as keyof PartialAttributes] = v;
+    });
     const consumable = (root.querySelector('#if-consumable') as HTMLInputElement).checked;
     const iconEmoji = (root.querySelector('#if-iconEmoji') as HTMLInputElement).value.trim();
     const iconColorRaw = (root.querySelector('#if-iconColor') as HTMLInputElement).value;
@@ -366,7 +417,9 @@ export class ItemsTab implements Tab {
     }
     const id = existingId || crypto.randomUUID();
     const item: ItemDefinition = { id, name, rarity };
-    if (equipSlot) item.equipSlot = equipSlot as EquipSlot;
+    if (equipSlot && bagSlots <= 0) item.equipSlot = equipSlot as EquipSlot;
+    if (bagSlots > 0) item.bagSlots = bagSlots;
+    if (Object.keys(attributes).length > 0) item.attributes = attributes;
 
     const classRestriction: string[] = [];
     root.querySelectorAll<HTMLInputElement>('.if-class-check').forEach(cb => {

@@ -13,7 +13,7 @@ import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
 import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
-import { TileType } from '@idle-party-rpg/shared';
+import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
 const MONSTERS_FILE = path.join(DATA_DIR, 'monsters.json');
@@ -33,6 +33,13 @@ const DUNGEONS_FILE = path.join(DATA_DIR, 'dungeons.json');
 const SKILLS_FILE = path.join(DATA_DIR, 'skills.json');
 const SKILL_SLOTS_FILE = path.join(DATA_DIR, 'skill-slots.json');
 const DESIGN_NOTES_FILE = path.join(DATA_DIR, 'design-notes.json');
+
+/** Shape checks for an authored item's attributes and bag fields. Returns an error message, or null. */
+export function validateItemDefinition(item: ItemDefinition): string | null {
+  return validateAttributes(item.attributes) ?? validateBagItem(item);
+}
+
+export const STARTER_BAG_DELETE_ERROR = `Cannot delete: "${STARTER_BAG_ITEM.id}" is the starter bag every character receives.`;
 
 /**
  * Loads and manages game content from JSON files in data/.
@@ -70,6 +77,14 @@ export class ContentStore {
       this.seedDefaults();
       await this.save();
     }
+    if (this.ensureStarterBag()) await this.save();
+  }
+
+  /** Adds STARTER_BAG_ITEM when its id is missing. Never overwrites an operator's edits. */
+  private ensureStarterBag(): boolean {
+    if (this.items.has(STARTER_BAG_ITEM.id)) return false;
+    this.items.set(STARTER_BAG_ITEM.id, { ...STARTER_BAG_ITEM });
+    return true;
   }
 
   async save(): Promise<void> {
@@ -398,15 +413,20 @@ export class ContentStore {
 
   // --- Item CRUD ---
 
-  async addOrUpdateItem(item: ItemDefinition): Promise<void> {
+  /** Returns a validation error (and stores nothing), or null once saved. */
+  async addOrUpdateItem(item: ItemDefinition): Promise<string | null> {
+    const error = validateItemDefinition(item);
+    if (error) return error;
     this.items.set(item.id, item);
     await this.save();
+    return null;
   }
 
   async deleteItem(id: string): Promise<{ success: boolean; error?: string }> {
     if (!this.items.has(id)) {
       return { success: false, error: 'Item not found.' };
     }
+    if (id === STARTER_BAG_ITEM.id) return { success: false, error: STARTER_BAG_DELETE_ERROR };
     // Check if any monster references this item in its drops
     for (const monster of this.monsters.values()) {
       if (monster.drops?.some(d => d.itemId === id)) {
@@ -856,6 +876,7 @@ export class ContentStore {
 
     // Migrate items if needed
     this.migrateItems();
+    this.ensureStarterBag();
 
     await this.save();
     console.log(`[ContentStore] Replaced all content: ${this.monsters.size} monsters, ${this.items.size} items, ${this.zones.size} zones, ${this.encounters.size} encounters, ${this.sets.size} sets, ${this.shops.size} shops, ${this.henchmen.size} henchmen, ${this.houses.size} houses, ${this.dungeons.size} dungeons, ${this.world.tiles.length} tiles`);
@@ -1168,8 +1189,8 @@ export class ContentStore {
     }
 
     // Items
-    for (const i of Object.values(SEED_ITEMS)) {
-      this.items.set(i.id, i);
+    for (const i of [...Object.values(SEED_ITEMS), STARTER_BAG_ITEM, ...SEED_BAG_ITEMS]) {
+      this.items.set(i.id, { ...i });
     }
 
     // Zones

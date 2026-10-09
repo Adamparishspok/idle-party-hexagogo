@@ -60,6 +60,13 @@ export const STARTER_BAG_ITEM: ItemDefinition = {
   value: 1,
 };
 
+/** Bags a fresh world's content starts with (alongside STARTER_BAG_ITEM). Live servers author their own. */
+export const SEED_BAG_ITEMS: ItemDefinition[] = [
+  { id: 'small_pouch', name: 'Small Pouch', rarity: 'common', bagSlots: 4, value: 25 },
+  { id: 'cloth_bag', name: 'Cloth Bag', rarity: 'common', bagSlots: 6, value: 60 },
+  { id: 'leather_pack', name: 'Leather Pack', rarity: 'uncommon', bagSlots: 8, value: 150 },
+];
+
 // --- Pure functions ---
 
 export function isBag(def: ItemDefinition | undefined): boolean {

@@ -29,8 +29,9 @@ import { AssetStore } from './game/AssetStore.js';
 import swaggerUi from 'swagger-ui-express';
 import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
-import type { ClassName, ClientHousingMessage, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
+import type { ClassName, ClientHousingMessage, ClientInventoryMessage, InventoryErrorCode, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
 import { HOUSING_MESSAGE_TYPES } from './game/housing/HousingService.js';
+import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES } from './game/InventoryErrors.js';
 import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
 import { getVapidPublicKey } from './game/social/BrowserPushNotificationDriver.js';
@@ -544,6 +545,10 @@ wss.on('connection', (ws) => {
         }
 
         if (!session.handleEquipItem(msg.itemId)) {
+          if (session.equipOverflowsInventory(msg.itemId)) {
+            ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES.inventory_full, code: 'inventory_full' }));
+            return;
+          }
           // Check if blocked by full inventory for the equipped item
           const blockInfo = session.getEquipBlockInfo(msg.itemId);
           if (blockInfo) {
@@ -568,7 +573,11 @@ wss.on('connection', (ws) => {
         }
 
         if (!session.handleEquipItemForceDestroy(msg.itemId)) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Cannot equip item' }));
+          if (session.equipOverflowsInventory(msg.itemId, true)) {
+            ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES.inventory_full, code: 'inventory_full' }));
+          } else {
+            ws.send(JSON.stringify({ type: 'error', message: 'Cannot equip item' }));
+          }
         }
         return;
       }
@@ -593,6 +602,8 @@ wss.on('connection', (ws) => {
               ? (gameLoop.contentStore.getItem(lockedIds[0])?.name ?? 'this item')
               : 'this item';
             ws.send(JSON.stringify({ type: 'error', message: `Cannot unequip ${lockedName} — required for this route` }));
+          } else if (unequipResult.inventoryFull) {
+            ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES.inventory_full, code: 'inventory_full' }));
           } else {
             ws.send(JSON.stringify({ type: 'error', message: 'Cannot unequip item' }));
           }
@@ -610,6 +621,25 @@ wss.on('connection', (ws) => {
         if (!session.handleDestroyItems(msg.itemId, msg.count)) {
           ws.send(JSON.stringify({ type: 'error', message: 'Cannot destroy item' }));
         }
+        return;
+      }
+
+      if (INVENTORY_MESSAGE_TYPES.has(msg.type)) {
+        const session = playerManager.getSessionByUsername(username);
+        if (!session) {
+          ws.send(JSON.stringify({ type: 'error', message: 'No session' }));
+          return;
+        }
+        const inventoryMsg = msg as ClientInventoryMessage;
+        let error: InventoryErrorCode | null;
+        switch (inventoryMsg.type) {
+          case 'equip_bag': error = session.handleEquipBag(inventoryMsg.itemId, inventoryMsg.bagIndex); break;
+          case 'unequip_bag': error = session.handleUnequipBag(inventoryMsg.bagIndex); break;
+          case 'claim_lost_found': error = session.handleClaimLostFound(inventoryMsg.itemId); break;
+          case 'discard_lost_found': error = session.handleDiscardLostFound(inventoryMsg.itemId); break;
+        }
+        if (error) ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES[error], code: error }));
+        playerManager.sendStateToPlayer(username);
         return;
       }
 
@@ -641,9 +671,8 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        // Check inventory space (addOneToInventory checks MAX_STACK)
         if (!session.addOneToInventory(msg.itemId)) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Inventory full' }));
+          ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES.inventory_full, code: 'inventory_full' }));
           return;
         }
 
@@ -1649,6 +1678,7 @@ wss.on('connection', (ws) => {
           nonce,
           (u, itemId, qty) => playerManager.hasItemInInventory(u, itemId, qty),
           (u, itemId) => playerManager.getSessionByUsername(u)?.getInventoryCount(itemId) ?? 0,
+          (u, changes) => playerManager.getSessionByUsername(u)?.fitsInventory(changes) ?? false,
         );
 
         if (typeof result === 'string') {
@@ -1667,11 +1697,11 @@ wss.on('connection', (ws) => {
 
         if ('success' in result) {
           const initiatorMsg = result.affectedPlayer === 'initiator'
-            ? 'Your inventory is full for that item (max 99)'
-            : 'Their inventory is full for that item (max 99)';
+            ? 'Your backpack is full for that trade'
+            : 'Their backpack is full for that trade';
           const partnerMsg = result.affectedPlayer === 'target'
-            ? 'Your inventory is full for that item (max 99)'
-            : 'Their inventory is full for that item (max 99)';
+            ? 'Your backpack is full for that trade'
+            : 'Their backpack is full for that trade';
           ws.send(JSON.stringify({ type: 'error', message: initiatorMsg }));
           if (partner) playerManager.sendErrorToPlayer(partner, partnerMsg);
           playerManager.sendStateToPlayer(username);
@@ -1693,7 +1723,7 @@ wss.on('connection', (ws) => {
 
         const rollback = () => {
           for (const { session, itemId, qty } of removals) {
-            session.addToInventory(itemId, qty);
+            session.restoreToInventory(itemId, qty);
           }
         };
 
@@ -1715,10 +1745,10 @@ wss.on('connection', (ws) => {
         }
 
         for (const { itemId, quantity } of initiatorOffer.items) {
-          targetSession.addToInventory(itemId, quantity);
+          targetSession.restoreToInventory(itemId, quantity);
         }
         for (const { itemId, quantity } of targetOffer.items) {
-          initiatorSession.addToInventory(itemId, quantity);
+          initiatorSession.restoreToInventory(itemId, quantity);
         }
 
         const describeItems = (items: typeof initiatorOffer.items) =>
@@ -1805,7 +1835,7 @@ wss.on('connection', (ws) => {
           return;
         }
         if (!session.addToInventory(entry.itemId, entry.quantity)) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Inventory full for that item (max 99)' }));
+          ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES.inventory_full, code: 'inventory_full' }));
           return;
         }
         playerManager.mailboxes.removeEntry(username, msg.entryId);

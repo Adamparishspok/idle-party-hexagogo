@@ -13,7 +13,6 @@ import {
   derivedToEquipmentBonuses,
   computeActiveSetBonuses,
   MAX_STACK,
-  addItemToInventory,
   equipItem,
   unequipItem,
   destroyItems,
@@ -43,6 +42,15 @@ import {
   emptyNotificationPreferences,
   applyRestedBonus,
   isWellRested,
+  normalizeBagSlots,
+  inventoryCapacity,
+  fitsInventoryChanges,
+  routeIncomingItems,
+  equipBag,
+  unequipBag,
+  claimFromPouch,
+  grantStarterBag,
+  STARTER_BAG_ITEM,
 } from '@idle-party-rpg/shared';
 import type {
   HiredHenchman,
@@ -84,6 +92,9 @@ import type {
   ServerWelcomeBackMessage,
   WelcomeBackItem,
   DerivedStats,
+  BagSlots,
+  InventoryErrorCode,
+  ItemRouting,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -131,6 +142,11 @@ export class PlayerSession {
   private awaySnapshot: AwaySnapshot | null = null;
   private house: PlayerHouse | null = null;
   private wellRestedUntil: number | undefined;
+  private bags: BagSlots = normalizeBagSlots(undefined);
+  private lostAndFound: Record<string, number> = {};
+  private starterBagGranted = false;
+  /** Copies lost since the last `consumeLostItems` — batched into one notification per battle. */
+  private pendingLost: Record<string, number> = {};
   /** Which chat thread the player is actively looking at right now, if any — ephemeral, not persisted. */
   private chatFocus: { channelType: string; channelId: string } | null = null;
   /** Per-player quest tracking. */
@@ -313,7 +329,7 @@ export class PlayerSession {
 
     for (const itemId of rewards.items) {
       const itemDef = this.content.getItem(itemId);
-      if (itemDef && addItemToInventory(this.character.inventory, itemId)) {
+      if (itemDef && this.receiveItems(itemId, 1).toInventory > 0) {
         this.addLogEntry(`Found ${itemDef.name}!`, 'victory');
       }
     }
@@ -407,8 +423,10 @@ export class PlayerSession {
       items,
       itemDefinitions,
     };
+    if (snap.toLostAndFound) msg.itemsToLostAndFound = snap.toLostAndFound;
+    if (snap.lost) msg.itemsLost = snap.lost;
     const nothingHappened = msg.battlesFought === 0 && msg.battlesWon === 0 && msg.xpGained === 0
-      && msg.goldGained === 0 && items.length === 0;
+      && msg.goldGained === 0 && items.length === 0 && !msg.itemsToLostAndFound && !msg.itemsLost;
     return nothingHappened ? null : msg;
   }
 
@@ -446,7 +464,8 @@ export class PlayerSession {
     const defs: Record<string, ItemDefinition> = {};
 
     // Owned items (unequipped + equipped, deduped)
-    for (const itemId of getOwnedItemIds(this.character.inventory, this.character.equipment)) {
+    const ownedIds = getOwnedItemIds(this.character.inventory, this.character.equipment, this.bags);
+    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound)]) {
       const def = this.content.getItem(itemId);
       if (def) defs[itemId] = def;
     }
@@ -696,9 +715,8 @@ export class PlayerSession {
       if (reward.kind === 'xp') totalXp += reward.amount;
       else if (reward.kind === 'gold') totalGold += reward.amount;
       else if (reward.kind === 'item') {
-        for (let i = 0; i < reward.quantity; i++) {
-          if (this.addOneToInventory(reward.itemId)) grantedItems.push(reward.itemId);
-        }
+        const delivered = this.receiveItems(reward.itemId, reward.quantity).toInventory;
+        for (let i = 0; i < delivered; i++) grantedItems.push(reward.itemId);
       }
     }
     if (totalGold > 0) {
@@ -749,6 +767,9 @@ export class PlayerSession {
         craftLevel: this.character.craftLevel,
         craftXp: this.character.craftXp,
         derivedStats,
+        bags: [...this.bags],
+        inventoryCapacity: this.getInventoryCapacity(),
+        lostAndFound: { ...this.lostAndFound },
       };
     }
 
@@ -829,7 +850,10 @@ export class PlayerSession {
     if (this.craftQueue.jobs.length === 0) return false;
     const recipes = this.content.getAllRecipes();
     const items = this.content.getAllItems();
-    const events = processCompletions(recipes, this.character.inventory, this.craftQueue, now);
+    const events = processCompletions(recipes, this.character.inventory, this.craftQueue, now, (itemId, quantity) => {
+      const routing = this.receiveItems(itemId, quantity);
+      return { produced: routing.toInventory + routing.toPouch, lost: routing.lost };
+    });
     if (events.length === 0) return false;
     let totalCraftXp = 0;
     for (const ev of events) {
@@ -838,9 +862,6 @@ export class PlayerSession {
       if (ev.quantityProduced > 0) {
         const qtyStr = ev.quantityProduced > 1 ? `x${ev.quantityProduced}` : '';
         this.addLogEntry(`Crafted ${itemName}${qtyStr}.`, 'unlock');
-      }
-      if (ev.quantityLost > 0) {
-        this.addLogEntry(`Crafted ${itemName} but inventory full — lost ${ev.quantityLost}.`, 'damage');
       }
       const recipe = recipes[ev.recipeId];
       if (recipe?.xpReward) totalCraftXp += recipe.xpReward;
@@ -985,10 +1006,9 @@ export class PlayerSession {
     return true;
   }
 
-  /** Add one item to the unequipped inventory. Returns false if stack is full (MAX_STACK). */
+  /** Player-initiated add of one copy. Returns false if the backpack or stack is full. */
   addOneToInventory(itemId: string): boolean {
-    if (!this.character) return false;
-    return addItemToInventory(this.character.inventory, itemId);
+    return this.addToInventory(itemId, 1);
   }
 
   /** Remove `quantity` items from the unequipped inventory. Returns false if insufficient. */
@@ -1005,13 +1025,94 @@ export class PlayerSession {
     return true;
   }
 
-  /** Add `quantity` items to the unequipped inventory. Returns false if it would exceed MAX_STACK. */
+  /** Player-initiated add. Returns false if it would exceed MAX_STACK or grow the backpack past capacity. */
   addToInventory(itemId: string, quantity: number): boolean {
-    if (!this.character) return false;
-    const current = this.character.inventory[itemId] ?? 0;
-    if (current + quantity > MAX_STACK) return false;
-    this.character.inventory[itemId] = current + quantity;
+    if (!this.character || quantity <= 0) return false;
+    if (!this.fitsInventory({ [itemId]: quantity })) return false;
+    this.character.inventory[itemId] = (this.character.inventory[itemId] ?? 0) + quantity;
     return true;
+  }
+
+  /** Puts back copies just taken out (e.g. a rolled-back trade), ignoring capacity but not MAX_STACK. */
+  restoreToInventory(itemId: string, quantity: number): void {
+    if (!this.character || quantity <= 0) return;
+    this.character.inventory[itemId] = Math.min(MAX_STACK, (this.character.inventory[itemId] ?? 0) + quantity);
+  }
+
+  /** Unattended delivery (loot, rewards, crafts): backpack, then Lost & Found, then lost. Logs pouch and lost copies. */
+  receiveItems(itemId: string, quantity: number): ItemRouting {
+    if (!this.character) return { toInventory: 0, toPouch: 0, lost: 0 };
+    const routing = routeIncomingItems(this.character.inventory, this.getInventoryCapacity(), this.lostAndFound, itemId, quantity);
+    const name = this.content.getItem(itemId)?.name ?? itemId;
+    if (routing.toPouch > 0) {
+      this.addLogEntry(`Your bags are full — ${routing.toPouch}× ${name} went to Lost & Found`, 'damage');
+      if (this.awaySnapshot) this.awaySnapshot.toLostAndFound = (this.awaySnapshot.toLostAndFound ?? 0) + routing.toPouch;
+    }
+    if (routing.lost > 0) {
+      this.addLogEntry(`Your bags and Lost & Found are full — lost ${routing.lost}× ${name}`, 'damage');
+      this.pendingLost[itemId] = (this.pendingLost[itemId] ?? 0) + routing.lost;
+      if (this.awaySnapshot) this.awaySnapshot.lost = (this.awaySnapshot.lost ?? 0) + routing.lost;
+    }
+    return routing;
+  }
+
+  /** Items lost since the last call, then clears the tally. */
+  consumeLostItems(): Record<string, number> {
+    const lost = this.pendingLost;
+    this.pendingLost = {};
+    return lost;
+  }
+
+  getInventoryCapacity(): number {
+    return inventoryCapacity(this.bags, this.content.getAllItems());
+  }
+
+  /** Whether applying `changes` (itemId → signed delta) keeps the backpack legal; over-capacity saves are grandfathered. */
+  fitsInventory(changes: Record<string, number>): boolean {
+    if (!this.character) return false;
+    return fitsInventoryChanges(this.character.inventory, this.getInventoryCapacity(), changes);
+  }
+
+  getBags(): BagSlots { return [...this.bags]; }
+  getLostAndFound(): Record<string, number> { return { ...this.lostAndFound }; }
+
+  handleEquipBag(itemId: unknown, bagIndex: unknown): InventoryErrorCode | null {
+    if (!this.character) return 'bag_item_missing';
+    if (typeof itemId !== 'string') return 'bag_not_a_bag';
+    if (typeof bagIndex !== 'number') return 'bag_invalid_slot';
+    const result = equipBag(this.character.inventory, this.bags, bagIndex, itemId, this.content.getAllItems());
+    return result.ok ? null : result.error;
+  }
+
+  handleUnequipBag(bagIndex: unknown): InventoryErrorCode | null {
+    if (!this.character) return 'bag_slot_empty';
+    if (typeof bagIndex !== 'number') return 'bag_invalid_slot';
+    const result = unequipBag(this.character.inventory, this.bags, bagIndex, this.content.getAllItems());
+    return result.ok ? null : result.error;
+  }
+
+  /** Claims one pouch stack, or everything when `itemId` is omitted, as far as the backpack has room. */
+  handleClaimLostFound(itemId: unknown): InventoryErrorCode | null {
+    if (!this.character) return 'lost_found_item_missing';
+    if (itemId !== undefined && (typeof itemId !== 'string' || !(this.lostAndFound[itemId] > 0))) return 'lost_found_item_missing';
+    if (Object.keys(this.lostAndFound).length === 0) return 'lost_found_item_missing';
+    const moved = claimFromPouch(this.character.inventory, this.getInventoryCapacity(), this.lostAndFound, itemId as string | undefined);
+    return moved > 0 ? null : 'inventory_full';
+  }
+
+  handleDiscardLostFound(itemId: unknown): InventoryErrorCode | null {
+    if (typeof itemId !== 'string' || !(this.lostAndFound[itemId] > 0)) return 'lost_found_item_missing';
+    delete this.lostAndFound[itemId];
+    return null;
+  }
+
+  /** Gives the one-time starter bag (first empty bag slot, else the backpack). Idempotent. */
+  private grantStarterBagOnce(): void {
+    if (!this.character || this.starterBagGranted) return;
+    grantStarterBag(this.bags, this.character.inventory, STARTER_BAG_ITEM.id);
+    this.starterBagGranted = true;
+    const name = this.content.getItem(STARTER_BAG_ITEM.id)?.name ?? STARTER_BAG_ITEM.name;
+    this.addLogEntry(`You received a free ${name}!`, 'unlock');
   }
 
   getGold(): number { return this.character?.gold ?? 0; }
@@ -1079,6 +1180,7 @@ export class PlayerSession {
   setClass(className: ClassName): boolean {
     if (this.character !== null) return false;
     this.character = createCharacter(className, this.skillContent());
+    this.grantStarterBagOnce();
     return true;
   }
 
@@ -1089,6 +1191,7 @@ export class PlayerSession {
       this.character = createCharacter(className, this.skillContent());
       this.autoUnlockSkills();
       this.addLogEntry(`Class set to ${className}!`, 'battle');
+      this.grantStarterBagOnce();
       return;
     }
     // Unequip all gear back to inventory (skip offhand if same as mainhand — 2H weapon)
@@ -1194,6 +1297,10 @@ export class PlayerSession {
     if (this.character) {
       this.character = createCharacter(this.character.className, this.skillContent());
     }
+    this.bags = normalizeBagSlots(undefined);
+    this.lostAndFound = {};
+    this.pendingLost = {};
+    this.starterBagGranted = false;
 
     this.battleCount = 0;
     this.combatLog = [];
@@ -1204,6 +1311,7 @@ export class PlayerSession {
     this.clearedDungeons.clear();
 
     this.addLogEntry('The world has been reset! Starting fresh...', 'battle');
+    this.grantStarterBagOnce();
   }
 
   getStartingTile(): HexTile {
@@ -1252,6 +1360,7 @@ export class PlayerSession {
         skillLoadout: { ...this.character.skillLoadout },
         craftLevel: this.character.craftLevel,
         craftXp: this.character.craftXp,
+        bags: [...this.bags],
       } : undefined,
       friends: [...this.friends],
       outgoingFriendRequests: [...this.outgoingFriendRequests],
@@ -1277,6 +1386,8 @@ export class PlayerSession {
       awaySnapshot: this.awaySnapshot ? { ...this.awaySnapshot, inventory: { ...this.awaySnapshot.inventory } } : undefined,
       house: this.house ? { ...this.house, storage: { ...this.house.storage }, displays: [...this.house.displays] } : undefined,
       wellRestedUntil: this.wellRestedUntil,
+      lostAndFound: { ...this.lostAndFound },
+      starterBagGranted: this.starterBagGranted,
     };
   }
 
@@ -1389,6 +1500,10 @@ export class PlayerSession {
       ? { ...data.house, storage: { ...data.house.storage }, displays: [...data.house.displays] }
       : null;
     session['wellRestedUntil'] = data.wellRestedUntil;
+    session['bags'] = normalizeBagSlots(data.character?.bags);
+    session['lostAndFound'] = { ...(data.lostAndFound ?? {}) };
+    session['pendingLost'] = {};
+    session['starterBagGranted'] = data.starterBagGranted ?? false;
 
     // Restore craft queue (lazy completion happens on next tick)
     session['craftQueue'] = data.craftQueue
@@ -1401,6 +1516,7 @@ export class PlayerSession {
 
     // Add server-online log entry
     session['addLogEntry']('Server back online — resuming!', 'battle');
+    session.grantStarterBagOnce();
 
     return session;
   }
@@ -1409,10 +1525,36 @@ export class PlayerSession {
     if (!this.character) return false;
     const def = this.content.getItem(itemId);
     if (!def || !def.equipSlot) return false;
+    if (this.equipOverflowsInventory(itemId)) return false;
 
     const result = equipItem(this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className);
     if (result.success) this.reconcileLoadoutAfterEquipmentChange();
     return result.success;
+  }
+
+  /** True when equipping `itemId` would otherwise succeed but the swapped-out gear can't fit in the backpack. */
+  equipOverflowsInventory(itemId: string, forceDestroy = false): boolean {
+    if (!this.character) return false;
+    const className = this.character.className;
+    const items = this.content.getAllItems();
+    const changes = this.simulateEquipment((inv, eq) => (forceDestroy
+      ? equipItemForceDestroy(inv, eq, itemId, items, className)
+      : equipItem(inv, eq, itemId, items, className)).success);
+    return changes !== null && !this.fitsInventory(changes);
+  }
+
+  /** Runs an equipment mutation on copies; returns the inventory delta, or null when the mutation fails. */
+  private simulateEquipment(mutate: (inventory: Record<string, number>, equipment: Record<string, string | null>) => boolean): Record<string, number> | null {
+    if (!this.character) return null;
+    const before = this.character.inventory;
+    const inventory = { ...before };
+    if (!mutate(inventory, { ...this.character.equipment })) return null;
+    const changes: Record<string, number> = {};
+    for (const id of new Set([...Object.keys(before), ...Object.keys(inventory)])) {
+      const delta = (inventory[id] ?? 0) - (before[id] ?? 0);
+      if (delta !== 0) changes[id] = delta;
+    }
+    return changes;
   }
 
   /** Re-validate the equipped skill loadout after an equipment change — a lost grant must null its slot. */
@@ -1451,7 +1593,7 @@ export class PlayerSession {
     return [...locked];
   }
 
-  handleUnequipItem(slot: EquipSlot): { success: boolean; lockedByTile?: boolean } {
+  handleUnequipItem(slot: EquipSlot): { success: boolean; lockedByTile?: boolean; inventoryFull?: boolean } {
     if (!this.character) return { success: false };
     if (!EQUIP_SLOTS.includes(slot)) return { success: false };
 
@@ -1462,7 +1604,11 @@ export class PlayerSession {
       if (lockedIds.includes(equippedInSlot)) return { success: false, lockedByTile: true };
     }
 
-    const result = unequipItem(this.character.inventory, this.character.equipment, slot, this.content.getAllItems());
+    const items = this.content.getAllItems();
+    const changes = this.simulateEquipment((inv, eq) => unequipItem(inv, eq, slot, items).success);
+    if (changes && !this.fitsInventory(changes)) return { success: false, inventoryFull: true };
+
+    const result = unequipItem(this.character.inventory, this.character.equipment, slot, items);
     if (result.success) this.reconcileLoadoutAfterEquipmentChange();
     return { success: result.success };
   }
@@ -1516,6 +1662,7 @@ export class PlayerSession {
     if (!this.character) return false;
     const def = this.content.getItem(itemId);
     if (!def || !def.equipSlot) return false;
+    if (this.equipOverflowsInventory(itemId, true)) return false;
 
     const result = equipItemForceDestroy(
       this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className

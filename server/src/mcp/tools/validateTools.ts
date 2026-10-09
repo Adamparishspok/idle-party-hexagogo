@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
 import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
@@ -267,6 +267,8 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
       }
     });
     set.breakpoints.forEach((bp, bpIndex) => {
+      const attrError = validateAttributes(bp.bonuses.attributes);
+      if (attrError) problems.push(`Set '${set.id}' breakpoint ${bpIndex} attributes: ${attrError}`);
       (bp.bonuses.grantedSkillIds ?? []).forEach((skillId, skillIndex) => {
         if (!skillIds.has(skillId)) {
           problems.push(`Set '${set.id}' breakpoint ${bpIndex} (piecesRequired ${bp.piecesRequired}) grantedSkillIds references unknown skill '${skillId}' (index ${skillIndex}).`);
@@ -277,6 +279,8 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
 
   // --- Items ---
   for (const item of snapshot.items) {
+    const shapeError = validateAttributes(item.attributes) ?? validateBagItem(item);
+    if (shapeError) problems.push(`Item '${item.id}': ${shapeError}`);
     (item.grantedSkillIds ?? []).forEach((skillId, index) => {
       if (!skillIds.has(skillId)) {
         problems.push(`Item '${item.id}' grantedSkillIds references unknown skill '${skillId}' (index ${index}).`);

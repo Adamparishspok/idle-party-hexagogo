@@ -23,6 +23,13 @@
 
 type Inventory = Record<string, number>;
 type Equipment = Record<string, string | null>;
+/** Bags sitting in bag slots: outside both `inventory` and `equipment`. */
+type Bags = readonly (string | null)[];
+
+/** Number of bag slots holding `itemId`. */
+export function getBagCount(itemId: string, bags: Bags = []): number {
+  return bags.filter(id => id === itemId).length;
+}
 
 // ── Counts ───────────────────────────────────────────────────────────────────
 
@@ -40,9 +47,9 @@ export function getUnequippedCount(itemId: string, inventory: Inventory): number
   return inventory[itemId] ?? 0;
 }
 
-/** Total copies of `itemId` the player has (unequipped + equipped slots). */
-export function getOwnedCount(itemId: string, inventory: Inventory, equipment: Equipment): number {
-  return getUnequippedCount(itemId, inventory) + getEquippedCount(itemId, equipment);
+/** Total copies of `itemId` the player has (unequipped + equipped slots + bag slots). */
+export function getOwnedCount(itemId: string, inventory: Inventory, equipment: Equipment, bags: Bags = []): number {
+  return getUnequippedCount(itemId, inventory) + getEquippedCount(itemId, equipment) + getBagCount(itemId, bags);
 }
 
 // ── Booleans ─────────────────────────────────────────────────────────────────
@@ -58,8 +65,8 @@ export function hasUnequipped(itemId: string, inventory: Inventory): boolean {
 }
 
 /** True iff the player owns at least one copy of `itemId`, whether equipped or not. */
-export function ownsItem(itemId: string, inventory: Inventory, equipment: Equipment): boolean {
-  return hasUnequipped(itemId, inventory) || hasItemEquipped(itemId, equipment);
+export function ownsItem(itemId: string, inventory: Inventory, equipment: Equipment, bags: Bags = []): boolean {
+  return hasUnequipped(itemId, inventory) || hasItemEquipped(itemId, equipment) || getBagCount(itemId, bags) > 0;
 }
 
 // ── Sets ─────────────────────────────────────────────────────────────────────
@@ -73,9 +80,12 @@ export function getEquippedItemIds(equipment: Equipment): Set<string> {
   return ids;
 }
 
-/** Set of distinct item IDs the player owns (unequipped + equipped). */
-export function getOwnedItemIds(inventory: Inventory, equipment: Equipment): Set<string> {
+/** Set of distinct item IDs the player owns (unequipped + equipped + bag slots). */
+export function getOwnedItemIds(inventory: Inventory, equipment: Equipment, bags: Bags = []): Set<string> {
   const ids = new Set<string>();
+  for (const id of bags) {
+    if (id) ids.add(id);
+  }
   for (const [id, count] of Object.entries(inventory)) {
     if (count > 0) ids.add(id);
   }

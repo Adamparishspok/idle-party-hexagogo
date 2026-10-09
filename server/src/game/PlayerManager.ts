@@ -81,6 +81,7 @@ export class PlayerManager {
       (partyId) => this.parties.getHenchmen(partyId),
       (partyId, mapId) => this.parties.dismissHenchmenOffMap(partyId, mapId),
     );
+    this.partyBattles.setItemsLostCallback((username, lost) => this.notifyItemsLost(username, lost));
     this.housing = new HousingService({
       content,
       getSession: (username) => this.sessions.get(username),
@@ -90,6 +91,17 @@ export class PlayerManager {
       isBlocked: (a, b) => this.isTradeBlocked(a, b),
       pushState: (username) => this.sendStateToPlayer(username),
       notify: (username, eventKey, message) => this.notify.notify(username, eventKey, message),
+    });
+  }
+
+  notifyItemsLost(username: string, lost: Record<string, number>): void {
+    const list = Object.entries(lost)
+      .map(([itemId, count]) => `${count}× ${this.content.getItem(itemId)?.name ?? itemId}`)
+      .join(', ');
+    this.notify.notify(username, 'items_lost', {
+      title: 'Loot lost',
+      body: `Your bags and Lost & Found were full — lost ${list}.`,
+      payload: { items: lost },
     });
   }
 

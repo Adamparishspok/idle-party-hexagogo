@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { VersionStore, ContentSnapshot } from './VersionStore.js';
 import type { ContentStore } from './ContentStore.js';
+import { validateItemDefinition, STARTER_BAG_DELETE_ERROR } from './ContentStore.js';
 import type {
   MonsterDefinition,
   ItemDefinition,
@@ -21,7 +22,7 @@ import type {
   WorldTileDefinition,
   WorldMapMeta,
 } from '@idle-party-rpg/shared';
-import { migrateLegacySet, migrateLegacySkill, findSetConflicts, zoneMapConflict, validateSkillDefinition, validateHouseDefinition, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES } from '@idle-party-rpg/shared';
+import { STARTER_BAG_ITEM, migrateLegacySet, migrateLegacySkill, findSetConflicts, zoneMapConflict, validateSkillDefinition, validateHouseDefinition, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES } from '@idle-party-rpg/shared';
 
 /** Content types editable through the generic (MCP) draft-write surface. Single source of truth — derive z.enum(...) lists from this array, don't hand-copy the literals. */
 export const DRAFT_CONTENT_TYPES = [
@@ -129,6 +130,8 @@ export class DraftEditor {
   // --- Item CRUD ---
 
   private upsertItemCore(snapshot: ContentSnapshot, item: ItemDefinition): string | null {
+    const shapeError = validateItemDefinition(item);
+    if (shapeError) return shapeError;
     const grantedSkillIds = item.grantedSkillIds ?? [];
     if (grantedSkillIds.length > 0) {
       // Snapshots that predate skills have no skills key — materialize live skills into
@@ -160,6 +163,7 @@ export class DraftEditor {
   private deleteItemCore(snapshot: ContentSnapshot, id: string): string | null {
     const idx = snapshot.items.findIndex(i => i.id === id);
     if (idx < 0) return 'Item not found.';
+    if (id === STARTER_BAG_ITEM.id) return STARTER_BAG_DELETE_ERROR;
     const referencingMonster = snapshot.monsters.find(m => m.drops?.some(d => d.itemId === id));
     if (referencingMonster) return `Cannot delete: item is referenced in ${referencingMonster.name}'s drop table.`;
     snapshot.items.splice(idx, 1);

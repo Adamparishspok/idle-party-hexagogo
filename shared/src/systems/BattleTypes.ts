@@ -20,7 +20,7 @@ import type { DungeonRunInfo } from './DungeonTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
 import type { RoomEntryFailureKind } from './RoomRequirements.js';
 import type { BankErrorCode } from './BankTypes.js';
-import type { InventoryErrorCode } from './BagTypes.js';
+import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
 import type { DerivedStats } from './AttributeTypes.js';
 
 
@@ -126,6 +126,12 @@ export interface ClientCharacterState {
   craftXp: number;
   /** Attributes and the stats they derive (HP, damage, armor, resist, crit, dodge, healing). */
   derivedStats: DerivedStats;
+  /** Equipped bag per bag slot (null = empty). Equipped bags are not in `inventory`. */
+  bags: BagSlots;
+  /** Distinct stacks the backpack holds: base slots plus equipped bags. May be below the used count on grandfathered saves. */
+  inventoryCapacity: number;
+  /** Loot that arrived while the backpack was full; claim or discard from anywhere. */
+  lostAndFound: Record<string, number>;
 }
 
 export interface ClientResetXpRateMessage {
@@ -342,6 +348,10 @@ export interface ServerWelcomeBackMessage {
   /** Positive inventory gains, largest first. */
   items: WelcomeBackItem[];
   itemDefinitions: Record<string, ItemDefinition>;
+  /** Copies that went to Lost & Found because the backpack was full. */
+  itemsToLostAndFound?: number;
+  /** Copies lost because Lost & Found was full too. */
+  itemsLost?: number;
 }
 
 export type ServerMessage =
@@ -461,4 +471,5 @@ export type ClientMessage =
   | ClientEnterTransitionMessage
   | ClientSocialMessage
   | ClientNotificationMessage
-  | ClientHousingMessage;
+  | ClientHousingMessage
+  | ClientInventoryMessage;

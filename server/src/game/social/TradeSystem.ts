@@ -247,6 +247,7 @@ export class TradeSystem {
     nonce: string,
     hasItemInInventory: (u: string, itemId: string, quantity: number) => boolean,
     getInventoryCount: (u: string, itemId: string) => number,
+    fitsInventory?: (u: string, changes: Record<string, number>) => boolean,
   ): { trade: TradeState; initiatorOffer: TradeOffer; targetOffer: TradeOffer } | ConfirmTradeFailure | string {
     const trade = this.trades.get(tradeId);
     if (!trade) return 'Trade not found';
@@ -311,6 +312,15 @@ export class TradeSystem {
     );
     if (targetFail) return targetFail;
 
+    if (fitsInventory) {
+      if (!fitsInventory(initiatorOffer.username, netChanges(initiatorOffer.items, targetOffer.items))) {
+        return { success: false, reason: 'inventory_full', affectedPlayer: 'initiator' };
+      }
+      if (!fitsInventory(targetOffer.username, netChanges(targetOffer.items, initiatorOffer.items))) {
+        return { success: false, reason: 'inventory_full', affectedPlayer: 'target' };
+      }
+    }
+
     trade.status = 'confirmed';
     this.cleanupTrade(tradeId);
 
@@ -367,4 +377,11 @@ export class TradeSystem {
     }
     this.trades.delete(tradeId);
   }
+}
+
+function netChanges(gives: TradeOfferItem[], gets: TradeOfferItem[]): Record<string, number> {
+  const changes: Record<string, number> = {};
+  for (const { itemId, quantity } of gives) changes[itemId] = (changes[itemId] ?? 0) - quantity;
+  for (const { itemId, quantity } of gets) changes[itemId] = (changes[itemId] ?? 0) + quantity;
+  return changes;
 }

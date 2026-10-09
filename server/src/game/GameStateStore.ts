@@ -11,6 +11,10 @@ export interface AwaySnapshot {
   /** Victories since `at` (counted live — there is no lifetime win counter). */
   battlesWon: number;
   inventory: Record<string, number>;
+  /** Copies routed to Lost & Found since `at`. */
+  toLostAndFound?: number;
+  /** Copies lost (Lost & Found full) since `at`. */
+  lost?: number;
 }
 
 /**
@@ -36,6 +40,8 @@ export interface PlayerSaveData {
     skillLoadout?: SkillLoadout;
     craftLevel?: number;
     craftXp?: number;
+    /** Equipped bag per bag slot. Absent → all empty (`normalizeBagSlots`). */
+    bags?: (string | null)[];
     // Legacy fields (ignored on load, kept for backward compat with old saves)
     skillPoints?: number;
     stats?: Record<string, number>;
@@ -83,6 +89,10 @@ export interface PlayerSaveData {
   house?: PlayerHouse;
   /** Epoch ms the Well Rested bonus lasts until. */
   wellRestedUntil?: number;
+  /** Lost & Found pouch: loot that arrived while the backpack was full. */
+  lostAndFound?: Record<string, number>;
+  /** The one-time starter bag was given. Absent → grant on load. */
+  starterBagGranted?: boolean;
 }
 
 /**

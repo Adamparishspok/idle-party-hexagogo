@@ -66,6 +66,7 @@ export class PartyBattleManager {
   private onMembersMoved?: (members: ReadonlySet<string>) => void;
   private getPartyHenchmen: (partyId: string) => HiredHenchman[] = () => [];
   private dismissHenchmenOffMap: (partyId: string, mapId: string) => HiredHenchman[] = () => [];
+  private onItemsLost?: (username: string, lost: Record<string, number>) => void;
 
   constructor(
     grids: WorldGrids,
@@ -88,6 +89,11 @@ export class PartyBattleManager {
   ): void {
     this.getPartyHenchmen = getPartyHenchmen;
     this.dismissHenchmenOffMap = dismissHenchmenOffMap;
+  }
+
+  /** Called once per battle per member who lost loot because their bags and Lost & Found were full. */
+  setItemsLostCallback(onItemsLost: (username: string, lost: Record<string, number>) => void): void {
+    this.onItemsLost = onItemsLost;
   }
 
   /**
@@ -728,6 +734,8 @@ export class PartyBattleManager {
     }
 
     for (const m of entry.members) {
+      const lost = this.getSession(m)?.consumeLostItems() ?? {};
+      if (Object.keys(lost).length > 0) this.onItemsLost?.(m, lost);
       this.broadcastToMember(m);
     }
   }
@@ -939,11 +947,8 @@ export class PartyBattleManager {
           for (const { itemId, quantity } of drops) {
             const itemDef = this.content.getItem(itemId);
             if (!itemDef) continue;
-            for (let i = 0; i < quantity; i++) {
-              if (session.addOneToInventory(itemId)) {
-                session.addLogEntry(`First-clear reward: ${itemDef.name}!`, 'victory');
-              }
-            }
+            const delivered = session.receiveItems(itemId, quantity).toInventory;
+            for (let i = 0; i < delivered; i++) session.addLogEntry(`First-clear reward: ${itemDef.name}!`, 'victory');
           }
         }
       }
@@ -980,11 +985,8 @@ export class PartyBattleManager {
       for (const { itemId, quantity } of drops) {
         const itemDef = this.content.getItem(itemId);
         if (!itemDef) continue;
-        for (let i = 0; i < quantity; i++) {
-          if (session.addOneToInventory(itemId)) {
-            session.addLogEntry(`${label}: ${itemDef.name}!`, 'victory');
-          }
-        }
+        const delivered = session.receiveItems(itemId, quantity).toInventory;
+        for (let i = 0; i < delivered; i++) session.addLogEntry(`${label}: ${itemDef.name}!`, 'victory');
       }
     }
   }

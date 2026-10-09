@@ -29,6 +29,17 @@ const sharedComponents = {
         magicReductionMin: { type: 'number' },
         magicReductionMax: { type: 'number' },
         value: { type: 'number' },
+        attributes: {
+          type: 'object',
+          description: 'Core attributes granted while equipped (whole numbers). Heirlooms scale by wearer level.',
+          properties: {
+            strength: { type: 'integer' },
+            agility: { type: 'integer' },
+            intellect: { type: 'integer' },
+            stamina: { type: 'integer' },
+          },
+        },
+        bagSlots: { type: 'integer', minimum: 1, maximum: 24, description: 'Makes the item a bag (no equipSlot): extra backpack slots while in a bag slot.' },
       },
     },
     MonsterDefinition: {
