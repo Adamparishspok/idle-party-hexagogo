@@ -185,3 +185,8 @@
 @media (prefers-reduced-motion: reduce) {
   .bank-grid button.gc-item { transition: none; }
 }
+
+.bank-modal.is-settled,
+.bank-modal.is-settled .gc-modal__panel {
+  animation: none;
+}

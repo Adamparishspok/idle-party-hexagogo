@@ -399,6 +399,7 @@
   color: var(--parch-ink);
 }
 .bb-cap__value {
+  white-space: nowrap;
   font-family: var(--display-font);
   font-size: var(--t-title);
   color: #fff;

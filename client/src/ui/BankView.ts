@@ -95,6 +95,7 @@ export class BankView {
     this.noticeTimer = null;
     this.overlay.style.display = 'none';
     this.overlay.innerHTML = '';
+    this.overlay.classList.remove('is-settled');
     document.removeEventListener('keydown', this.onKey);
     release(this.overlay);
   }
@@ -139,8 +140,9 @@ export class BankView {
       inv: state.character?.inventory ?? {},
       cap: state.character?.inventoryCapacity ?? null,
       bags: state.character?.bags ?? null,
-      gold: state.character?.gold ?? 0,
+      canBuyTab: bank.nextTabPrice != null && (state.character?.gold ?? 0) >= bank.nextTabPrice,
     });
+    this.updateGold(state.character?.gold ?? 0);
     if (key === this.renderKey) return;
     this.renderKey = key;
 
@@ -153,9 +155,15 @@ export class BankView {
     }
   }
 
+  private updateGold(gold: number): void {
+    const el = this.overlay.querySelector('.bank-gold__value');
+    if (el) el.textContent = gold.toLocaleString();
+  }
+
   private panel(body: string, actions = '', extraClass = ''): void {
     const gold = this.gameClient.lastState?.character?.gold ?? 0;
     const notice = this.notice ? `<div class="bank-notice" role="status">${escapeHtml(this.notice)}</div>` : '';
+    this.overlay.classList.toggle('is-settled', this.overlay.childElementCount > 0);
     this.overlay.innerHTML = `
       <div class="gc-modal__panel gc-parchment has-title${actions ? ' has-actions' : ''} bank-panel ${extraClass}" role="dialog" aria-modal="true" aria-label="Bank">
         <div class="gc-title-tab gc-modal__title"><span class="gc-title-tab__text">Bank</span></div>
