@@ -126,15 +126,16 @@ const sharedComponents = {
     AssetKindInfo: {
       type: 'object',
       description: 'One row of the shared ASSET_KIND_INFO registry — what a kind is, where it lives, and how it is keyed.',
-      required: ['kind', 'label', 'description', 'mount', 'dir', 'idFormat', 'shape', 'urlTemplate', 'fallbacks'],
+      required: ['kind', 'label', 'description', 'mount', 'dir', 'idFormat', 'shape', 'formats', 'urlTemplate', 'fallbacks'],
       properties: {
         kind: { type: 'string', example: 'monster' },
         label: { type: 'string', example: 'Monster' },
         description: { type: 'string', example: 'Monster portraits shown on the combat screen.' },
         mount: { type: 'string', description: 'Public URL prefix the client fetches from', example: '/monster-artwork' },
-        dir: { type: 'string', description: 'Folder under the process working directory that holds the PNGs', example: 'data/monster-artwork' },
+        dir: { type: 'string', description: 'Folder under the process working directory that holds the files', example: 'data/monster-artwork' },
         idFormat: { type: 'string', description: 'Human description of the id format', example: 'MonsterDefinition.id' },
         shape: { type: 'string', enum: ['square', 'any'], description: "'square' rejects non-square uploads" },
+        formats: { type: 'array', items: { type: 'string', enum: ['png', 'ogg', 'mp3'] }, description: "Accepted file formats, primary first — ['png'] for every image kind, ['ogg', 'mp3'] for the sfx (sound effect) kind. urlTemplate uses the primary." },
         urlTemplate: { type: 'string', example: '/monster-artwork/{id}.png' },
         fallbacks: {
           type: 'array',
@@ -178,7 +179,7 @@ const sharedComponents = {
     },
     AssetInfo: {
       type: 'object',
-      description: 'A stored PNG on disk. Dimensions are read from the file\'s own IHDR header, not from the upload metadata.',
+      description: 'A stored PNG (or, for the sfx kind, OGG/MP3) on disk. Dimensions are read from the PNG\'s own IHDR header, not from the upload metadata; sound effects report 0x0.',
       required: ['id', 'kind', 'url', 'bytes', 'width', 'height', 'updatedAt'],
       properties: {
         id: { type: 'string', example: 'crystal_golem' },
@@ -792,7 +793,7 @@ export const adminSwaggerSpec = {
         summary: 'Audit which content is missing artwork',
         description: 'Joins every asset folder against the content expected to have art in it. Accounts for the fallback chains the client actually walks, so an id with no art of its own can still report that it renders real art via another kind.',
         parameters: [
-          { name: 'kind', in: 'query', required: false, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] }, description: 'Restrict the report to one kind. Omit for all kinds.' },
+          { name: 'kind', in: 'query', required: false, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] }, description: 'Restrict the report to one kind. Omit for all kinds.' },
           { name: 'includeEntries', in: 'query', required: false, schema: { type: 'string', enum: ['true'] }, description: "Set to 'true' to include the per-id entries array on each kind" },
           { name: 'missingOnly', in: 'query', required: false, schema: { type: 'string', enum: ['true'] }, description: "With includeEntries, set to 'true' to list only ids that have no art of their own" },
           { name: 'limit', in: 'query', required: false, schema: { type: 'number' }, description: 'Cap on entries per kind. Defaults to 500.' },
@@ -813,7 +814,7 @@ export const adminSwaggerSpec = {
         summary: 'List every stored asset of one kind',
         description: 'Reads the kind\'s folder and returns full metadata per file, sorted by id. A kind with no folder yet simply returns an empty list.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
         ],
         responses: {
           200: {
@@ -838,7 +839,7 @@ export const adminSwaggerSpec = {
         tags: ['Assets'],
         summary: 'Metadata for one asset',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Format varies by kind — see idFormat on GET /api/admin/assets' },
         ],
         responses: {
@@ -857,10 +858,10 @@ export const adminSwaggerSpec = {
       },
       post: {
         tags: ['Assets'],
-        summary: 'Upload or replace a PNG',
-        description: 'Multipart upload under the field name `artwork`. The bytes must be a real PNG — the signature and IHDR chunk are verified and the dimensions read from the file itself, never from the client-declared mime type. Kinds with shape `square` reject non-square images. Writes take effect on the live game immediately; artwork is not versioned content.',
+        summary: 'Upload or replace a PNG (or an OGG/MP3 for the sfx kind)',
+        description: 'Multipart upload under the field name `artwork`. For image kinds the bytes must be a real PNG — the signature and IHDR chunk are verified and the dimensions read from the file itself, never from the client-declared mime type. Kinds with shape `square` reject non-square images. The `sfx` kind takes an OGG (`OggS` capture pattern) or MP3 (ID3 tag or MPEG frame header) instead, stored under the extension its bytes actually are and replacing any file stored for the id in the other format; WAV and anything else is rejected with a 400. Writes take effect on the live game immediately; artwork is not versioned content.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Letters, numbers, spaces, dots, dashes, and underscores only; no `..` runs' },
         ],
         requestBody: {
@@ -868,7 +869,7 @@ export const adminSwaggerSpec = {
           content: { 'multipart/form-data': { schema: {
             type: 'object',
             required: ['artwork'],
-            properties: { artwork: { type: 'string', format: 'binary', description: 'PNG file, 512 KB max' } },
+            properties: { artwork: { type: 'string', format: 'binary', description: 'PNG file (OGG or MP3 for the sfx kind), 512 KB max' } },
           } } },
         },
         responses: {
@@ -889,7 +890,7 @@ export const adminSwaggerSpec = {
         summary: 'Delete an asset',
         description: 'Idempotent — deleting art that is not there still succeeds, with `removed: false`.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         ],
         responses: {
@@ -916,7 +917,7 @@ export const adminSwaggerSpec = {
         summary: 'Upload artwork (deprecated)',
         description: 'Deprecated alias kept so an older client build does not break mid-deploy. Use POST /api/admin/assets/{kind}/{id}, which returns the stored asset metadata and reports oversized uploads as a JSON 400.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         ],
         requestBody: {
@@ -939,7 +940,7 @@ export const adminSwaggerSpec = {
         summary: 'Delete artwork (deprecated)',
         description: 'Deprecated alias. Use DELETE /api/admin/assets/{kind}/{id}, which also reports whether a file was actually removed.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         ],
         responses: {

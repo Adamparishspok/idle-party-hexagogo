@@ -23,6 +23,7 @@ import { PersistentXpBar } from './ui/PersistentXpBar';
 import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
 import { chatFocusTracker } from './network/ChatFocusTracker';
+import { wireGameSounds } from './audio/SoundEvents';
 
 const CONNECTION_ERROR = 'Could not connect to server';
 
@@ -247,6 +248,9 @@ export class App {
   private async connectAndEnterGame(): Promise<void> {
     this.gameClient = new GameClient();
     chatFocusTracker.init(this.gameClient);
+    // Subscribed before connect so the very first state seeds the reward
+    // baseline (and so never plays a sound).
+    wireGameSounds(this.gameClient);
 
     // Listen for account suspension (admin kicked while playing)
     this.gameClient.onSuspension(() => {

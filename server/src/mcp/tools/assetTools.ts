@@ -62,7 +62,7 @@ export async function upsertAsset(deps: McpToolDeps, args: { kind: ManagedAssetK
     // Node's base64 decoder is lenient — it drops invalid characters instead of
     // throwing, so a caller that passes a data URI or raw binary gets silently
     // mangled bytes rather than a useful error. Reject the obvious cases first;
-    // the PNG signature check in the store catches everything else.
+    // the PNG/OGG/MP3 signature check in the store catches everything else.
     if (!BASE64_PATTERN.test(args.pngBase64)) {
       return { error: 'pngBase64 is not valid base64 — pass the raw encoded bytes, without a data: URI prefix.' };
     }
@@ -131,11 +131,11 @@ export function registerAssetTools(server: McpServer, deps: McpToolDeps): void {
   server.registerTool(
     'upsert_asset',
     {
-      description: 'Upload or replace one PNG. Writes to live artwork immediately — artwork is not part of draft versions, so this does not need and does not accept a versionId. Most kinds require a square image; call list_asset_kinds for the per-kind shape rule and id format.',
+      description: 'Upload or replace one PNG — or one OGG/MP3 for the `sfx` (sound effect) kind, passed through the same pngBase64 field (WAV is rejected). Writes to live artwork immediately — artwork is not part of draft versions, so this does not need and does not accept a versionId. Most kinds require a square image; call list_asset_kinds for the per-kind shape rule and id format.',
       inputSchema: {
         kind: ASSET_KIND_ENUM.describe('Which asset kind the image belongs to.'),
         id: ASSET_ID_SCHEMA.describe('Entity id the artwork is keyed by — see list_asset_kinds for the format of each kind.'),
-        pngBase64: z.string().describe('The PNG file, base64-encoded. Max 512 KB decoded.'),
+        pngBase64: z.string().describe('The PNG file (or OGG/MP3 for kind sfx), base64-encoded. Max 512 KB decoded.'),
       },
     },
     async (args) => {

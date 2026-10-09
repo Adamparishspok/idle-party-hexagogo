@@ -17,7 +17,13 @@
  *   XP bar so the overlays sit above persistent chrome.
  * - Calling `bringToFront` on an already-tracked element re-promotes it
  *   to the new top z-index (used by mousedown to refocus a window).
+ * - Because every overlay routes through here, this is also where the
+ *   `ui-open` / `ui-close` sounds live: open plays only the first time an
+ *   element is tracked (not on refocus), close only when a tracked element
+ *   is released (not on defensive double-releases).
  */
+
+import { sound } from '../audio/SoundManager';
 
 const BASE_Z = 1500;
 let counter = 0;
@@ -25,6 +31,7 @@ const tracked = new WeakMap<HTMLElement, number>();
 
 /** Promote `el` to the top of the modal stack. */
 export function bringToFront(el: HTMLElement): void {
+  if (!tracked.has(el)) sound.play('ui-open');
   counter++;
   const z = BASE_Z + counter;
   el.style.zIndex = String(z);
@@ -33,6 +40,7 @@ export function bringToFront(el: HTMLElement): void {
 
 /** Remove `el` from the stack — call this when the overlay closes. */
 export function release(el: HTMLElement): void {
+  if (tracked.has(el)) sound.play('ui-close');
   el.style.removeProperty('z-index');
   tracked.delete(el);
 }

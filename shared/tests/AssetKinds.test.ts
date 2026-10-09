@@ -10,6 +10,10 @@ import {
   isValidAssetId,
   assetPublicPath,
   canonicalAssetId,
+  assetFileExtension,
+  assetFileExtensions,
+  isAudioAssetKind,
+  SFX_IDS,
 } from '../src/index.js';
 
 describe('asset kind registry', () => {
@@ -83,5 +87,26 @@ describe('asset kind registry', () => {
     // class-icon deliberately keeps its casing — CLASS_ICONS requests Knight.png.
     expect(canonicalAssetId('class-icon', 'Knight')).toBe('Knight');
     expect(assetPublicPath('class-icon', 'Knight')).toBe('/class-icons/Knight.png');
+  });
+
+  it('serves every image kind as .png only, and the sound kind as .ogg then .mp3', () => {
+    for (const kind of ASSET_KINDS) {
+      if (kind === 'sfx') continue;
+      expect(assetFileExtensions(kind)).toEqual(['png']);
+      expect(isAudioAssetKind(kind)).toBe(false);
+    }
+    expect(assetFileExtensions('sfx')).toEqual(['ogg', 'mp3']);
+    expect(assetFileExtension('sfx')).toBe('ogg');
+    expect(isAudioAssetKind('sfx')).toBe(true);
+    expect(assetPublicPath('sfx', 'level-up')).toBe('/sfx/level-up.ogg');
+    expect(assetPublicPath('sfx', 'level-up', 'mp3')).toBe('/sfx/level-up.mp3');
+    expect(assetPublicPath('monster', 'goblin')).toBe('/monster-artwork/goblin.png');
+  });
+
+  it('requires a sound file for exactly the fixed sound-event ids', () => {
+    expect(ASSET_KIND_INFO.sfx.idSource).toBe('fixed');
+    expect(ASSET_KIND_INFO.sfx.fixedIds).toEqual(SFX_IDS);
+    expect(new Set(SFX_IDS).size).toBe(SFX_IDS.length);
+    for (const id of SFX_IDS) expect(isValidAssetId(id)).toBe(true);
   });
 });

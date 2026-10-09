@@ -296,3 +296,72 @@ describe('AssetStore listing', () => {
     expect((await store.list('monster')).map(i => i.id)).toEqual(['zombie']);
   });
 });
+
+describe('AssetStore sound effects', () => {
+  /** An ID3v2 header followed by filler — enough for the signature gate. */
+  function makeMp3(padBytes = 64): Buffer {
+    return Buffer.concat([Buffer.from('ID3\x04\x00\x00\x00\x00\x00\x00', 'latin1'), Buffer.alloc(padBytes, 0)]);
+  }
+
+  /** An Ogg page header (capture pattern `OggS`) followed by filler. */
+  function makeOgg(padBytes = 64): Buffer {
+    return Buffer.concat([Buffer.from('OggS\x00\x02', 'latin1'), Buffer.alloc(padBytes, 0)]);
+  }
+
+  it('stores an OGG under .ogg', async () => {
+    const store = makeStore();
+    const info = await store.write('sfx', 'hit', makeOgg());
+    expect(info.url.startsWith('/sfx/hit.ogg?v=')).toBe(true);
+    expect(await store.listIds('sfx')).toEqual(['hit']);
+  });
+
+  it('replaces the other format so a fresh upload is never shadowed', async () => {
+    const store = makeStore();
+    await store.write('sfx', 'hit', makeOgg());
+    const info = await store.write('sfx', 'hit', makeMp3());
+    expect(info.url.startsWith('/sfx/hit.mp3?v=')).toBe(true);
+    await expect(fs.stat(path.join(tmpDir, 'data', 'sfx', 'hit.ogg'))).rejects.toThrow();
+    expect(await store.listIds('sfx')).toEqual(['hit']);
+    expect(await store.remove('sfx', 'hit')).toBe(true);
+    expect(await store.listIds('sfx')).toEqual([]);
+  });
+
+  it('rejects a WAV with a reason', async () => {
+    const store = makeStore();
+    const wav = Buffer.concat([Buffer.from('RIFF\x24\x00\x00\x00WAVE', 'latin1'), Buffer.alloc(64, 0)]);
+    await expect(store.write('sfx', 'hit', wav)).rejects.toThrow(/OGG or MP3/);
+  });
+
+  it('stores an MP3 under .mp3 and reports it without dimensions', async () => {
+    const store = makeStore();
+    const info = await store.write('sfx', 'level-up', makeMp3());
+    expect(info.url.startsWith('/sfx/level-up.mp3?v=')).toBe(true);
+    expect(info.width).toBe(0);
+    expect(info.height).toBe(0);
+    await expect(fs.stat(path.join(tmpDir, 'data', 'sfx', 'level-up.mp3'))).resolves.toBeTruthy();
+    expect(await store.listIds('sfx')).toEqual(['level-up']);
+  });
+
+  it('accepts a bare MPEG frame header without an ID3 tag', async () => {
+    const store = makeStore();
+    const frame = Buffer.concat([Buffer.from([0xff, 0xfb, 0x90, 0x64]), Buffer.alloc(64, 0)]);
+    await expect(store.write('sfx', 'hit', frame)).resolves.toBeTruthy();
+  });
+
+  it('rejects a PNG uploaded as a sound effect, with a reason', async () => {
+    const store = makeStore();
+    await expect(store.write('sfx', 'hit', makePng(16, 16))).rejects.toThrow(/OGG or MP3/);
+  });
+
+  it('still rejects an MP3 uploaded to an image kind', async () => {
+    const store = makeStore();
+    await expect(store.write('monster', 'zombie', makeMp3())).rejects.toThrow(/PNG/);
+  });
+
+  it('ignores PNG clutter in the sfx folder', async () => {
+    const store = makeStore();
+    await store.write('sfx', 'coin', makeOgg());
+    await fs.writeFile(path.join(tmpDir, 'data', 'sfx', 'stray.png'), makePng(8, 8));
+    expect(await store.listIds('sfx')).toEqual(['coin']);
+  });
+});

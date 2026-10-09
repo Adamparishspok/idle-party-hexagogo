@@ -1,4 +1,5 @@
 import type { GameClient } from '../network/GameClient';
+import { sound } from '../audio/SoundManager';
 
 export type NavMode = 'screen' | 'overlay' | 'submenu';
 
@@ -104,6 +105,11 @@ export class BottomNav {
 
   private handleClick(tab: NavTabConfig): void {
     const mode: NavMode = tab.mode ?? 'screen';
+    // Nav buttons are excluded from the global tap sound (SoundEvents) so each
+    // mode can speak for itself: screens get the tab "tock", a submenu gets a
+    // tap, and overlays (Chat) are voiced by ModalStack's open/close.
+    if (mode === 'screen') sound.play('tab-switch');
+    else if (mode === 'submenu') sound.play('ui-tap');
 
     if (mode === 'submenu') {
       // Re-clicking the same tab toggles the submenu closed.
@@ -196,6 +202,7 @@ export class BottomNav {
         (item.badge === 'party-invites' && this.hasPartyInvites);
       row.innerHTML = `<span class="nav-submenu-label">${item.label}</span>${showBadge ? '<span class="nav-submenu-badge"></span>' : ''}`;
       row.addEventListener('click', () => {
+        sound.play('tab-switch');
         this.closeSubmenu();
         this.onSubmenuPick?.(tab.id, item.id);
       });

@@ -16,6 +16,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Notifications have icons, unread markers and bigger buttons, and pop-ups can be hidden with their own ×.',
       'A new title screen greets you when you sign in, and choosing your class now uses big swipeable cards showing each class\'s art, stats and passive.',
       'Settings, notification preferences and patch notes are redesigned, with big toggle switches that are easy to tap.',
+      'The game now has sound effects for combat, buttons, rewards and more — adjust or mute them in Settings.',
     ],
   },
   {

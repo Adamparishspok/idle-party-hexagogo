@@ -186,6 +186,33 @@ Rebuilt in the WorldQuest style (`CombatScreen.ts` + `styles/screens/combat.css`
 
 `client/src/ui/ModalStack.ts` manages click-order z-index across overlays. `bringToFront(el)` is called when a modal opens (and on `mousedown` so click-to-focus works like native windows); `release(el)` on close. `wireFocusOnInteract(el)` attaches the focus-on-click handler in one call. Every overlay in the app (RoomView, ChatPopout, PlayerOptions, player popup, monster popup, the notification dropdown, etc.) routes through it.
 
+Because every overlay routes through it, ModalStack also plays the `ui-open` sound the first time an element is tracked (not on refocus) and `ui-close` when a tracked element is released.
+
+## Audio
+
+Sound effects live in `client/src/audio/`. Everything goes through one singleton, `sound` (`SoundManager.ts`), whose API is `sound.play(id, { volume? })` with `id` from the shared `SFX_IDS` list.
+
+- **Files first, placeholders always.** Each id tries `/sfx/{id}.ogg`, then `/sfx/{id}.mp3` (the `sfx` asset kind, served from `data/sfx/`), and otherwise plays a procedural Web Audio recipe from `SfxSynth.ts` (oscillators + filtered noise with envelopes). Dropping a file in upgrades a sound with no code change — the audio twin of the CSS fallbacks behind painted chrome. Every failed URL (404, the production SPA fallback returning HTML, a network error, or a decode failure such as Ogg on Safari < 17.4) is remembered for the session and never refetched. All ids are looked up once at unlock; a play that arrives before its lookup resolves uses the placeholder rather than waiting.
+- **Unlock.** The AudioContext is created on the first user gesture (iOS Safari requirement) by the global listener in `SoundEvents.installUiSounds` (installed from `main.ts`); `play()` is a silent no-op before that, so the game starts silent until the player interacts. A context the OS suspends is resumed on the next gesture.
+- **Anti-spam.** Per-id minimum re-trigger intervals (`SFX_MIN_INTERVAL_MS`, e.g. hits 90ms, coin 1.5s), a cap of `MAX_VOICES` overlapping voices, and nothing plays while the tab is hidden.
+- **Settings.** Master volume (default 60%) and mute persist in localStorage (`idleparty.sfxVolume`, `idleparty.sfxMuted`); Settings → Sound has the switch and a kit-styled slider (`.st-volume__slider` in `settings.css`).
+
+Where each sound is wired (kept central on purpose — no per-button calls):
+
+| Sound | Trigger |
+| --- | --- |
+| `ui-tap` | `installUiSounds`: one delegated `pointerdown` listener for `.gc-btn`, `.gc-tab`, `.gc-row`, `.gc-item`, `.gc-switch-row`, `button`, `[role=button]`, `[role=tab]`, checkboxes. Nav tabs and close buttons are excluded (voiced elsewhere). Any element can pick a different sound or opt out with `data-sfx="<id>"` / `data-sfx="none"`. |
+| `ui-open` / `ui-close` | `ModalStack.bringToFront` / `release` |
+| `tab-switch` | `BottomNav` screen tabs and submenu picks (submenu toggles get `ui-tap`) |
+| `hit` / `hit-crit` / `heal` / `miss` / `skill` | `CombatScreen.spawnFloaters`, from the same HP deltas as the floating numbers — one hit per tick, using `hit-crit` when a single hit takes ≥30% of the victim's max HP (the client isn't told which hits crit) |
+| `victory` / `defeat` | `CombatScreen.updateBanner` |
+| `level-up` / `craft-complete` / `equip` / `loot` / `coin` | `SoundEvents.wireGameSounds`: one GameClient subscriber diffing consecutive states (level; craft level/XP; equipment signature; inventory count with gold not spent; gold). One sound per state change, biggest wins. States with `gameClient.isInitialState` (first state, reconnect, tab resume) only reset the baseline. |
+| `chat-message` | `gameClient.onChat` (live messages only, not your own, not the sync backlog) |
+| `notification` | `gameClient.onNotification` |
+| `error` | `gameClient.onServerError` / `onEquipBlocked` / `onMoveBlocked` |
+
+Combat sounds — including victory/defeat — only play while the combat screen is active: the party is always fighting, so voicing background battles would mean a jingle every few seconds on every screen. Rewards (`coin`, `loot`) do play everywhere, at reduced volume and throttled, because they're the idle game's payoff; `level-up` plays everywhere at full volume.
+
 ## PWA (installability + service worker)
 
 `client/index.html` links `manifest.webmanifest` and sets the theme-color/apple-mobile-web-app meta tags; `client/public/sw.js` (plain, hand-written — not Vite-processed, just copied as-is to the build root) handles app-shell caching and the `push`/`notificationclick` events for the browser-push notification channel. `main.ts` registers it via `registerServiceWorker()` (`client/src/network/PushNotifications.ts`), which no-ops in dev (`import.meta.env.DEV`) so a stale service worker never shadows local changes. `admin.html` deliberately has none of this — only the player-facing client is installable. Full details in [`notifications.md`](notifications.md).

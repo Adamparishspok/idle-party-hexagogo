@@ -13,6 +13,7 @@ type ResumeListener = () => void;
 type MoveBlockedListener = (msg: { itemName: string; itemId: string; missingPlayers: string[] }) => void;
 type PlayerProfileListener = (profile: PlayerProfileMessage) => void;
 type NotificationListener = (notification: NotificationEntry) => void;
+type ServerErrorListener = (message: string) => void;
 
 export class GameClient {
   private ws: WebSocket | null = null;
@@ -32,6 +33,7 @@ export class GameClient {
   private resumeListeners = new Set<ResumeListener>();
   private playerProfileListeners = new Set<PlayerProfileListener>();
   private notificationListeners = new Set<NotificationListener>();
+  private serverErrorListeners = new Set<ServerErrorListener>();
 
   /** Pending connect resolve — set during connect() call. */
   private connectResolve?: (result: { success: boolean; error?: string }) => void;
@@ -221,6 +223,13 @@ export class GameClient {
         }
       } else if (msg.type === 'error') {
         console.warn('[GameClient] server error:', msg.message);
+        for (const listener of this.serverErrorListeners) {
+          try {
+            listener(String(msg.message ?? ''));
+          } catch (err) {
+            console.error('[GameClient] error in server error listener:', err);
+          }
+        }
       }
     };
 
@@ -326,6 +335,12 @@ export class GameClient {
   onEquipBlocked(listener: EquipBlockedListener): () => void {
     this.equipBlockedListeners.add(listener);
     return () => { this.equipBlockedListeners.delete(listener); };
+  }
+
+  /** Subscribe to server `error` replies (rejected actions). Returns an unsubscribe function. */
+  onServerError(listener: ServerErrorListener): () => void {
+    this.serverErrorListeners.add(listener);
+    return () => { this.serverErrorListeners.delete(listener); };
   }
 
   /** Subscribe to move_blocked messages. Returns an unsubscribe function. */

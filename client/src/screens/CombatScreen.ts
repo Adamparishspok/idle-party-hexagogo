@@ -10,6 +10,10 @@ import { RUN_AVAILABLE_ROUNDS } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import { artworkUrl } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
+import { sound } from '../audio/SoundManager';
+
+/** A single hit this big (fraction of max HP) plays the heavier crit sound. */
+const BIG_HIT_FRACTION = 0.3;
 
 /** Slugify a name into an artwork id (lowercase + dashes). */
 function slugify(name: string): string {
@@ -417,21 +421,35 @@ export class CombatScreen implements Screen {
     const sameBattle = tick > this.lastTick && this.lastTick >= 0;
 
     if (sameBattle) {
+      // Sounds follow the same HP deltas as the floaters (this only runs while
+      // the combat screen is active, so background combat stays silent). A
+      // tick can damage several units; one hit sound per tick reads better,
+      // so track the hardest hit as a fraction of the victim's max HP.
+      let hardestHit = 0;
+      let healed = false;
       for (const u of units) {
         const prev = this.prevHp.get(CombatScreen.unitKey(u));
         if (prev === undefined || prev === u.currentHp) continue;
         const delta = u.currentHp - prev;
         this.floatText(u, delta < 0 ? String(delta) : `+${delta}`, delta < 0 ? 'damage' : 'heal');
+        if (delta < 0) hardestHit = Math.max(hardestHit, -delta / Math.max(1, u.maxHp));
+        else healed = true;
       }
+      // The client isn't told which hits crit, so a hit that takes a big
+      // bite (≥30% of max HP) gets the heavier sound instead.
+      if (hardestHit > 0) sound.play(hardestHit >= BIG_HIT_FRACTION ? 'hit-crit' : 'hit');
+      if (healed) sound.play('heal');
       const action = combat?.lastAction;
       if (action) {
         if (action.dodged && action.targetSide && action.targetPos !== null) {
           const target = units.find(u => u.side === sideOf(action.targetSide!) && u.gridPosition === action.targetPos);
           if (target) this.floatText(target, 'Miss', 'miss');
+          sound.play('miss');
         }
         if (action.skillName) {
           const attacker = units.find(u => u.side === sideOf(action.attackerSide) && u.gridPosition === action.attackerPos);
           if (attacker) this.floatText(attacker, action.skillName, 'skill');
+          sound.play('skill');
         }
       }
     }
@@ -478,6 +496,9 @@ export class CombatScreen implements Screen {
       this.banner.className = `cb-banner cb-banner--${visual}`;
       void this.banner.offsetWidth;
       this.banner.classList.add('is-shown');
+      // Only reached while the combat screen is active and animating, so the
+      // jingle never plays for battles fought behind another screen.
+      sound.play(visual);
     } else {
       this.banner.classList.remove('is-shown');
     }

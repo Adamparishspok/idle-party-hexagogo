@@ -472,8 +472,12 @@ export {
   isDeferredAssetKind,
   isValidAssetId,
   assetPublicPath,
+  assetFileExtension,
+  assetFileExtensions,
+  isAudioAssetKind,
   canonicalAssetId,
   UI_CHROME_IDS,
+  SFX_IDS,
 } from './assets/AssetKinds.js';
 export type {
   AssetKind,
@@ -483,4 +487,6 @@ export type {
   AssetIdSource,
   AssetOverrideSource,
   AssetFallback,
+  AssetFileFormat,
+  SfxId,
 } from './assets/AssetKinds.js';
