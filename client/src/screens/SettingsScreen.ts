@@ -14,6 +14,7 @@ const ROW_ICONS = {
   questLog: '<svg viewBox="0 0 24 24"><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6" /><path d="M6 3a2 2 0 0 0-2 2v1h4V5a2 2 0 0 0-2-2zM6 21a2 2 0 0 1-2-2v-1h4v1a2 2 0 0 1-2 2zM10 9h6M10 13h6" /></svg>',
   sound: '<svg viewBox="0 0 24 24"><path d="M4 9.5h4l5-4v13l-5-4H4z" /><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11" /></svg>',
   notifications: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg>',
+  tour: '<svg viewBox="0 0 24 24"><path d="M12 21V3" /><path d="M12 5h7l2 2.5-2 2.5h-7M12 12H5l-2 2.5L5 17h7" /></svg>',
   patchNotes: '<svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7z" /><path d="M15 3v4h4M10 12h6M10 16h6" /></svg>',
   signOut: '<svg viewBox="0 0 24 24"><path d="M14 4H6v16h8" /><path d="M11 12h9M17 8.5l3.5 3.5-3.5 3.5" /></svg>',
 } as const;
@@ -81,11 +82,14 @@ export class SettingsScreen implements Screen {
     worldCache: WorldCache,
     /** Drill down to a pushed screen. Wired by App to ScreenManager.push. */
     private onOpenScreen: (id: string) => void = () => {},
+    /** Shared with the perched Quests button so only one log is ever open. */
+    questLog?: QuestLog,
+    private onReplayTour: () => void = () => {},
   ) {
     const el = document.getElementById(containerId);
     if (!el) throw new Error(`Screen container #${containerId} not found`);
     this.container = el;
-    this.questLog = new QuestLog(gameClient, worldCache);
+    this.questLog = questLog ?? new QuestLog(gameClient, worldCache);
 
     this.container.innerHTML = `
       <div class="st-screen">
@@ -95,6 +99,7 @@ export class SettingsScreen implements Screen {
             ${rowHtml('btn-quest-log', ROW_ICONS.questLog, 'Quest Log', 'Your active and finished quests')}
             ${rowHtml('btn-sound', ROW_ICONS.sound, 'Sound', 'Sound effects and volume')}
             ${rowHtml('btn-notifications', ROW_ICONS.notifications, 'Notifications', 'Choose how you hear about events')}
+            ${rowHtml('btn-replay-tour', ROW_ICONS.tour, 'Replay Tour', 'A quick walk through the game')}
             ${rowHtml('btn-patch-notes', ROW_ICONS.patchNotes, 'Patch Notes', 'What’s new in the game')}
           </div>
           <div class="st-list st-list--danger">
@@ -114,6 +119,7 @@ export class SettingsScreen implements Screen {
     btnSound.addEventListener('click', () => this.openSoundOptions());
     btnNotifications.addEventListener('click', () => this.openNotificationPreferences());
     btnPatchNotes.addEventListener('click', () => this.onOpenScreen('patch-notes'));
+    this.container.querySelector('#btn-replay-tour')!.addEventListener('click', () => this.onReplayTour());
 
     const btnSignOut = this.container.querySelector('#btn-sign-out') as HTMLButtonElement;
     const signOutTitle = btnSignOut.querySelector('.gc-row__title') as HTMLElement;
