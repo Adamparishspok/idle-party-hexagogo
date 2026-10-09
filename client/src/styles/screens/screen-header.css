@@ -1,0 +1,109 @@
+/*
+ * Shared drill-down back header (#screen-header, owned by ScreenManager).
+ * Shown only at nav depth > 1. A slate bar with a chunky steel back button
+ * and an outlined, centered title; the third grid column mirrors the back
+ * button's width so the title stays optically centered.
+ */
+
+#screen-header {
+  position: relative;
+  z-index: 900;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: var(--tap-min) 1fr var(--tap-min);
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 64px;
+  /* Notched phones: this is the topmost chrome once a screen is pushed. */
+  padding:
+    calc(env(safe-area-inset-top, 0px) + var(--s-2))
+    calc(env(safe-area-inset-right, 0px) + var(--s-3))
+    var(--s-2)
+    calc(env(safe-area-inset-left, 0px) + var(--s-3));
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-900) 100%);
+  border-bottom: 3px solid var(--ink-900);
+  box-shadow:
+    inset 0 -2px 0 rgba(245, 200, 66, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 10px rgba(0, 0, 0, 0.45);
+}
+
+#screen-header[hidden] {
+  display: none;
+}
+
+/* Steel square button with a drawn chevron (the ‹ glyph is hidden). */
+.screen-header-back {
+  position: relative;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border: 2px solid var(--ink-900);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, #8b93a3 0%, #555c6b 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+    0 4px 0 #23262e,
+    0 6px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.screen-header-back > span {
+  display: none;
+}
+.screen-header-back::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-left: 5px solid #fff;
+  border-bottom: 5px solid #fff;
+  border-radius: 2px;
+  transform: translate(-30%, -50%) rotate(45deg);
+  filter: drop-shadow(0 2px 0 var(--ink-900));
+}
+.screen-header-back:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.18),
+    0 1px 0 #23262e,
+    0 2px 3px rgba(0, 0, 0, 0.35);
+}
+.screen-header-back:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 3px;
+}
+
+.screen-header-title {
+  min-width: 0;
+  margin: 0;
+  /* Room for the outline + drop so overflow:hidden doesn't shave it. */
+  padding: 2px 0 4px;
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: 1.1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .screen-header-title {
+    font-size: var(--t-heading);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-header-back {
+    transition: none;
+  }
+}

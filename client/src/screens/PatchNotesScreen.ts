@@ -1,5 +1,6 @@
 import type { Screen } from './ScreenManager';
 import { PATCH_NOTES } from './PatchNotes';
+import '../styles/screens/settings.css';
 
 /**
  * Patch notes as a real pushed screen.
@@ -15,6 +16,8 @@ import { PATCH_NOTES } from './PatchNotes';
  * logic — leaving the screen pops it like anything else.
  *
  * The list is the only scrolling region; the screen itself does not scroll.
+ * Each release is a parchment card with an outlined version heading; the
+ * newest one carries a "New" badge.
  */
 export class PatchNotesScreen implements Screen {
   private container: HTMLElement;
@@ -25,15 +28,20 @@ export class PatchNotesScreen implements Screen {
     this.container = el;
 
     this.container.innerHTML = `
-      <div class="patch-notes-list screen-scroll">
-        ${PATCH_NOTES.map(p => `
-          <div class="patch-note-entry">
-            <div class="patch-note-version">${escapeHtml(p.version)}</div>
-            <ul class="patch-note-items">
-              ${p.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}
-            </ul>
-          </div>
-        `).join('')}
+      <div class="pn-screen">
+        <div class="patch-notes-list pn-list screen-scroll">
+          ${PATCH_NOTES.map((p, i) => `
+            <article class="patch-note-entry pn-entry gc-parchment">
+              <header class="pn-entry__head">
+                <h2 class="patch-note-version pn-version">${escapeHtml(p.version)}</h2>
+                ${i === 0 ? '<span class="pn-new">New</span>' : ''}
+              </header>
+              <ul class="patch-note-items pn-items">
+                ${p.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}
+              </ul>
+            </article>
+          `).join('')}
+        </div>
       </div>
     `;
   }

@@ -5,6 +5,7 @@ import {
 } from '@idle-party-rpg/shared';
 import type { NotificationChannel, NotificationPreferences } from '@idle-party-rpg/shared';
 import type { GameClient } from '../network/GameClient';
+import '../styles/screens/settings.css';
 import { subscribeToPush, unsubscribeFromPush, getPushPermission, isPushSupported, isPushConfiguredOnServer } from '../network/PushNotifications';
 
 const CHANNEL_LABELS: Record<NotificationChannel, string> = {
@@ -52,6 +53,33 @@ async function isEmailConfiguredOnServer(): Promise<boolean> {
   return cachedEmailConfigured;
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * One labelled switch cell (`.gc-switch`). The real checkbox stays in the DOM
+ * — visually replaced by the track — so every handler below still listens
+ * for plain `change` events on `input[data-…]`.
+ */
+function switchCellHtml(dataAttrs: string, label: string, ariaLabel: string, checked: boolean, disabledReason: string | undefined): string {
+  return `
+    <label class="np-cell${disabledReason ? ' np-cell--off' : ''}">
+      <span class="gc-switch">
+        <input type="checkbox" role="switch" class="gc-switch__input" ${dataAttrs}
+          aria-label="${escapeHtml(ariaLabel)}" ${checked ? 'checked' : ''} ${disabledReason ? 'disabled' : ''} />
+        <span class="gc-switch__track" aria-hidden="true"><span class="gc-switch__thumb"></span></span>
+      </span>
+      <span class="np-cell__label">${escapeHtml(label)}</span>
+      ${disabledReason ? `<span class="np-cell__note">${escapeHtml(disabledReason)}</span>` : ''}
+    </label>
+  `;
+}
+
 /** Why a channel can't be used right now, keyed by channel. Absent = usable. Mutated in place as async checks resolve. */
 type DisabledReasons = Partial<Record<NotificationChannel, string>>;
 
@@ -91,53 +119,46 @@ function renderGrid(container: HTMLElement, gameClient: GameClient, prefs: Notif
   const categories = activeCategories();
 
   container.innerHTML = `
-    <div class="notif-prefs-toolbar">
-      <button class="notif-prefs-bulk-btn" data-bulk="enable">Enable all</button>
-      <button class="notif-prefs-bulk-btn" data-bulk="disable">Disable all</button>
+    <div class="np-toolbar">
+      <button type="button" class="gc-btn gc-btn--green notif-prefs-bulk-btn" data-bulk="enable">Enable all</button>
+      <button type="button" class="gc-btn gc-btn--steel notif-prefs-bulk-btn" data-bulk="disable">Disable all</button>
     </div>
-    <div class="notif-prefs-status" style="display:none"></div>
-    <table class="notif-prefs-grid">
-      <thead>
-        <tr>
-          <th></th>
-          ${ALL_NOTIFICATION_CHANNELS.map(ch => `
-            <th>
-              <div class="notif-prefs-col-head">
-                <span>${CHANNEL_LABELS[ch]}</span>
-                ${disabledReasons[ch] ? `<span class="notif-prefs-col-note">${disabledReasons[ch]}</span>` : ''}
-                <label class="notif-prefs-master">
-                  <input type="checkbox" data-master-channel="${ch}" ${!disabledReasons[ch] && !prefs.channelDisabled[ch] ? 'checked' : ''}
-                    ${disabledReasons[ch] ? 'disabled' : ''} />
-                </label>
-              </div>
-            </th>
-          `).join('')}
-        </tr>
-      </thead>
-      ${categories.map(cat => `
-        <tbody>
-          <tr class="notif-prefs-cat-row"><td colspan="${ALL_NOTIFICATION_CHANNELS.length + 1}">${cat.label}</td></tr>
-          ${NOTIFICATION_EVENT_REGISTRY.filter(e => e.category === cat.category).map(evt => `
-            <tr>
-              <td class="notif-prefs-event-label">${evt.label}</td>
-              ${ALL_NOTIFICATION_CHANNELS.map(ch => `
-                <td>
-                  <input type="checkbox" data-event="${evt.eventKey}" data-channel="${ch}"
-                    ${!disabledReasons[ch] && prefs.events[evt.eventKey].includes(ch) ? 'checked' : ''}
-                    ${disabledReasons[ch] ? 'disabled' : ''} />
-                </td>
-              `).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
+    <div class="np-status" role="status" hidden></div>
+    <div class="gc-divider np-divider">Channels</div>
+    <div class="np-card np-card--channels">
+      <div class="np-switches">
+        ${ALL_NOTIFICATION_CHANNELS.map(ch => switchCellHtml(
+          `data-master-channel="${ch}"`,
+          CHANNEL_LABELS[ch],
+          `All ${CHANNEL_LABELS[ch]} notifications`,
+          !disabledReasons[ch] && !prefs.channelDisabled[ch],
+          disabledReasons[ch],
+        )).join('')}
+      </div>
+    </div>
+    ${categories.map(cat => `
+      <div class="gc-divider np-divider">${escapeHtml(cat.label)}</div>
+      ${NOTIFICATION_EVENT_REGISTRY.filter(e => e.category === cat.category).map(evt => `
+        <div class="np-card">
+          <div class="np-card__title">${escapeHtml(evt.label)}</div>
+          <div class="np-switches">
+            ${ALL_NOTIFICATION_CHANNELS.map(ch => switchCellHtml(
+              `data-event="${escapeHtml(evt.eventKey)}" data-channel="${ch}"`,
+              CHANNEL_LABELS[ch],
+              `${evt.label}: ${CHANNEL_LABELS[ch]}`,
+              !disabledReasons[ch] && prefs.events[evt.eventKey].includes(ch),
+              disabledReasons[ch],
+            )).join('')}
+          </div>
+        </div>
       `).join('')}
-    </table>
+    `).join('')}
   `;
 
-  const statusEl = container.querySelector('.notif-prefs-status') as HTMLElement;
+  const statusEl = container.querySelector('.np-status') as HTMLElement;
   const showStatus = (text: string) => {
     statusEl.textContent = text;
-    statusEl.style.display = '';
+    statusEl.hidden = false;
   };
 
   // Per-event checkboxes

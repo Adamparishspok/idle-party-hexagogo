@@ -3,7 +3,16 @@ import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
 import { ALL_CLASS_NAMES, CLASS_DEFINITIONS, classIconHtml, getSkillsForClass } from '@idle-party-rpg/shared';
 import type { ClassName } from '@idle-party-rpg/shared';
+import { artworkUrl } from '../ui/assets';
+import { TITLE_BACKDROP_HTML, escapeHtml, setButtonBusy } from '../ui/TitleShell';
+import '../styles/screens/class-select.css';
 
+/**
+ * Class picker. A horizontal, scroll-snapped carousel of big class cards on
+ * phones (swipe to browse, tap to pick) that becomes a wrapped grid on
+ * desktop. The pick is explicit — swiping only browses — and the gold
+ * "Choose {Class}" button pinned at the bottom confirms it.
+ */
 export class ClassSelectScreen implements Screen {
   private container: HTMLElement;
   private gameClient: GameClient;
@@ -11,6 +20,9 @@ export class ClassSelectScreen implements Screen {
   private onClassChosen: () => void;
   private selectedClass: ClassName | null = null;
   private confirmBtn!: HTMLButtonElement;
+  private trackEl!: HTMLElement;
+  private pips: HTMLElement[] = [];
+  private scrollRaf = 0;
 
   constructor(containerId: string, gameClient: GameClient, worldCache: WorldCache, onClassChosen: () => void) {
     const el = document.getElementById(containerId);
@@ -25,17 +37,25 @@ export class ClassSelectScreen implements Screen {
 
   onActivate(): void {
     this.selectedClass = null;
+    setButtonBusy(this.confirmBtn, false, 'Pick a class');
     this.confirmBtn.disabled = true;
-    this.container.querySelectorAll('.class-card').forEach(c => c.classList.remove('selected'));
+    this.cards().forEach(c => {
+      c.classList.remove('selected');
+      c.setAttribute('aria-checked', 'false');
+    });
+    this.trackEl.scrollTo({ left: 0 });
+    this.updatePips();
   }
 
   onDeactivate(): void {
-    // no-op
+    cancelAnimationFrame(this.scrollRaf);
+  }
+
+  private cards(): HTMLElement[] {
+    return Array.from(this.container.querySelectorAll<HTMLElement>('.cs-card'));
   }
 
   private buildDOM(): void {
-    const esc = (s: string) => s
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const skillContent = this.worldCache.getSkillContent();
     const cards = ALL_CLASS_NAMES.map(cn => {
       const def = CLASS_DEFINITIONS[cn];
@@ -43,52 +63,85 @@ export class ClassSelectScreen implements Screen {
       // returns skills sorted by sortOrder, so the first match wins ties.
       const startingSkill = getSkillsForClass(cn, skillContent)
         .find(s => s.type === 'passive' && s.unlockLevel === 1);
-      const skillText = startingSkill ? `${esc(startingSkill.name)}: ${esc(startingSkill.description)}` : 'No starting skill';
+      const passive = startingSkill
+        ? `<span class="cs-passive__name">${escapeHtml(startingSkill.name)}</span>
+           <span class="cs-passive__desc">${escapeHtml(startingSkill.description)}</span>`
+        : '<span class="cs-passive__desc">No starting skill</span>';
 
       return `
-        <div class="class-card" data-class="${cn}">
-          <div class="class-card-header">
-            <span class="class-card-icon">${classIconHtml(cn)}</span>
-            <span class="class-card-title">${def.displayName}</span>
-          </div>
-          <div class="class-card-desc">${def.description}</div>
-          <div class="class-card-stats">
-            <span>HP: ${def.baseHp} +${def.hpPerLevel}/lv</span>
-            <span>DMG: ${def.baseDamage} +${def.damagePerLevel}/lv (${def.damageType})</span>
-          </div>
-          <div class="class-card-passive">${skillText}</div>
-        </div>
+        <button type="button" class="cs-card" role="radio" aria-checked="false" data-class="${cn}"
+          aria-label="${escapeHtml(def.displayName)}">
+          <span class="cs-card__art" data-class="${cn}">
+            <span class="cs-card__icon">${classIconHtml(cn)}</span>
+            <img class="cs-card__img" alt="" decoding="async" loading="lazy" />
+          </span>
+          <span class="cs-card__body">
+            <span class="cs-card__name">${escapeHtml(def.displayName)}</span>
+            <span class="cs-card__desc">${escapeHtml(def.description)}</span>
+            <span class="cs-card__stats">
+              <span class="cs-stat cs-stat--hp">
+                <span class="cs-stat__label">HP</span>
+                <span class="cs-stat__value">${def.baseHp}</span>
+                <span class="cs-stat__growth">+${def.hpPerLevel}/lv</span>
+              </span>
+              <span class="cs-stat cs-stat--dmg">
+                <span class="cs-stat__label">DMG</span>
+                <span class="cs-stat__value">${def.baseDamage}</span>
+                <span class="cs-stat__growth">+${def.damagePerLevel}/lv &middot; ${escapeHtml(def.damageType)}</span>
+              </span>
+            </span>
+            <span class="cs-passive">${passive}</span>
+          </span>
+        </button>
       `;
     }).join('');
 
     this.container.innerHTML = `
-      <div class="class-select-content">
-        <h1 class="login-title">Choose Your Class</h1>
-        <p class="login-subtitle">Each class is weak alone but powerful in a party.</p>
-        <div class="class-card-list">
+      <div class="cs-screen">
+        ${TITLE_BACKDROP_HTML}
+        <header class="cs-head">
+          <h1 class="gc-screen-title cs-title">Choose Your Class</h1>
+          <p class="cs-sub">Each class is weak alone but powerful in a party.</p>
+        </header>
+        <div class="cs-track" role="radiogroup" aria-label="Classes">
           ${cards}
         </div>
-        <button class="login-button class-confirm-btn" disabled>Choose Class</button>
+        <div class="cs-pips" aria-hidden="true">
+          ${ALL_CLASS_NAMES.map(() => '<span class="cs-pip"></span>').join('')}
+        </div>
+        <footer class="cs-foot">
+          <button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block cs-confirm" disabled>Pick a class</button>
+        </footer>
       </div>
     `;
 
-    this.confirmBtn = this.container.querySelector('.class-confirm-btn')!;
+    this.confirmBtn = this.container.querySelector('.cs-confirm')!;
+    this.trackEl = this.container.querySelector('.cs-track')!;
+    this.pips = Array.from(this.container.querySelectorAll<HTMLElement>('.cs-pip'));
+
+    // Class art: show the painted portrait once it loads; otherwise the big
+    // class icon underneath stays as the fallback.
+    this.container.querySelectorAll<HTMLElement>('.cs-card__art').forEach(art => {
+      const img = art.querySelector<HTMLImageElement>('.cs-card__img')!;
+      img.addEventListener('load', () => art.classList.add('cs-card__art--loaded'), { once: true });
+      img.addEventListener('error', () => img.remove(), { once: true });
+      img.src = artworkUrl('class', (art.dataset.class ?? '').toLowerCase());
+    });
 
     // Wire card clicks
-    this.container.querySelectorAll('.class-card').forEach(card => {
-      card.addEventListener('click', () => {
-        this.container.querySelectorAll('.class-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        this.selectedClass = card.getAttribute('data-class') as ClassName;
-        this.confirmBtn.disabled = false;
-      });
+    this.cards().forEach(card => {
+      card.addEventListener('click', () => this.select(card));
     });
+
+    this.trackEl.addEventListener('scroll', () => {
+      cancelAnimationFrame(this.scrollRaf);
+      this.scrollRaf = requestAnimationFrame(() => this.updatePips());
+    }, { passive: true });
 
     // Wire confirm
     this.confirmBtn.addEventListener('click', () => {
       if (!this.selectedClass) return;
-      this.confirmBtn.disabled = true;
-      this.confirmBtn.textContent = 'Creating...';
+      setButtonBusy(this.confirmBtn, true, 'Creating...');
       this.gameClient.sendSetClass(this.selectedClass);
 
       // Listen for the state update confirming class change
@@ -101,5 +154,36 @@ export class ClassSelectScreen implements Screen {
         }
       });
     });
+  }
+
+  private select(card: HTMLElement): void {
+    if (this.confirmBtn.classList.contains('gc-btn--loading')) return;
+    this.cards().forEach(c => {
+      c.classList.remove('selected');
+      c.setAttribute('aria-checked', 'false');
+    });
+    card.classList.add('selected');
+    card.setAttribute('aria-checked', 'true');
+    this.selectedClass = card.getAttribute('data-class') as ClassName;
+    const name = CLASS_DEFINITIONS[this.selectedClass]?.displayName ?? this.selectedClass;
+    this.confirmBtn.disabled = false;
+    this.confirmBtn.textContent = `Choose ${name}`;
+    // Bring a half-visible card fully into view on phones.
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
+
+  /** Highlight the pip for whichever card is nearest the track's center. */
+  private updatePips(): void {
+    if (!this.pips.length) return;
+    const track = this.trackEl.getBoundingClientRect();
+    const center = track.left + track.width / 2;
+    let best = 0;
+    let bestDist = Infinity;
+    this.cards().forEach((c, i) => {
+      const r = c.getBoundingClientRect();
+      const d = Math.abs(r.left + r.width / 2 - center);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    this.pips.forEach((p, i) => p.classList.toggle('active', i === best));
   }
 }

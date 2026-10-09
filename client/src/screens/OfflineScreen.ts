@@ -1,9 +1,11 @@
 import type { Screen } from './ScreenManager';
+import { setButtonBusy, setTitleStatus, titleShellHtml, titleStatusHtml, wireTitleLogo } from '../ui/TitleShell';
 
 export class OfflineScreen implements Screen {
   private container: HTMLElement;
   private retryButton!: HTMLButtonElement;
   private statusEl!: HTMLElement;
+  private sealEl!: HTMLElement;
   private onRetry: () => void;
 
   constructor(containerId: string, onRetry: () => void) {
@@ -25,25 +27,25 @@ export class OfflineScreen implements Screen {
   }
 
   setRetrying(retrying: boolean): void {
-    this.retryButton.disabled = retrying;
-    this.retryButton.textContent = retrying ? 'Connecting...' : 'Retry';
+    setButtonBusy(this.retryButton, retrying, retrying ? 'Connecting...' : 'Retry');
+    setTitleStatus(this.sealEl, retrying ? 'pending' : 'offline');
     this.statusEl.textContent = retrying
       ? 'Attempting to connect...'
       : 'The server is currently unavailable. This could be due to maintenance, updates, or connectivity issues.';
   }
 
   private buildDOM(): void {
-    this.container.innerHTML = `
-      <div class="offline-content">
-        <div class="offline-icon">!</div>
-        <h2 class="offline-title">Server Unavailable</h2>
-        <p class="offline-status">The server is currently unavailable. This could be due to maintenance, updates, or connectivity issues.</p>
-        <button class="offline-retry">Retry</button>
-      </div>
-    `;
+    this.container.innerHTML = titleShellHtml(`
+      ${titleStatusHtml('offline')}
+      <h2>Server Unavailable</h2>
+      <p class="ts-lead" role="status">The server is currently unavailable. This could be due to maintenance, updates, or connectivity issues.</p>
+      <button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block ts-submit">Retry</button>
+    `, { tab: 'Offline' });
 
-    this.retryButton = this.container.querySelector('.offline-retry')!;
-    this.statusEl = this.container.querySelector('.offline-status')!;
+    wireTitleLogo(this.container);
+    this.retryButton = this.container.querySelector('.ts-submit')!;
+    this.statusEl = this.container.querySelector('.ts-lead')!;
+    this.sealEl = this.container.querySelector('.ts-status')!;
   }
 
   private wireEvents(): void {

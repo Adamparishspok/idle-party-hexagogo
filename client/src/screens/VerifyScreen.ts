@@ -1,4 +1,5 @@
 import type { Screen } from './ScreenManager';
+import { setTitleStatus, titleShellHtml, titleStatusHtml, wireTitleLogo } from '../ui/TitleShell';
 
 export interface VerifyDebugInfo {
   verifyResponse: Record<string, unknown>;
@@ -9,10 +10,11 @@ export interface VerifyDebugInfo {
 
 export class VerifyScreen implements Screen {
   private container: HTMLElement;
+  private statusEl!: HTMLElement;
   private messageEl!: HTMLElement;
   private errorEl!: HTMLElement;
   private backLink!: HTMLAnchorElement;
-  private detailsEl!: HTMLElement;
+  private detailsEl!: HTMLDetailsElement;
   private continueBtn!: HTMLButtonElement;
   private onVerify: (token: string) => void;
   private onContinue: (() => void) | null = null;
@@ -27,11 +29,13 @@ export class VerifyScreen implements Screen {
   }
 
   onActivate(): void {
+    setTitleStatus(this.statusEl, 'pending');
     this.messageEl.textContent = 'Verifying your sign-in...';
-    this.errorEl.style.display = 'none';
-    this.backLink.style.display = 'none';
-    this.detailsEl.style.display = 'none';
-    this.continueBtn.style.display = 'none';
+    this.errorEl.hidden = true;
+    this.backLink.hidden = true;
+    this.detailsEl.hidden = true;
+    this.continueBtn.hidden = true;
+    this.continueBtn.disabled = false;
     this.onContinue = null;
 
     const params = new URLSearchParams(window.location.search);
@@ -50,25 +54,29 @@ export class VerifyScreen implements Screen {
   }
 
   showError(message: string): void {
+    setTitleStatus(this.statusEl, 'error');
     this.messageEl.textContent = 'Sign-in failed';
     this.errorEl.textContent = message;
-    this.errorEl.style.display = 'block';
-    this.backLink.style.display = 'inline-block';
+    this.errorEl.hidden = false;
+    this.backLink.hidden = false;
   }
 
   showSuccess(debug: VerifyDebugInfo, onContinue: () => void): void {
     const sessionOk = debug.sessionCheck?.authenticated === true;
 
     if (sessionOk) {
+      setTitleStatus(this.statusEl, 'success');
       this.messageEl.textContent = 'Sign-in successful!';
       this.continueBtn.textContent = 'Continue';
-      this.continueBtn.style.display = 'inline-block';
+      this.continueBtn.hidden = false;
       this.onContinue = onContinue;
+      this.continueBtn.focus();
     } else {
+      setTitleStatus(this.statusEl, 'error');
       this.messageEl.textContent = 'Sign-in issue';
       this.errorEl.textContent = 'Verification succeeded but session was not established. See details below.';
-      this.errorEl.style.display = 'block';
-      this.backLink.style.display = 'inline-block';
+      this.errorEl.hidden = false;
+      this.backLink.hidden = false;
     }
 
     // Build debug details
@@ -81,29 +89,29 @@ export class VerifyScreen implements Screen {
 
     const pre = this.detailsEl.querySelector('pre')!;
     pre.textContent = lines.join('\n');
-    this.detailsEl.style.display = 'block';
+    this.detailsEl.hidden = false;
   }
 
   private buildDOM(): void {
-    this.container.innerHTML = `
-      <div class="login-content">
-        <h1 class="login-title">Idle Party RPG</h1>
-        <p class="verify-message">Verifying your sign-in...</p>
-        <div class="login-error"></div>
-        <button class="verify-continue-btn login-button" style="display:none; max-width:280px;">Continue</button>
-        <a href="/" class="verify-back-link">Back to sign in</a>
-        <details class="verify-details" style="display:none;">
-          <summary>Debug details</summary>
-          <pre class="verify-debug-pre"></pre>
-        </details>
-      </div>
-    `;
+    this.container.innerHTML = titleShellHtml(`
+      ${titleStatusHtml('pending')}
+      <p class="ts-message" role="status">Verifying your sign-in...</p>
+      <div class="ts-error" role="alert" hidden></div>
+      <button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block ts-submit" hidden>Continue</button>
+      <a href="/" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block ts-back" hidden>Back to sign in</a>
+      <details class="ts-details" hidden>
+        <summary>Debug details</summary>
+        <pre class="ts-details__pre"></pre>
+      </details>
+    `, { tab: 'Sign In' });
 
-    this.messageEl = this.container.querySelector('.verify-message')!;
-    this.errorEl = this.container.querySelector('.login-error')!;
-    this.backLink = this.container.querySelector('.verify-back-link')!;
-    this.detailsEl = this.container.querySelector('.verify-details')!;
-    this.continueBtn = this.container.querySelector('.verify-continue-btn')!;
+    wireTitleLogo(this.container);
+    this.statusEl = this.container.querySelector('.ts-status')!;
+    this.messageEl = this.container.querySelector('.ts-message')!;
+    this.errorEl = this.container.querySelector('.ts-error')!;
+    this.backLink = this.container.querySelector('.ts-back')!;
+    this.detailsEl = this.container.querySelector('.ts-details')!;
+    this.continueBtn = this.container.querySelector('.ts-submit')!;
 
     this.continueBtn.addEventListener('click', () => {
       if (this.onContinue) {

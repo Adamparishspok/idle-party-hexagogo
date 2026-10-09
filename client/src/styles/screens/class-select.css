@@ -1,0 +1,319 @@
+/*
+ * Class select — big swipeable class cards over the title backdrop.
+ * Shares .cs-screen base + backdrop with title.css (ui/TitleShell.ts).
+ *
+ * Layout: head / carousel track (flex:1, scrolls horizontally) / pips /
+ * pinned footer with the one primary action. Phones swipe one card at a
+ * time; ≥768px the track wraps into a centered grid with no scrolling.
+ */
+
+.cs-screen {
+  --cs-card-w: min(300px, 80vw);
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    0
+    env(safe-area-inset-left, 0px);
+}
+
+.cs-head {
+  flex-shrink: 0;
+  padding: var(--s-4) var(--s-4) var(--s-2);
+  text-align: center;
+}
+.cs-title {
+  margin: 0;
+  animation: ts-logo-in 520ms var(--ease-spring) both;
+}
+.cs-sub {
+  margin: var(--s-1) 0 0;
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: var(--parch-200);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Carousel track ────────────────────────────────────────── */
+
+.cs-track {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  /* Side padding lets the first and last card snap to center. */
+  padding: var(--s-3) calc((100% - var(--cs-card-w)) / 2);
+}
+.cs-track::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Card ──────────────────────────────────────────────────── */
+
+.cs-card {
+  position: relative;
+  flex: 0 0 var(--cs-card-w);
+  height: 100%;
+  max-height: 540px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  scroll-snap-align: center;
+  border: 3px solid var(--slate-500);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-900) 100%);
+  box-shadow:
+    0 0 0 2px var(--ink-900),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 24px rgba(0, 0, 0, 0.55);
+  color: #eef2fa;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-med) var(--ease-out), border-color var(--dur-fast), box-shadow var(--dur-med);
+}
+.cs-card:active {
+  transform: scale(0.97);
+}
+.cs-card:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 3px;
+}
+.cs-card.selected {
+  border-color: var(--gold-500);
+  box-shadow:
+    0 0 0 2px var(--ink-900),
+    0 0 0 5px var(--gold-700),
+    0 0 26px 6px rgba(245, 200, 66, 0.45),
+    0 10px 24px rgba(0, 0, 0, 0.55);
+  animation: cs-bounce 420ms var(--ease-spring);
+}
+/* Gold check medallion on the picked card. */
+.cs-card.selected::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid var(--ink-900);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5' fill='none' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 26px no-repeat,
+    radial-gradient(circle at 50% 30%, #ffe58a, #f0a92a 70%);
+  box-shadow: 0 3px 0 #8a5a0c;
+  animation: ts-seal-in 320ms var(--ease-spring) both;
+}
+
+/* Art panel: painted class portrait, or the big class icon as fallback. */
+.cs-card__art {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-bottom: 3px solid var(--ink-900);
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 55%, rgba(255, 220, 150, 0.28) 0%, transparent 70%),
+    linear-gradient(180deg, #3b2f55 0%, #1f1a30 100%);
+}
+.cs-card__icon .icon-inline {
+  width: 88px;
+  height: 88px;
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.5));
+}
+.cs-card__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  opacity: 0;
+  transition: opacity var(--dur-med);
+}
+.cs-card__art--loaded .cs-card__img {
+  opacity: 1;
+}
+.cs-card__art--loaded .cs-card__icon {
+  visibility: hidden;
+}
+
+.cs-card__body {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4) var(--s-4);
+}
+.cs-card__name {
+  display: block;
+  margin-top: -36px; /* overlaps the art's bottom edge */
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+}
+.cs-card__desc {
+  display: block;
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: #c6cfe0;
+}
+
+.cs-card__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+}
+.cs-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--s-2) var(--s-1);
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+.cs-stat__label {
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  letter-spacing: 0.06em;
+  color: #a9b3c7;
+}
+.cs-stat__value {
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+}
+.cs-stat--hp .cs-stat__value { color: var(--green-300); }
+.cs-stat--dmg .cs-stat__value { color: var(--red-300); }
+.cs-stat__growth {
+  font-size: var(--t-caption);
+  color: #a9b3c7;
+  text-align: center;
+}
+
+.cs-passive {
+  display: block;
+  padding: var(--s-2) var(--s-3);
+  border-left: 4px solid var(--gold-500);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: rgba(245, 200, 66, 0.1);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: #e2e8f3;
+}
+.cs-passive__name {
+  display: block;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke-sm);
+}
+.cs-passive__desc {
+  display: block;
+}
+
+/* ── Pips + footer ─────────────────────────────────────────── */
+
+.cs-pips {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+}
+.cs-pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--ink-900);
+  background: var(--slate-500);
+  transition: transform var(--dur-fast), background var(--dur-fast);
+}
+.cs-pip.active {
+  background: var(--gold-500);
+  transform: scale(1.3);
+}
+
+.cs-foot {
+  flex-shrink: 0;
+  padding: var(--s-3) var(--s-4) calc(env(safe-area-inset-bottom, 0px) + var(--s-4));
+  background: linear-gradient(180deg, transparent 0%, rgba(8, 6, 14, 0.85) 45%);
+}
+.cs-confirm {
+  max-width: 420px;
+  margin-inline: auto;
+}
+
+@keyframes cs-bounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.05) translateY(-6px); }
+  65% { transform: scale(0.99); }
+  100% { transform: scale(1); }
+}
+
+/* Short phones: trim the art so the stats and passive stay on screen. */
+@media (max-height: 680px) {
+  .cs-card__art { min-height: 90px; }
+  .cs-card__icon .icon-inline { width: 64px; height: 64px; }
+  .cs-card__desc { display: none; }
+}
+
+/* ── Desktop: a centered grid instead of a carousel ────────── */
+
+@media (min-width: 768px) {
+  .cs-screen {
+    --cs-card-w: 236px;
+  }
+  .cs-head {
+    padding-top: var(--s-6);
+  }
+  .cs-track {
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    align-items: stretch;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-snap-type: none;
+    padding: var(--s-4) var(--s-5);
+  }
+  .cs-card {
+    height: auto;
+    max-height: none;
+  }
+  .cs-card__art {
+    flex: 0 0 160px;
+  }
+  .cs-card:hover {
+    transform: translateY(-4px);
+  }
+  .cs-pips {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-title,
+  .cs-card,
+  .cs-card.selected,
+  .cs-card.selected::after {
+    animation: none;
+    transition: none;
+  }
+}

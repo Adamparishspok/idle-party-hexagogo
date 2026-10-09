@@ -1,0 +1,480 @@
+/*
+ * Settings area — the Settings root screen, its Player Options and
+ * Notifications modals (kit .gc-modal on parchment), the Patch Notes pushed
+ * screen, and the (currently unused) Placeholder screen.
+ *
+ * Also home to .gc-switch / .gc-switch-row, a chunky toggle switch that is
+ * a kit candidate (see the section header below).
+ */
+
+/* ── Settings screen ───────────────────────────────────────── */
+
+.st-screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 120% 50% at 50% 0%, rgba(89, 98, 122, 0.35) 0%, transparent 70%),
+    linear-gradient(180deg, var(--slate-900) 0%, #12141b 100%);
+}
+.st-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-4) 0;
+  /* Clear the perch row (the shared .screen-scroll rule would be overridden by the shorthand above). */
+  padding-bottom: calc(var(--perch-height) + var(--s-5));
+}
+.st-scroll > * {
+  width: 100%;
+  max-width: 480px;
+  margin-inline: auto;
+}
+.st-title {
+  margin: 0 auto var(--s-1);
+}
+
+.st-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.st-list--danger {
+  margin-top: var(--s-3);
+}
+
+.st-row {
+  min-height: 72px;
+  padding: var(--s-3);
+  gap: var(--s-4);
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast);
+}
+.st-row:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 3px;
+}
+.st-row:disabled {
+  cursor: progress;
+  filter: grayscale(0.4) brightness(0.85);
+}
+.st-row .gc-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.st-row .gc-row__title {
+  font-size: var(--t-title);
+  text-shadow: var(--text-stroke-sm);
+}
+
+.st-row__icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-md);
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 50% 30%, #3a4155 0%, var(--gc-iron-950) 90%);
+  box-shadow:
+    inset 0 0 0 2px rgba(183, 190, 201, 0.35),
+    0 3px 0 rgba(0, 0, 0, 0.45);
+}
+.st-row__icon svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: var(--gold-300);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 0 var(--ink-900));
+}
+
+.st-row__chevron {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-right: var(--s-2);
+  border-top: 4px solid #a9b3c7;
+  border-right: 4px solid #a9b3c7;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.st-row--danger {
+  border-color: var(--red-700);
+  background: linear-gradient(180deg, #5a2622 0%, #3a1714 100%);
+}
+.st-row--danger .st-row__icon {
+  background: radial-gradient(circle at 50% 30%, var(--red-500) 0%, var(--red-700) 90%);
+  box-shadow: inset 0 0 0 2px rgba(255, 154, 138, 0.45), 0 3px 0 rgba(0, 0, 0, 0.45);
+}
+.st-row--danger .st-row__icon svg {
+  stroke: #fff;
+}
+.st-row--danger .gc-row__sub {
+  color: #e7b4ab;
+}
+.st-row--danger .st-row__chevron {
+  border-color: #e7b4ab;
+}
+
+.st-version {
+  margin-top: var(--s-2);
+  text-align: center;
+  font-size: var(--t-caption);
+  color: #7d879b;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Settings modals (kit .gc-modal) ───────────────────────── */
+
+.st-modal__panel--notif {
+  width: min(100%, 460px);
+}
+.st-modal__body {
+  padding-top: var(--s-2);
+}
+.st-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* ── Toggle switch (kit candidate) ─────────────────────────────
+   .gc-switch wraps a real checkbox (`.gc-switch__input`, role="switch") over
+   a drawn track + thumb, so `change` events and `checked` still work as
+   plain checkboxes. Put it in a <label> so the whole row toggles it.
+
+     <label class="gc-switch-row">
+       <span class="gc-switch-row__text">
+         <span class="gc-switch-row__title">…</span>
+         <span class="gc-switch-row__desc">…</span>
+       </span>
+       <span class="gc-switch">
+         <input type="checkbox" role="switch" class="gc-switch__input">
+         <span class="gc-switch__track"><span class="gc-switch__thumb"></span></span>
+       </span>
+     </label>                                                     */
+
+.gc-switch {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-block;
+  width: 64px;
+  height: 36px;
+}
+.gc-switch__input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.gc-switch__input:disabled {
+  cursor: not-allowed;
+}
+.gc-switch__track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, #2a2f3c 0%, #3a4152 100%);
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.6), 0 2px 0 rgba(255, 255, 255, 0.15);
+  transition: background var(--dur-med) var(--ease-out);
+}
+.gc-switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 40% 30%, #ffffff 0%, #d9dde5 60%, #a9b0bb 100%);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  transition: transform var(--dur-med) var(--ease-spring), width var(--dur-fast) var(--ease-out);
+}
+.gc-switch__input:checked + .gc-switch__track {
+  background: linear-gradient(180deg, var(--green-300) 0%, var(--green-500) 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.18);
+}
+.gc-switch__input:checked + .gc-switch__track .gc-switch__thumb {
+  transform: translateX(28px);
+}
+/* Pressed: the thumb squishes toward its destination. */
+.gc-switch__input:active:not(:disabled) + .gc-switch__track .gc-switch__thumb {
+  width: 32px;
+}
+.gc-switch__input:checked:active:not(:disabled) + .gc-switch__track .gc-switch__thumb {
+  transform: translateX(22px);
+}
+.gc-switch__input:focus-visible + .gc-switch__track {
+  outline: 3px solid var(--gold-500);
+  outline-offset: 3px;
+}
+.gc-switch__input:disabled + .gc-switch__track {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+.gc-switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 64px;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.gc-switch-row:active {
+  background: rgba(138, 106, 60, 0.15);
+}
+.gc-switch-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.gc-switch-row__title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--parch-ink);
+}
+.gc-switch-row__desc {
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: var(--parch-ink-soft);
+}
+
+/* ── Notification preferences (inside the Notifications modal) ── */
+
+.np-toolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.np-toolbar .gc-btn {
+  padding: 0 var(--s-2);
+}
+.np-status {
+  margin-bottom: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  border: 2px solid rgba(138, 31, 23, 0.45);
+  background: rgba(224, 70, 58, 0.12);
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--red-700);
+}
+.np-status[hidden] {
+  display: none;
+}
+.np-divider {
+  margin: var(--s-4) 0 var(--s-2);
+  font-size: var(--t-label);
+}
+.np-card {
+  margin-bottom: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  border-radius: var(--r-md);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.28);
+}
+.np-card--channels {
+  background: rgba(184, 134, 43, 0.14);
+  border-color: var(--parch-accent);
+  padding-top: var(--s-3);
+}
+.np-card__title {
+  margin-bottom: var(--s-2);
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.2;
+  color: var(--parch-ink);
+}
+.np-switches {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-2);
+}
+.np-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: var(--tap-min);
+  padding: var(--s-1) 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.np-cell:active {
+  background: rgba(138, 106, 60, 0.15);
+}
+.np-cell--off {
+  cursor: not-allowed;
+}
+.np-cell__label {
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--parch-ink);
+}
+.np-cell__note {
+  font-size: var(--t-caption);
+  line-height: 1.25;
+  text-align: center;
+  color: var(--parch-ink-soft);
+}
+
+/* ── Patch notes (pushed screen) ───────────────────────────── */
+
+.pn-screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 120% 50% at 50% 0%, rgba(89, 98, 122, 0.35) 0%, transparent 70%),
+    linear-gradient(180deg, var(--slate-900) 0%, #12141b 100%);
+}
+.pn-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-5) var(--s-4) 0;
+  padding-bottom: calc(var(--perch-height) + var(--s-5));
+}
+.pn-entry {
+  width: 100%;
+  max-width: 560px;
+  margin-inline: auto;
+  flex-shrink: 0;
+  padding: var(--s-4) var(--s-5) var(--s-5);
+}
+.pn-entry__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-2);
+  padding-bottom: var(--s-2);
+  border-bottom: 2px solid rgba(138, 106, 60, 0.35);
+}
+.pn-entry .pn-version {
+  margin: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1.1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.pn-new {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, #ffe58a 0%, #f0a92a 100%);
+  box-shadow: 0 2px 0 #8a5a0c;
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.pn-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.pn-items li {
+  position: relative;
+  padding-left: 22px;
+  font-size: var(--t-body);
+  line-height: 1.45;
+  color: var(--parch-ink);
+}
+.pn-items li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.55em;
+  width: 9px;
+  height: 9px;
+  background: var(--parch-accent);
+  border: 1px solid var(--parch-700);
+  transform: rotate(45deg);
+}
+
+/* ── Placeholder screen ────────────────────────────────────── */
+
+.ph-screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-5) var(--s-4) calc(var(--perch-height) + var(--s-5));
+}
+.ph-card {
+  width: min(100%, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-6) var(--s-5);
+  text-align: center;
+}
+.ph-icon {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 3px solid var(--ink-900);
+  background: radial-gradient(circle at 50% 30%, #3a4155 0%, var(--gc-iron-950) 90%);
+  font-size: 48px;
+  line-height: 1;
+}
+.ph-icon img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+.ph-title {
+  margin: 0;
+}
+.ph-text {
+  margin: 0;
+  font-size: var(--t-body);
+  color: #a9b3c7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-row,
+  .gc-switch__track,
+  .gc-switch__thumb {
+    transition: none;
+  }
+}
