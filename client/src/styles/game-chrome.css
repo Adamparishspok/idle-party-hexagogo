@@ -155,7 +155,8 @@ body[data-nav-depth]:not([data-nav-depth="1"]) #top-hud {
   inset: var(--gc-frame-w);
   width: calc(100% - 2 * var(--gc-frame-w));
   height: calc(100% - 2 * var(--gc-frame-w));
-  object-fit: cover;
+  padding: 4px;
+  object-fit: contain;
   clip-path: var(--gc-octagon);
 }
 .hud-gear.active::before,
@@ -420,8 +421,11 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
 .nav-icon-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* Painted icons are transparent objects; inset them inside the frame. */
+  padding: 5px;
+  object-fit: contain;
   display: block;
+  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.6));
 }
 .nav-icon-svg {
   width: 62%;
