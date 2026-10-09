@@ -1,30 +1,72 @@
 import type { GameClient } from '../network/GameClient';
 import type { ChatLocalStore } from '../network/ChatLocalStore';
-import type { ServerStateMessage, ClientSocialState, ChatMessage, ChatChannelType, PlayerListEntry, PlayerProfileMessage, TradeOfferItem, TradeState, ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
-import { MAX_PARTY_SIZE, classIconHtml, serverIconHtml, getItemEffectText, listUnequippedEntries, getEquippedItemIds } from '@idle-party-rpg/shared';
+import type { ServerStateMessage, ClientSocialState, PlayerListEntry, GamePartyMember } from '@idle-party-rpg/shared';
+import { MAX_PARTY_SIZE } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import type { WorldCache } from '../network/WorldCache';
-import { RARITY_COLORS, renderItemIcon, renderEmptySlotIcon } from '../ui/ItemIcon';
-import { renderItemPopupContent } from '../ui/ItemPopup';
-import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
-import { renderAssetImg } from '../ui/assets';
+import { esc, emptyStateHtml, portraitHtml, subtitle, tagHtml } from './social/socialHtml';
+import { openSocModal } from './social/socialModal';
+import type { SocModal } from './social/socialModal';
+import { TradeModal } from './social/TradeModal';
+import { GiftModal } from './social/GiftModal';
+import { ProfileModal } from './social/ProfileModal';
+import '../styles/screens/social.css';
 
-type SubTab = 'users' | 'guild' | 'party' | 'chat';
+type SubTab = 'users' | 'guild' | 'party';
+type SortMode = 'name' | 'status' | 'level';
+type FilterMode = 'all' | 'friends' | 'guild' | 'room' | 'zone';
 
-// Chat sub-tab is gone — replaced by the global pop-out chat. The 'chat' value
-// is still allowed in stored prefs for back-compat; we silently coerce it back
-// to 'party' below.
+// Sub-views. Picked from the top segmented tabs or the bottom-nav fly-out.
+// (A stored legacy 'chat' value falls back to 'party' — chat is the global pop-out now.)
 const SUB_TABS: { id: SubTab; label: string }[] = [
   { id: 'party', label: 'Party' },
   { id: 'guild', label: 'Guild' },
   { id: 'users', label: 'Leaderboard' },
 ];
 
+const FILTERS: { id: FilterMode; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'room', label: 'Room' },
+  { id: 'zone', label: 'Zone' },
+  { id: 'friends', label: 'Friends' },
+  { id: 'guild', label: 'Guild' },
+];
+
+/** Formation rows top→bottom, matching the combat screen (party front faces the enemy). */
+const DEPTH_LABELS = ['Front', 'Middle', 'Back'];
+
+// Simple emblem glyphs for empty states (inline SVG — no emoji icons).
+const EMBLEM_SWORDS = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M8 6l20 20-3 3L5 9V6zM40 6v3L20 29l-3-3L37 6zM14 30l4 4-6 6-4-4zM34 30l6 6-4 4-6-6z" fill="currentColor"/></svg>';
+const EMBLEM_SHIELD = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4l16 6v12c0 10-7 18-16 22C15 40 8 32 8 22V10z" fill="currentColor"/><path d="M24 12v26M14 20h20" stroke="#1a1009" stroke-width="3"/></svg>';
+const EMBLEM_SPYGLASS = '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="5"/><path d="M28 28l12 12" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg>';
+
+const SELF_FLAVOR = [
+  'Tis thyself, brave soul. Look not in mirrors for adventure.',
+  'You gaze upon thine own visage. Stout fellow!',
+  'A noble hero — and curiously vain, to click upon themself.',
+  "'Tis you, dear adventurer. Onward to glory!",
+  "Behold: thyself. The realm's worst raid is lucky to have you.",
+  'Yon reflection is uncommonly handsome today.',
+];
+
+/**
+ * Social screen — Party / Guild / Leaderboard, plus the dialogs other screens
+ * open through it (user popup, View Player, trade, gift).
+ *
+ * Layout: kit segmented tabs on top (`.gc-tabs`, kept in sync with the
+ * bottom-nav fly-out), then the active view. Each view owns its scroll region
+ * (`.screen-scroll`), so the screen never scrolls as a whole; the leaderboard
+ * pins its search + filters above the list.
+ *
+ * Rendering: a full view render on tab switch, then per-tick targeted updates
+ * (online dots, tab badges) with a structural-key check that re-renders only
+ * when the underlying lists change. One delegated click handler survives the
+ * innerHTML swaps.
+ */
 export class SocialScreen implements Screen {
   private container: HTMLElement;
   private gameClient: GameClient;
   private chatStore: ChatLocalStore;
-  private worldCache: WorldCache;
   private isActive = false;
   private activeTab: SubTab = (() => {
     const stored = sessionStorage.getItem('socialSubTab');
@@ -35,53 +77,25 @@ export class SocialScreen implements Screen {
   private unsubChat?: () => void;
   private unsubSyncChat?: () => void;
 
+  private tabsEl!: HTMLElement;
   private panelContainer!: HTMLElement;
   private lastSocial: ClientSocialState | null = null;
   private lastState: ServerStateMessage | null = null;
   private searchQuery = '';
-  private sortBy: 'name' | 'status' | 'level' = 'level';
-  private filterBy: 'all' | 'friends' | 'guild' | 'room' | 'zone' = 'all';
+  private sortBy: SortMode = 'level';
+  private filterBy: FilterMode = 'all';
 
-  // Chat state — unified timeline backed by localStorage
-  private chatFilters: Set<ChatChannelType>;
-  private chatSendChannel: ChatChannelType = 'zone';
-  private chatDmTarget = '';
-  private chatFocusAfterRender = false;
-  private chatPrefsInitialized = false;
-
-  // User popup
-  private popupOverlay: HTMLElement | null = null;
+  /** Open user popup (or self popup) dialog. */
+  private popup: SocModal | null = null;
 
   /** Wired by App.ts to open the chat popout pre-filled for a DM target. */
   private onDmRequest?: (username: string) => void;
 
-  // Trade modal
-  private tradeModalEl: HTMLElement | null = null;
-  private tradeSelectedItems = new Map<string, number>(); // itemId → quantity
-  /** When viewing an existing trade, the trade ID. null when proposing a new trade. */
-  private tradeActiveId: string | null = null;
-  /** When proposing a new trade, the target username. */
-  private tradeTargetUsername: string | null = null;
-  /**
-   * Inventory frozen at modal-open time. The picker renders from this snapshot
-   * for the modal's whole lifetime so the global state tick doesn't disturb
-   * the user's selection (issue #342). The server is the authority on whether
-   * the offer is still valid at submission time.
-   */
-  private tradeInventorySnapshot: Record<string, number> | null = null;
-  /**
-   * Last-rendered trade-state fingerprint. Tick-driven updates skip the
-   * innerHTML rewrite when this hasn't changed, which is the common case
-   * while the user is choosing items.
-   */
-  private lastTradeRenderKey = '';
+  private trade: TradeModal;
+  private gift: GiftModal;
+  private profile: ProfileModal;
 
-  // Gift modal
-  private giftModalEl: HTMLElement | null = null;
-  private giftTargetUsername: string | null = null;
-  private giftSelectedItems = new Map<string, number>(); // itemId → quantity
-
-  // Grid drag-to-reposition state
+  // Formation drag-to-reposition state
   private gridDragging = false;
   private gridDragSourcePos: number | null = null;
   private gridDragGhost: HTMLElement | null = null;
@@ -99,22 +113,21 @@ export class SocialScreen implements Screen {
     this.container = el;
     this.gameClient = gameClient;
     this.chatStore = chatStore;
-    this.worldCache = worldCache;
+
+    const getState = () => this.freshState();
+    const getClass = (u: string) => this.getPlayerClassName(u);
+    this.trade = new TradeModal(gameClient, worldCache, getState, getClass);
+    this.gift = new GiftModal(gameClient, worldCache, getState, getClass);
+    this.profile = new ProfileModal(gameClient, worldCache);
+
     this.buildDOM();
 
-    // Load chat filters from localStorage (client-only persistence)
-    const savedFilters = localStorage.getItem('chat_filters');
-    if (savedFilters) {
-      try {
-        this.chatFilters = new Set(JSON.parse(savedFilters));
-      } catch {
-        this.chatFilters = new Set(['tile', 'zone', 'party', 'guild', 'dm', 'global', 'server'] as ChatChannelType[]);
-      }
-    } else {
-      this.chatFilters = new Set(['tile', 'zone', 'party', 'guild', 'dm', 'global', 'server'] as ChatChannelType[]);
-    }
+    // Trade dialog tracks its trade on every tick, even while another screen is up.
+    this.gameClient.subscribe(() => {
+      if (this.trade.isOpen) this.trade.update();
+    });
 
-    // On tab resume, trigger incremental sync (no clearing)
+    // On tab resume, trigger incremental chat sync (no clearing)
     this.gameClient.onResume(() => {
       this.gameClient.sendSyncChat(this.chatStore.getLatestId());
     });
@@ -125,31 +138,21 @@ export class SocialScreen implements Screen {
     this.unsubscribe = this.gameClient.subscribe((state) => {
       if (this.isActive) this.updateFromState(state);
     });
+    // Keep the local chat history store current (O(1) dedup).
     this.unsubChat = this.gameClient.onChat((msg) => {
-      // Add to localStorage-backed store (O(1) dedup)
       this.chatStore.addMessage(msg);
     });
     this.unsubSyncChat = this.gameClient.onSyncChat((messages, full) => {
       this.chatStore.mergeSyncBatch(messages, full);
-      if (this.isActive && this.activeTab === 'chat') {
-        this.renderChatMessages();
-      }
     });
-
-    // Trigger incremental sync
     this.gameClient.sendSyncChat(this.chatStore.getLatestId());
 
     const state = this.gameClient.lastState;
     if (state) {
       this.lastSocial = state.social ?? null;
       this.lastState = state;
-      if (!this.chatPrefsInitialized && state.social?.chatPreferences) {
-        this.chatSendChannel = state.social.chatPreferences.sendChannel;
-        this.chatDmTarget = state.social.chatPreferences.dmTarget;
-        this.chatPrefsInitialized = true;
-      }
-      this.renderPanel();
     }
+    this.renderPanel();
   }
 
   onDeactivate(): void {
@@ -164,17 +167,7 @@ export class SocialScreen implements Screen {
     this.dismissTradeModal();
   }
 
-  private buildDOM(): void {
-    this.container.innerHTML = `
-      <div class="social-content">
-        <div class="social-panel"></div>
-      </div>
-    `;
-    this.panelContainer = this.container.querySelector('.social-panel')!;
-    this.wireDelegatedClicks();
-  }
-
-  /** Switch sub-view — called by the bottom nav fly-out submenu. */
+  /** Switch sub-view — called by the top tabs and the bottom-nav fly-out submenu. */
   setSubTab(tab: string): void {
     if (!SUB_TABS.some(t => t.id === tab)) return;
     if (this.activeTab === tab) return;
@@ -183,411 +176,62 @@ export class SocialScreen implements Screen {
     this.lastRenderedUsersKey = '';
     this.lastRenderedGuildKey = '';
     this.lastRenderedPartyKey = '';
+    this.syncTabs();
     if (this.isActive) this.renderPanel();
   }
 
-  /** Single delegated click handler on panelContainer — survives innerHTML replacements. */
-  private wireDelegatedClicks(): void {
-    this.panelContainer.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-
-      // Username click → show popup (anywhere a .social-user-name or .social-chat-sender appears)
-      const nameEl = target.closest('.social-user-name-clickable') as HTMLElement | null;
-      if (nameEl) {
-        const username = nameEl.getAttribute('data-username')
-          || nameEl.closest('[data-username]')?.getAttribute('data-username');
-        // Clicking your own DM line — route to the recipient instead of self.
-        const dmTarget = nameEl.getAttribute('data-dm-target');
-        if (username === this.lastState?.username && dmTarget) {
-          this.startDm(dmTarget);
-          return;
-        }
-        if (username) {
-          // showUserPopup routes self-clicks to the "this is you" popup.
-          this.showUserPopup(username, nameEl);
-          return;
-        }
-      }
-
-      const btn = target.closest('button') as HTMLButtonElement | null;
-      if (!btn) return;
-
-      const username = btn.getAttribute('data-username')
-        || btn.closest('.social-user-row')?.getAttribute('data-username')
-        || null;
-      const partyId = btn.getAttribute('data-party-id') || null;
-
-      // Party actions
-      if (btn.matches('.social-promote-btn') && username) { this.gameClient.sendPromotePartyLeader(username); return; }
-      if (btn.matches('.social-demote-btn') && username) { this.gameClient.sendDemotePartyMember(username); return; }
-      if (btn.matches('.social-transfer-btn') && username) { this.gameClient.sendTransferPartyOwnership(username); return; }
-      if (btn.matches('.social-kick-btn') && username) { this.gameClient.sendKickPartyMember(username); return; }
-      if (btn.matches('.social-party-leave-btn')) { this.gameClient.sendLeaveParty(); return; }
-      if (btn.matches('.social-accept-invite') && partyId) { this.gameClient.sendAcceptPartyInvite(partyId); return; }
-      if (btn.matches('.social-decline-invite') && partyId) { this.gameClient.sendDeclinePartyInvite(partyId); return; }
-      if (btn.matches('.social-nearby-invite') && username) {
-        this.gameClient.sendInviteParty(username);
-        btn.textContent = 'Invited';
-        btn.disabled = true;
-        return;
-      }
-
-      // Guild actions
-      if (btn.matches('.social-guild-leave-btn')) { this.gameClient.sendLeaveGuild(); return; }
-      if (btn.matches('.social-guild-create-btn')) {
-        const input = this.panelContainer.querySelector('.social-guild-name-input') as HTMLInputElement | null;
-        const name = input?.value.trim();
-        if (name) this.gameClient.sendCreateGuild(name);
-        return;
-      }
-
-      // Users panel — filter buttons
-      if (btn.matches('.social-filter-btn')) {
-        this.filterBy = btn.getAttribute('data-filter') as typeof this.filterBy;
-        this.renderUserRows();
-        for (const b of this.panelContainer.querySelectorAll('.social-filter-btn')) {
-          b.classList.toggle('active', b.getAttribute('data-filter') === this.filterBy);
-        }
-        return;
-      }
-
-      // Users panel — sort button
-      if (btn.matches('.social-sort-btn')) {
-        this.sortBy = this.sortBy === 'level' ? 'status' : this.sortBy === 'status' ? 'name' : 'level';
-        btn.textContent = SocialScreen.sortLabel(this.sortBy);
-        this.renderUserRows();
-        return;
-      }
-
-      // Users panel — friend request accept/decline
-      if (btn.matches('[data-action="accept_friend_request"]')) {
-        const uname = btn.getAttribute('data-username');
-        if (uname) this.gameClient.sendAcceptFriendRequest(uname);
-        return;
-      }
-      if (btn.matches('[data-action="decline_friend_request"]')) {
-        const uname = btn.getAttribute('data-username');
-        if (uname) this.gameClient.sendDeclineFriendRequest(uname);
-        return;
-      }
-
-      // Chat panel — filter toggles (client-side only, persisted to localStorage)
-      if (btn.matches('.chat-filter-btn')) {
-        const type = btn.getAttribute('data-channel') as ChatChannelType;
-        if (this.chatFilters.has(type)) {
-          this.chatFilters.delete(type);
-        } else {
-          this.chatFilters.add(type);
-        }
-        btn.classList.toggle('active');
-        this.renderChatMessages();
-        localStorage.setItem('chat_filters', JSON.stringify(Array.from(this.chatFilters)));
-        return;
-      }
-
-      // Chat panel — send button
-      if (btn.matches('.social-chat-send-btn')) {
-        this.doChatSend();
-        return;
-      }
-
-      // Note: trade modal buttons are handled by a delegated handler on the overlay element
-      // inside renderTradeModal() — the modal lives in document.body, not panelContainer.
-    });
-
-    // Grid cell clicks for party position
-    this.panelContainer.addEventListener('click', (e) => {
-      if (this.gridDragging) return;
-      const target = e.target as HTMLElement;
-      const cell = target.closest('.social-party-cell') as HTMLElement | null;
-      if (!cell) return;
-      const pos = parseInt(cell.getAttribute('data-pos')!, 10);
-      if (isNaN(pos)) return;
-
-      if (cell.classList.contains('occupied')) {
-        // Occupied by another player → flash red
-        const selfUsername = this.lastState?.username;
-        const party = this.lastSocial?.party;
-        if (!party) return;
-        const occupant = party.members.find(m => m.gridPosition === pos);
-        if (occupant && occupant.username !== selfUsername) {
-          this.flashGridCell(cell);
-        }
-      } else {
-        // Empty cell → animate self to that position
-        this.animateGridMove(pos);
-        this.gameClient.sendSetPartyGridPosition(pos);
-      }
-    });
-
-    // Delegated input handler for search + chat inputs
-    this.panelContainer.addEventListener('input', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.matches('.social-search:not(.social-chat-input):not(.social-chat-dm-target):not(.social-guild-name-input)')) {
-        this.searchQuery = (target as HTMLInputElement).value;
-        this.renderUserRows();
-      }
-      if (target.matches('.social-chat-dm-target')) {
-        this.chatDmTarget = (target as HTMLInputElement).value.trim();
-        this.updateChatDmState();
-        this.gameClient.sendSetChatPreferences(this.chatSendChannel, this.chatDmTarget);
-      }
-    });
-
-    // Delegated change handler for chat channel select
-    this.panelContainer.addEventListener('change', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.matches('.chat-send-select')) {
-        this.chatSendChannel = (target as HTMLSelectElement).value as ChatChannelType;
-        this.updateChatDmState();
-        this.gameClient.sendSetChatPreferences(this.chatSendChannel, this.chatDmTarget);
-        if (this.chatSendChannel === 'dm') {
-          const dmInput = this.panelContainer.querySelector('.social-chat-dm-target') as HTMLInputElement | null;
-          dmInput?.focus();
-        }
-      }
-    });
-
-    // Delegated keydown handler for chat input Enter
-    this.panelContainer.addEventListener('keydown', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.matches('.social-chat-input') && (e as KeyboardEvent).key === 'Enter') {
-        this.doChatSend();
-      }
-    });
-
-    // Delegated click for channel tag switching in chat messages
-    this.panelContainer.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      const switchChannel = target.closest('[data-switch-channel]')?.getAttribute('data-switch-channel') as ChatChannelType | null;
-      if (switchChannel) {
-        const social = this.lastSocial;
-        let disabled = false;
-        if (switchChannel === 'party') disabled = (social?.party?.members.length ?? 0) <= 1;
-        if (switchChannel === 'guild') disabled = !social?.guild;
-        if (disabled) return;
-        this.chatSendChannel = switchChannel;
-        const selectEl = this.panelContainer.querySelector('.chat-send-select') as HTMLSelectElement | null;
-        if (selectEl) selectEl.value = switchChannel;
-        this.updateChatDmState();
-        this.gameClient.sendSetChatPreferences(this.chatSendChannel, this.chatDmTarget);
-        const chatInput = this.panelContainer.querySelector('.social-chat-input') as HTMLInputElement | null;
-        chatInput?.focus();
-      }
-    });
-
-    // Grid drag handlers
-    this.panelContainer.addEventListener('mousedown', (e) => this.onGridDragStart(e));
-    this.panelContainer.addEventListener('touchstart', (e) => this.onGridDragStart(e), { passive: false });
-    document.addEventListener('mousemove', (e) => this.onGridDragMove(e));
-    document.addEventListener('touchmove', (e) => this.onGridDragMove(e), { passive: false });
-    document.addEventListener('mouseup', (e) => this.onGridDragEnd(e));
-    document.addEventListener('touchend', (e) => this.onGridDragEnd(e));
+  /**
+   * Open the chat popout pre-filled for a DM to `username`. Also persists
+   * the choice as the user's chat preferences for cross-device sync.
+   */
+  startDm(username: string): void {
+    this.gameClient.sendSetChatPreferences('dm', username);
+    this.onDmRequest?.(username);
   }
 
-  private updateFromState(state: ServerStateMessage): void {
-    this.lastSocial = state.social ?? null;
-    this.lastState = state;
-    // Initialize chat preferences from server on first state received
-    if (!this.chatPrefsInitialized && state.social?.chatPreferences) {
-      this.chatSendChannel = state.social.chatPreferences.sendChannel;
-      this.chatDmTarget = state.social.chatPreferences.dmTarget;
-      this.chatPrefsInitialized = true;
-    }
-
-    // (Tab bar is gone — sub-tabs are picked from the bottom-nav fly-out submenu;
-    // its badges are driven from BottomNav's own state subscription.)
-
-    // Update trade modal if visible (track the active trade by ID)
-    if (this.tradeModalEl) this.updateTradeModal();
-
-    // Skip party panel updates while grid animation or drag is in progress
-    if (this.activeTab === 'party' && (this.gridAnimating || this.gridDragging)) return;
-
-    // Per-tab targeted updates — only touch specific elements that changed
-    switch (this.activeTab) {
-      case 'users': this.updateUsersPanel(); break;
-      case 'guild': this.updateGuildPanel(); break;
-      case 'party': this.updatePartyPanel(); break;
-      case 'chat': break; // Chat uses incremental appendChatMessage — no tick rebuild needed
-    }
+  /** Wire an external handler that opens the global chat popout to a DM. */
+  setOnDmRequest(cb: (username: string) => void): void {
+    this.onDmRequest = cb;
   }
 
-  private renderPanel(): void {
-    // Chat needs overflow hidden so flex layout pins input bar to bottom
-    this.panelContainer.classList.toggle('chat-active', this.activeTab === 'chat');
-    switch (this.activeTab) {
-      case 'users': this.renderUsersPanel(); break;
-      case 'guild': this.renderGuildPanel(); break;
-      case 'party': this.renderPartyPanel(); break;
-      case 'chat': this.renderChatPanel(); break;
-    }
+  /** Open the trade dialog — resumes an existing trade with this player if there is one. */
+  openTradeModal(targetUsername: string): void {
+    this.trade.open(targetUsername);
   }
 
-  /** Send a chat message from the current input state. */
-  private doChatSend(): void {
-    const chatInput = this.panelContainer.querySelector('.social-chat-input') as HTMLInputElement | null;
-    const sendBtn = this.panelContainer.querySelector('.social-chat-send-btn') as HTMLButtonElement | null;
-    if (!chatInput || chatInput.disabled || sendBtn?.disabled) return;
-    const text = chatInput.value.trim();
-    if (!text) return;
-    const channelId = this.resolveChatChannelId(this.chatSendChannel);
-    if (!channelId) return;
-    this.gameClient.sendChat(this.chatSendChannel, channelId, text);
-    chatInput.value = '';
-    chatInput.focus();
+  /** Open the trade dialog for an existing trade, identified by trade ID. */
+  openExistingTrade(tradeId: string): void {
+    this.trade.openExisting(tradeId);
   }
 
-  /** Update DM-related input state (show/hide target input, enable/disable send). */
-  private updateChatDmState(): void {
-    const dmInput = this.panelContainer.querySelector('.social-chat-dm-target') as HTMLInputElement | null;
-    const chatInput = this.panelContainer.querySelector('.social-chat-input') as HTMLInputElement | null;
-    const sendBtn = this.panelContainer.querySelector('.social-chat-send-btn') as HTMLButtonElement | null;
-    if (!dmInput || !chatInput || !sendBtn) return;
-    const isDm = this.chatSendChannel === 'dm';
-    dmInput.style.display = isDm ? 'block' : 'none';
-    if (isDm && !this.chatDmTarget) {
-      chatInput.disabled = true;
-      sendBtn.disabled = true;
-      chatInput.placeholder = 'Enter a username above first';
-    } else {
-      chatInput.disabled = false;
-      sendBtn.disabled = false;
-      chatInput.placeholder = 'Type a message...';
-    }
+  dismissTradeModal(): void {
+    this.trade.dismiss();
   }
 
-  // ── Targeted per-tab tick updates (no innerHTML rebuilds) ──
-
-  /** Update status dots + structural changes on Users panel. */
-  private updateUsersPanel(): void {
-    const social = this.lastSocial;
-    if (!social) return;
-
-    const onlineSet = new Set(social.onlinePlayers ?? []);
-
-    // Update status dots on existing rows
-    for (const row of this.panelContainer.querySelectorAll('.social-user-row[data-username]')) {
-      const username = row.getAttribute('data-username')!;
-      const dot = row.querySelector('.social-status-dot');
-      if (dot) {
-        const isOnline = onlineSet.has(username);
-        dot.classList.toggle('online', isOnline);
-        dot.classList.toggle('offline', !isOnline);
-      }
-    }
-
-    // Detect structural changes that require a row rebuild
-    const incoming = social.incomingFriendRequests ?? [];
-    const key = JSON.stringify({
-      players: (social.allPlayers ?? []).map(p => p.username),
-      friends: social.friends ?? [],
-      inReq: incoming.map(r => r.fromUsername),
-      outReq: (social.outgoingFriendRequests ?? []).map(r => r.toUsername),
-      blocked: Object.keys(social.blockedUsers ?? {}),
-    });
-    if (key !== this.lastRenderedUsersKey) {
-      this.lastRenderedUsersKey = key;
-      // Rebuild friend requests section + user rows, but keep toolbar intact
-      this.renderUserRows();
-      this.renderFriendRequests();
-    }
+  openGiftModal(targetUsername: string): void {
+    this.gift.open(targetUsername);
   }
 
-  /** Update status dots + structural changes on Guild panel. */
-  private updateGuildPanel(): void {
-    const social = this.lastSocial;
-    if (!social) return;
-
-    const onlineSet = new Set(social.onlinePlayers ?? []);
-
-    // Update status dots on existing rows
-    for (const row of this.panelContainer.querySelectorAll('.social-user-row[data-username]')) {
-      const username = row.getAttribute('data-username')!;
-      const dot = row.querySelector('.social-status-dot');
-      if (dot) {
-        const isOnline = onlineSet.has(username);
-        dot.classList.toggle('online', isOnline);
-        dot.classList.toggle('offline', !isOnline);
-      }
-    }
-
-    // Detect structural changes
-    const members = social.guildMembers ?? [];
-    const key = JSON.stringify({
-      guildId: social.guild?.id ?? null,
-      leader: social.guild?.leaderUsername ?? null,
-      members: members.map(m => `${m.username}:${m.role}`),
-    });
-    if (key !== this.lastRenderedGuildKey) {
-      this.lastRenderedGuildKey = key;
-      this.renderGuildPanel();
-    }
+  dismissGiftModal(): void {
+    this.gift.dismiss();
   }
 
-  /** Update status dots + structural changes on Party panel. */
-  private updatePartyPanel(): void {
-    const social = this.lastSocial;
-    if (!social) return;
+  // ── User popup ───────────────────────────────────────────────
 
-    const onlineSet = new Set(social.onlinePlayers ?? []);
-
-    // Update status dots on existing rows and grid cells
-    for (const row of this.panelContainer.querySelectorAll('[data-username]')) {
-      const username = row.getAttribute('data-username')!;
-      const dot = row.querySelector('.social-status-dot');
-      if (dot) {
-        const isOnline = onlineSet.has(username);
-        dot.classList.toggle('online', isOnline);
-        dot.classList.toggle('offline', !isOnline);
-      }
-    }
-
-    // Detect structural changes
-    const party = social.party;
-    const pendingInvites = social.pendingInvites ?? [];
-    const outgoing = social.outgoingPartyInvites ?? [];
-    const sameTile = (this.lastState?.otherPlayers ?? [])
-      .filter(p => p.col === this.lastState?.party.col && p.row === this.lastState?.party.row)
-      .map(p => p.username).sort();
-    const key = JSON.stringify({
-      partyId: party?.id ?? null,
-      members: (party?.members ?? []).map(m => `${m.username}:${m.role}:${m.gridPosition}`),
-      pending: pendingInvites.map(i => `${i.partyId}:${i.inviterUsername}`),
-      outgoing,
-      sameTile,
-    });
-    if (key !== this.lastRenderedPartyKey) {
-      this.lastRenderedPartyKey = key;
-      this.renderPartyPanel();
-    }
-  }
-
-  // ── Class icon helper ────────────────────────────────────────
-
-  private classIcon(className?: string): string {
-    return classIconHtml(className);
-  }
-
-  // ── User Popup Menu ──────────────────────────────────────────
-
-  showUserPopup(username: string, anchor: HTMLElement, tileCol?: number, tileRow?: number): void {
+  /**
+   * Player card for any username tapped across the app (lists, map, combat,
+   * chat). `_anchor` is kept for callers; the card is a centered dialog now.
+   * Tile coords (from the room view) make the same-room check reliable.
+   */
+  showUserPopup(username: string, _anchor: HTMLElement, tileCol?: number, tileRow?: number): void {
     this.dismissPopup();
-
-    // Always read fresh state — this method can be called from other screens
-    // (e.g. Map, Combat) while the social screen is inactive and lastSocial is stale
-    const freshState = this.gameClient.lastState;
-    if (freshState) {
-      this.lastSocial = freshState.social ?? null;
-      this.lastState = freshState;
-    }
-
+    this.freshState();
     const social = this.lastSocial;
     if (!social) return;
 
     const selfUsername = this.lastState?.username ?? '';
     if (username === selfUsername) {
-      this.showSelfPopup(anchor);
+      this.showSelfPopup();
       return;
     }
 
@@ -600,117 +244,108 @@ export class SocialScreen implements Screen {
     const otherPlayers = this.lastState?.otherPlayers ?? [];
     const myCol = this.lastState?.party.col;
     const myRow = this.lastState?.party.row;
-    // If opened from tile modal, use tile coords for a reliable same-room check
     const sameRoom = tileCol !== undefined && tileRow !== undefined
       ? (myCol === tileCol && myRow === tileRow)
       : otherPlayers.some(p => p.username === username && p.col === myCol && p.row === myRow);
 
-    // Build header with relationship labels
     const isFriend = friends.has(username);
     const isGuildMember = guildMembers.has(username);
     const isPartyMember = partyMembers.has(username);
     const isBlocked = username in blocked;
-    const labels: string[] = [];
-    if (isFriend) labels.push('Friend');
-    if (isGuildMember) labels.push('Guild');
-    if (isPartyMember) labels.push('Party');
-    const labelHtml = labels.length > 0
-      ? ` <span class="user-popup-labels">${labels.join(' · ')}</span>`
-      : '';
+    const isOnline = (social.onlinePlayers ?? []).includes(username);
+    const entry = social.allPlayers?.find(p => p.username === username);
+    const className = this.getPlayerClassName(username);
+    const rank = this.rankMap().get(username);
 
-    // Look up player level from allPlayers
-    const playerEntry = social.allPlayers?.find(p => p.username === username);
-    const levelHtml = playerEntry?.level ? ` <span class="user-popup-level">Lv ${playerEntry.level}</span>` : '';
+    const tags: string[] = [];
+    if (isFriend) tags.push(tagHtml('Friend', 'green'));
+    if (isGuildMember) tags.push(tagHtml('Guild', 'teal'));
+    if (isPartyMember) tags.push(tagHtml('Party', 'gold'));
+    if (isBlocked) tags.push(tagHtml('Blocked', 'red'));
 
-    const items: string[] = [];
+    const act = (action: string, label: string, tone = '') =>
+      `<button type="button" class="gc-btn${tone ? ` gc-btn--${tone}` : ''} gc-btn--block" data-popup-action="${action}">${label}</button>`;
+    const off = (label: string) => `<button type="button" class="gc-btn gc-btn--block" disabled>${label}</button>`;
+    const actions: string[] = [];
+    const reasons: string[] = [];
 
-    // View Player
-    items.push(`<button class="user-popup-item" data-popup-action="view_player">View Player</button>`);
+    actions.push(act('chat', 'Chat'));
 
-    // Chat
-    items.push(`<button class="user-popup-item" data-popup-action="chat">Chat</button>`);
-
-    // Guild invite — only show if not already in guild
-    if (social.guild && !isGuildMember) {
-      items.push(`<button class="user-popup-item" data-popup-action="guild_invite">Invite to Guild</button>`);
-    }
-
-    // Friend — only show if not already friends
     if (!isFriend) {
       if (incomingFrom.has(username)) {
-        items.push(`<button class="user-popup-item" data-popup-action="accept_friend">Accept Friend</button>`);
-        items.push(`<button class="user-popup-item" data-popup-action="decline_friend">Decline Friend</button>`);
+        actions.push(act('accept_friend', 'Accept Friend', 'green'));
+        actions.push(act('decline_friend', 'Decline Friend', 'red'));
       } else if (outgoingTo.has(username)) {
-        items.push(`<button class="user-popup-item" data-popup-action="revoke_friend">Revoke Request</button>`);
+        actions.push(act('revoke_friend', 'Revoke Request', 'steel'));
       } else {
-        items.push(`<button class="user-popup-item" data-popup-action="add_friend">Add Friend</button>`);
+        actions.push(act('add_friend', 'Add Friend', 'green'));
       }
     }
 
-    // Party invite — only show if not already in party
     if (!isPartyMember) {
       const selfMember = social.party?.members.find(m => m.username === selfUsername);
-      const isLeaderOrOwner = selfMember?.role === 'owner' || selfMember?.role === 'leader';
+      const canInvite = selfMember?.role === 'owner' || selfMember?.role === 'leader';
       const partyFull = (social.party?.members.length ?? 1) >= MAX_PARTY_SIZE;
       const alreadyInvited = (social.outgoingPartyInvites ?? []).includes(username);
-
-      if (!isLeaderOrOwner) {
-        items.push(`<button class="user-popup-item disabled" disabled title="Only the party owner or a leader can invite">Invite to Party</button>`);
+      if (!canInvite) {
+        actions.push(off('Invite to Party'));
+        reasons.push('Only the party owner or a leader can invite.');
       } else if (partyFull) {
-        items.push(`<button class="user-popup-item disabled" disabled title="Party is full (${MAX_PARTY_SIZE}/${MAX_PARTY_SIZE})">Invite to Party</button>`);
+        actions.push(off('Invite to Party'));
+        reasons.push(`Your party is full (${MAX_PARTY_SIZE}/${MAX_PARTY_SIZE}).`);
       } else if (alreadyInvited) {
-        items.push(`<button class="user-popup-item disabled" disabled title="Already invited to your party">Invited to Party</button>`);
+        actions.push(off('Invited to Party'));
       } else if (!sameRoom) {
-        items.push(`<button class="user-popup-item disabled" disabled title="You must be in the same room to invite a player to your party">Invite to Party</button>`);
+        actions.push(off('Invite to Party'));
+        reasons.push('Party invites need you both in the same room.');
       } else {
-        items.push(`<button class="user-popup-item" data-popup-action="party_invite">Invite to Party</button>`);
+        actions.push(act('party_invite', 'Invite to Party', 'green'));
       }
     }
 
-    // Trade — async, no same-room restriction. Disabled only if a trade with this
-    // specific player is already active.
-    const proposedTrades = this.lastSocial?.proposedTrades ?? [];
-    const existingTrade = proposedTrades.find(t => {
-      const a = t.initiator.username;
-      const b = t.target?.username;
-      return (a === selfUsername && b === username) || (a === username && b === selfUsername);
+    if (social.guild && !isGuildMember) {
+      actions.push(act('guild_invite', 'Invite to Guild', 'green'));
+    }
+
+    // Trades are async — no same-room rule. One active trade per pair.
+    if (this.trade.findTradeWith(username)) {
+      actions.push(off('Trade'));
+      reasons.push('You already have a trade open with this player.');
+    } else {
+      actions.push(act('trade', 'Trade'));
+    }
+    actions.push(act('gift', 'Send Gift'));
+    actions.push(isBlocked ? act('unblock', 'Unblock', 'steel') : act('block', 'Block', 'red'));
+
+    const modal = openSocModal({
+      title: username,
+      variant: 'user',
+      onClose: () => { if (this.popup === modal) this.popup = null; },
     });
-    if (existingTrade) {
-      items.push(`<button class="user-popup-item disabled" disabled title="You already have a pending trade with this player">Trade</button>`);
-    } else {
-      items.push(`<button class="user-popup-item" data-popup-action="trade">Trade</button>`);
-    }
-
-    // Gift — always available (no same-room or active-trade restriction)
-    items.push(`<button class="user-popup-item" data-popup-action="gift">Send Gift</button>`);
-
-    // Block
-    if (isBlocked) {
-      items.push(`<button class="user-popup-item" data-popup-action="unblock">Unblock</button>`);
-    } else {
-      items.push(`<button class="user-popup-item" data-popup-action="block">Block</button>`);
-    }
-
-    // Build popup
-    const popup = document.createElement('div');
-    popup.className = 'user-popup-menu';
-    popup.innerHTML = `
-      <div class="user-popup-header"><span class="user-popup-name">${this.classIcon(this.getPlayerClassName(username))} ${this.escapeHtml(username)}</span>${levelHtml}${labelHtml}</div>
-      ${items.join('')}
+    this.popup = modal;
+    modal.body.innerHTML = `
+      <div class="soc-hero">
+        ${portraitHtml({ name: username, className, size: 'xl', online: isOnline })}
+        <div class="soc-hero__sub">${subtitle(className, this.zoneOf(username)) || 'Adventurer'}</div>
+        ${tags.length ? `<div class="soc-tags">${tags.join('')}</div>` : ''}
+      </div>
+      <div class="soc-stats">
+        <div class="gc-stat"><span class="gc-stat__label">Level</span><span class="gc-stat__value">${entry?.level ?? '?'}</span></div>
+        <div class="gc-stat"><span class="gc-stat__label">Rank</span><span class="gc-stat__value">${rank ? `#${rank}` : '—'}</span></div>
+        <div class="gc-stat soc-stat--word"><span class="gc-stat__label">Status</span><span class="gc-stat__value ${isOnline ? 'is-online' : 'is-offline'}">${isOnline ? 'Online' : 'Offline'}</span></div>
+      </div>
+      <div class="soc-popup-actions">
+        <button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-popup-action="view_player">View Player</button>
+        <div class="soc-action-grid">${actions.join('')}</div>
+        ${reasons.length ? `<ul class="soc-reasons">${reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      </div>
     `;
 
-    // Position near anchor using fixed positioning (viewport-relative)
-    const rect = anchor.getBoundingClientRect();
-    popup.style.left = `${rect.left}px`;
-    popup.style.top = `${rect.bottom + 4}px`;
-
-    // Wire actions
-    popup.addEventListener('click', (e) => {
-      const actionBtn = (e.target as HTMLElement).closest('[data-popup-action]');
-      if (!actionBtn) return;
-      const action = actionBtn.getAttribute('data-popup-action');
-      switch (action) {
-        case 'view_player': this.showPlayerProfile(username); break;
+    modal.body.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-popup-action]');
+      if (!btn || btn.disabled) return;
+      switch (btn.getAttribute('data-popup-action')) {
+        case 'view_player': this.profile.show(username); break;
         case 'chat': this.startDm(username); break;
         case 'guild_invite': this.gameClient.sendInviteGuild(username); break;
         case 'accept_friend': this.gameClient.sendAcceptFriendRequest(username); break;
@@ -720,125 +355,358 @@ export class SocialScreen implements Screen {
         case 'party_invite': this.gameClient.sendInviteParty(username); break;
         case 'block': this.gameClient.sendBlockUser(username, 'all'); break;
         case 'unblock': this.gameClient.sendUnblockUser(username); break;
-        case 'trade': console.log('[Trade] openTradeModal triggered for', username); this.openTradeModal(username); break;
+        case 'trade': this.openTradeModal(username); break;
         case 'gift': this.openGiftModal(username); break;
       }
       this.dismissPopup();
     });
-
-    // Overlay to dismiss on outside click (fixed, covers viewport)
-    const overlay = document.createElement('div');
-    overlay.className = 'user-popup-overlay';
-    overlay.addEventListener('click', () => this.dismissPopup());
-
-    document.body.appendChild(overlay);
-    document.body.appendChild(popup);
-    this.popupOverlay = overlay;
-    // Lift overlay AND the popup itself above whatever it was opened from
-    // (RoomView, Combat, etc). The menu node has its own z-index so it
-    // floats above the dimmed overlay.
-    bringToFront(overlay);
-    bringToFront(popup);
-
-    // Adjust if popup goes off-screen
-    requestAnimationFrame(() => {
-      const popupRect = popup.getBoundingClientRect();
-      if (popupRect.right > window.innerWidth) {
-        popup.style.left = `${Math.max(0, rect.right - popupRect.width)}px`;
-      }
-      if (popupRect.bottom > window.innerHeight) {
-        popup.style.top = `${rect.top - popupRect.height - 4}px`;
-      }
-    });
   }
 
-  /**
-   * Tiny "this is you" popup shown when the player clicks their own name.
-   * Mirrors the user popup's chrome (dim overlay + positioned card) but
-   * has no actions — just identity + a flavor line. Avoids the silent
-   * click-through that felt jarring when poking at your own party member.
-   */
-  private showSelfPopup(anchor: HTMLElement): void {
-    this.dismissPopup();
-
+  /** "This is you" card for taps on your own name — identity + a flavor line. */
+  private showSelfPopup(): void {
     const state = this.lastState;
-    const char = state?.character;
     const username = state?.username ?? '';
-    const className = char?.className ?? '';
-    const level = char?.level ?? 0;
+    const className = state?.character?.className ?? '';
+    const level = state?.character?.level ?? 0;
+    const flavor = SELF_FLAVOR[Math.floor(Math.random() * SELF_FLAVOR.length)];
 
-    const flavorLines = [
-      'Tis thyself, brave soul. Look not in mirrors for adventure.',
-      'You gaze upon thine own visage. Stout fellow!',
-      'A noble hero — and curiously vain, to click upon themself.',
-      "'Tis you, dear adventurer. Onward to glory!",
-      "Behold: thyself. The realm's worst raid is lucky to have you.",
-      'Yon reflection is uncommonly handsome today.',
-    ];
-    const flavor = flavorLines[Math.floor(Math.random() * flavorLines.length)];
-
-    const popup = document.createElement('div');
-    popup.className = 'user-popup-menu user-popup-self';
-    popup.innerHTML = `
-      <div class="user-popup-header">
-        <span class="user-popup-name">${classIconHtml(className)} ${this.escapeHtml(username)}</span>
-        ${level ? `<span class="user-popup-level">Lv ${level}</span>` : ''}
-        <span class="user-popup-labels">You</span>
-      </div>
-      <div class="user-popup-self-flavor">${this.escapeHtml(flavor)}</div>
-    `;
-    popup.style.position = 'fixed';
-
-    const rect = anchor.getBoundingClientRect();
-    popup.style.left = `${rect.left}px`;
-    popup.style.top = `${rect.bottom + 4}px`;
-
-    const overlay = document.createElement('div');
-    overlay.className = 'user-popup-overlay';
-    overlay.addEventListener('click', () => this.dismissPopup());
-
-    document.body.appendChild(overlay);
-    document.body.appendChild(popup);
-    this.popupOverlay = overlay;
-    bringToFront(overlay);
-    bringToFront(popup);
-
-    // Same off-screen nudge as showUserPopup.
-    requestAnimationFrame(() => {
-      const popupRect = popup.getBoundingClientRect();
-      if (popupRect.right > window.innerWidth) {
-        popup.style.left = `${Math.max(0, rect.right - popupRect.width)}px`;
-      }
-      if (popupRect.bottom > window.innerHeight) {
-        popup.style.top = `${rect.top - popupRect.height - 4}px`;
-      }
+    const modal = openSocModal({
+      title: username,
+      variant: 'self',
+      onClose: () => { if (this.popup === modal) this.popup = null; },
     });
+    this.popup = modal;
+    modal.body.innerHTML = `
+      <div class="soc-hero">
+        ${portraitHtml({ name: username, className, size: 'xl', self: true })}
+        <div class="soc-hero__sub">${subtitle(className, level ? `Level ${level}` : '')}</div>
+        <div class="soc-tags">${tagHtml('You', 'gold')}</div>
+      </div>
+      <p class="soc-flavor">${esc(flavor)}</p>
+    `;
+    modal.footer.innerHTML = '<button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-action="close">Onward!</button>';
+    modal.footer.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.close());
   }
 
   private dismissPopup(): void {
-    if (this.popupOverlay) {
-      // Remove both overlay and popup (popup is next sibling)
-      const popup = this.popupOverlay.nextElementSibling;
-      if (popup?.classList.contains('user-popup-menu')) {
-        release(popup as HTMLElement);
-        popup.remove();
-      }
-      release(this.popupOverlay);
-      this.popupOverlay.remove();
-      this.popupOverlay = null;
+    this.popup?.close();
+    this.popup = null;
+  }
+
+  // ── Layout ───────────────────────────────────────────────────
+
+  private buildDOM(): void {
+    this.container.innerHTML = `
+      <div class="soc">
+        <div class="soc-head">
+          <div class="gc-tabs soc-tabs" role="tablist" aria-label="Social">
+            ${SUB_TABS.map(t => `
+              <button type="button" class="gc-tab soc-tab" role="tab" data-subtab="${t.id}" aria-selected="${t.id === this.activeTab}">
+                ${t.label}<span class="gc-badge soc-tab__badge" hidden></span>
+              </button>`).join('')}
+          </div>
+        </div>
+        <div class="soc-panel" role="tabpanel"></div>
+      </div>
+    `;
+    this.tabsEl = this.container.querySelector('.soc-tabs')!;
+    this.panelContainer = this.container.querySelector('.soc-panel')!;
+    this.tabsEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-subtab]');
+      if (btn) this.setSubTab(btn.getAttribute('data-subtab')!);
+    });
+    this.wireDelegatedEvents();
+  }
+
+  private syncTabs(): void {
+    for (const btn of this.tabsEl.querySelectorAll<HTMLElement>('[data-subtab]')) {
+      btn.setAttribute('aria-selected', String(btn.getAttribute('data-subtab') === this.activeTab));
     }
   }
 
-  private getPlayerClassName(username: string): string | undefined {
-    // Check otherPlayers first (has className)
-    const other = this.lastState?.otherPlayers?.find(p => p.username === username);
-    if (other?.className) return other.className;
-    // Check allPlayers
-    const entry = this.lastSocial?.allPlayers?.find(p => p.username === username);
-    return entry?.className;
+  /** Party = pending invites, Leaderboard = incoming friend requests. */
+  private updateTabBadges(): void {
+    const social = this.lastSocial;
+    const counts: Record<string, number> = {
+      party: social?.pendingInvites?.length ?? 0,
+      users: social?.incomingFriendRequests?.length ?? 0,
+    };
+    for (const btn of this.tabsEl.querySelectorAll<HTMLElement>('[data-subtab]')) {
+      const badge = btn.querySelector<HTMLElement>('.soc-tab__badge');
+      if (!badge) continue;
+      const n = counts[btn.getAttribute('data-subtab') ?? ''] ?? 0;
+      badge.hidden = n === 0;
+      badge.textContent = n > 9 ? '9+' : String(n);
+    }
   }
 
-  // ── Users Panel ──────────────────────────────────────────────
+  /** Single set of delegated handlers on the panel — survives innerHTML swaps. */
+  private wireDelegatedEvents(): void {
+    this.panelContainer.addEventListener('click', (e) => {
+      if (this.gridDragging) return;
+      const target = e.target as HTMLElement;
+
+      // Formation cell
+      const cell = target.closest<HTMLElement>('.soc-cell[data-pos]');
+      if (cell) {
+        this.onCellTap(cell);
+        return;
+      }
+
+      const btn = target.closest<HTMLButtonElement>('button');
+      if (!btn || btn.disabled) return;
+
+      // Any player name / row → player card
+      if (btn.matches('.soc-user-btn')) {
+        const username = btn.getAttribute('data-username');
+        if (username) this.showUserPopup(username, btn);
+        return;
+      }
+
+      const username = btn.getAttribute('data-username') || btn.closest('[data-username]')?.getAttribute('data-username') || null;
+      const partyId = btn.getAttribute('data-party-id');
+
+      switch (btn.getAttribute('data-action')) {
+        case 'promote': if (username) this.gameClient.sendPromotePartyLeader(username); return;
+        case 'demote': if (username) this.gameClient.sendDemotePartyMember(username); return;
+        case 'transfer': if (username) this.gameClient.sendTransferPartyOwnership(username); return;
+        case 'kick': if (username) this.gameClient.sendKickPartyMember(username); return;
+        case 'leave-party': this.gameClient.sendLeaveParty(); return;
+        case 'accept-invite': if (partyId) this.gameClient.sendAcceptPartyInvite(partyId); return;
+        case 'decline-invite': if (partyId) this.gameClient.sendDeclinePartyInvite(partyId); return;
+        case 'nearby-invite':
+          if (!username) return;
+          this.gameClient.sendInviteParty(username);
+          btn.textContent = 'Invited';
+          btn.disabled = true;
+          return;
+        case 'find-players':
+          this.filterBy = 'room';
+          this.searchQuery = '';
+          this.setSubTab('users');
+          return;
+        case 'leave-guild': this.gameClient.sendLeaveGuild(); return;
+        case 'create-guild': this.createGuild(); return;
+        case 'filter':
+          this.filterBy = (btn.getAttribute('data-filter') as FilterMode) ?? 'all';
+          for (const b of this.panelContainer.querySelectorAll('[data-action="filter"]')) {
+            b.setAttribute('aria-pressed', String(b.getAttribute('data-filter') === this.filterBy));
+          }
+          this.renderUserRows();
+          return;
+        case 'sort':
+          this.sortBy = this.sortBy === 'level' ? 'status' : this.sortBy === 'status' ? 'name' : 'level';
+          btn.textContent = SocialScreen.sortLabel(this.sortBy);
+          this.renderUserRows();
+          return;
+        case 'clear-filters':
+          this.searchQuery = '';
+          this.filterBy = 'all';
+          this.renderUsersPanel();
+          return;
+        case 'accept-friend': if (username) this.gameClient.sendAcceptFriendRequest(username); return;
+        case 'decline-friend': if (username) this.gameClient.sendDeclineFriendRequest(username); return;
+      }
+    });
+
+    this.panelContainer.addEventListener('input', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches('.soc-search')) {
+        this.searchQuery = (target as HTMLInputElement).value;
+        this.renderUserRows();
+      }
+    });
+
+    this.panelContainer.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.matches('.soc-guild-input') && e.key === 'Enter') this.createGuild();
+    });
+
+    // Formation drag handlers
+    this.panelContainer.addEventListener('mousedown', (e) => this.onGridDragStart(e));
+    this.panelContainer.addEventListener('touchstart', (e) => this.onGridDragStart(e), { passive: false });
+    document.addEventListener('mousemove', (e) => this.onGridDragMove(e));
+    document.addEventListener('touchmove', (e) => this.onGridDragMove(e), { passive: false });
+    document.addEventListener('mouseup', (e) => this.onGridDragEnd(e));
+    document.addEventListener('touchend', (e) => this.onGridDragEnd(e));
+  }
+
+  private createGuild(): void {
+    const input = this.panelContainer.querySelector<HTMLInputElement>('.soc-guild-input');
+    const name = input?.value.trim();
+    if (name) this.gameClient.sendCreateGuild(name);
+  }
+
+  private updateFromState(state: ServerStateMessage): void {
+    this.lastSocial = state.social ?? null;
+    this.lastState = state;
+    this.updateTabBadges();
+
+    // Hold the party view still while the formation is animating or dragged.
+    if (this.activeTab === 'party' && (this.gridAnimating || this.gridDragging)) return;
+
+    switch (this.activeTab) {
+      case 'users': this.updateUsersPanel(); break;
+      case 'guild': this.updateGuildPanel(); break;
+      case 'party': this.updatePartyPanel(); break;
+    }
+  }
+
+  private renderPanel(): void {
+    this.syncTabs();
+    this.updateTabBadges();
+    this.panelContainer.setAttribute('data-view', this.activeTab);
+    switch (this.activeTab) {
+      case 'users': this.renderUsersPanel(); break;
+      case 'guild': this.renderGuildPanel(); break;
+      case 'party': this.renderPartyPanel(); break;
+    }
+  }
+
+  /** Swap a view's HTML, keeping the scroll position of its scroll region. */
+  private setPanelHtml(html: string): void {
+    const top = this.panelContainer.querySelector('.screen-scroll')?.scrollTop ?? 0;
+    this.panelContainer.innerHTML = html;
+    const scroller = this.panelContainer.querySelector('.screen-scroll');
+    if (scroller) scroller.scrollTop = top;
+  }
+
+  private loadingHtml(): string {
+    return '<div class="soc-loading" role="status">Gathering adventurers…</div>';
+  }
+
+  // ── Targeted per-tick updates ────────────────────────────────
+
+  private refreshOnlineDots(): void {
+    const onlineSet = new Set(this.lastSocial?.onlinePlayers ?? []);
+    for (const dot of this.panelContainer.querySelectorAll<HTMLElement>('.soc-dot')) {
+      const username = dot.closest('[data-username]')?.getAttribute('data-username');
+      if (!username) continue;
+      const on = onlineSet.has(username);
+      dot.classList.toggle('is-online', on);
+      dot.classList.toggle('is-offline', !on);
+    }
+  }
+
+  private updateUsersPanel(): void {
+    const social = this.lastSocial;
+    if (!social) return;
+    if (!this.panelContainer.querySelector('.soc-lb')) { this.renderUsersPanel(); return; }
+    this.refreshOnlineDots();
+    const key = JSON.stringify({
+      players: (social.allPlayers ?? []).map(p => `${p.username}:${p.level ?? ''}`),
+      friends: social.friends ?? [],
+      inReq: (social.incomingFriendRequests ?? []).map(r => r.fromUsername),
+      outReq: (social.outgoingFriendRequests ?? []).map(r => r.toUsername),
+      blocked: Object.keys(social.blockedUsers ?? {}),
+    });
+    if (key !== this.lastRenderedUsersKey) {
+      this.lastRenderedUsersKey = key;
+      // Rebuild requests + rows, keep the toolbar (and the search box focus) intact.
+      this.renderFriendRequests();
+      this.renderUserRows();
+    }
+  }
+
+  private updateGuildPanel(): void {
+    const social = this.lastSocial;
+    if (!social) return;
+    this.refreshOnlineDots();
+    const key = JSON.stringify({
+      guildId: social.guild?.id ?? null,
+      leader: social.guild?.leaderUsername ?? null,
+      members: (social.guildMembers ?? []).map(m => `${m.username}:${m.role}`),
+    });
+    if (key !== this.lastRenderedGuildKey) {
+      this.lastRenderedGuildKey = key;
+      this.renderGuildPanel();
+    }
+  }
+
+  private updatePartyPanel(): void {
+    const social = this.lastSocial;
+    if (!social) return;
+    this.refreshOnlineDots();
+    const party = social.party;
+    const key = JSON.stringify({
+      partyId: party?.id ?? null,
+      members: (party?.members ?? []).map(m => `${m.username}:${m.role}:${m.gridPosition}`),
+      pending: (social.pendingInvites ?? []).map(i => `${i.partyId}:${i.inviterUsername}`),
+      outgoing: social.outgoingPartyInvites ?? [],
+      sameTile: this.sameRoomPlayers(),
+    });
+    if (key !== this.lastRenderedPartyKey) {
+      this.lastRenderedPartyKey = key;
+      this.renderPartyPanel();
+    }
+  }
+
+  // ── Player lookups ───────────────────────────────────────────
+
+  /** Pull the latest state — popups can open from other screens while this one is idle. */
+  private freshState(): ServerStateMessage | null {
+    const fresh = this.gameClient.lastState;
+    if (fresh) {
+      this.lastSocial = fresh.social ?? null;
+      this.lastState = fresh;
+    }
+    return this.lastState;
+  }
+
+  private getPlayerClassName(username: string): string | undefined {
+    if (username === this.lastState?.username && this.lastState?.character?.className) {
+      return this.lastState.character.className;
+    }
+    const other = this.lastState?.otherPlayers?.find(p => p.username === username);
+    if (other?.className) return other.className;
+    return this.lastSocial?.allPlayers?.find(p => p.username === username)?.className;
+  }
+
+  private getPlayerLevel(username: string): number | undefined {
+    if (username === this.lastState?.username && this.lastState?.character?.level) {
+      return this.lastState.character.level;
+    }
+    return this.lastSocial?.allPlayers?.find(p => p.username === username)?.level;
+  }
+
+  /** Zone name for players we can see on the world map (and ourselves). */
+  private zoneOf(username: string): string | undefined {
+    if (username === this.lastState?.username) return this.lastState?.zoneName || undefined;
+    return this.lastState?.otherPlayers?.find(p => p.username === username)?.zone || undefined;
+  }
+
+  /** Global standings: level desc, then name. Independent of search / filter. */
+  private rankMap(): Map<string, number> {
+    const all = [...(this.lastSocial?.allPlayers ?? [])].sort((a, b) => {
+      const d = (b.level ?? 0) - (a.level ?? 0);
+      return d !== 0 ? d : a.username.localeCompare(b.username);
+    });
+    return new Map(all.map((p, i) => [p.username, i + 1]));
+  }
+
+  private sameRoomPlayers(): string[] {
+    const s = this.lastState;
+    return (s?.otherPlayers ?? [])
+      .filter(p => p.col === s?.party.col && p.row === s?.party.row)
+      .map(p => p.username)
+      .sort();
+  }
+
+  /** Name + subtitle block that opens the player card. */
+  private whoHtml(username: string, opts: { online?: boolean; showLevel?: boolean; self?: boolean; sub?: string } = {}): string {
+    const className = this.getPlayerClassName(username);
+    const level = opts.showLevel === false ? undefined : this.getPlayerLevel(username);
+    const sub = opts.sub ?? (subtitle(className, this.zoneOf(username)) || 'Adventurer');
+    return `<button type="button" class="soc-who soc-user-btn" data-username="${esc(username)}" aria-label="${esc(username)} — player options">
+      ${portraitHtml({ name: username, className, size: 'sm', online: opts.online, level, self: opts.self })}
+      <span class="gc-row__main">
+        <span class="gc-row__title">${esc(username)}</span>
+        <span class="gc-row__sub">${sub}</span>
+      </span>
+    </button>`;
+  }
+
+  // ── Leaderboard ──────────────────────────────────────────────
 
   private getUsersPanelData() {
     const social = this.lastSocial;
@@ -846,17 +714,6 @@ export class SocialScreen implements Screen {
 
     const onlineSet = new Set(social.onlinePlayers ?? []);
     const friends = new Set(social.friends ?? []);
-    const blocked = social.blockedUsers ?? {};
-    const incomingFrom = new Set((social.incomingFriendRequests ?? []).map(r => r.fromUsername));
-    const outgoingTo = new Set((social.outgoingFriendRequests ?? []).map(r => r.toUsername));
-
-    // Full player list from all registered accounts. The leaderboard is a
-    // standings view — the player needs to see their own row to know where
-    // they sit, so we keep self in the list (highlighted via .self in
-    // renderUserRow). Other social actions on the row no-op for self.
-    const allEntries = social.allPlayers ?? [];
-
-    // Build filter sets
     const guildMembers = new Set((social.guildMembers ?? []).map(m => m.username));
     const otherPlayers = this.lastState?.otherPlayers ?? [];
     const myCol = this.lastState?.party.col;
@@ -865,8 +722,8 @@ export class SocialScreen implements Screen {
     const roomPlayers = new Set(otherPlayers.filter(p => p.col === myCol && p.row === myRow).map(p => p.username));
     const zonePlayers = new Set(otherPlayers.filter(p => p.zone === myZone).map(p => p.username));
 
-    // Filter
-    let players = [...allEntries];
+    // Self stays in the list so the player can see where they stand.
+    let players = [...(social.allPlayers ?? [])];
     if (this.searchQuery) {
       const q = this.searchQuery.toLowerCase();
       players = players.filter(p => p.username.toLowerCase().includes(q));
@@ -878,17 +735,12 @@ export class SocialScreen implements Screen {
       case 'zone': players = players.filter(p => zonePlayers.has(p.username)); break;
     }
 
-    // Sort
     if (this.sortBy === 'name') {
       players.sort((a, b) => a.username.localeCompare(b.username));
     } else if (this.sortBy === 'level') {
-      // Leaderboard sort: level desc, then name. (Server may pre-order by raw XP;
-      // we reorder client-side using level which is the only public field.)
       players.sort((a, b) => {
-        const al = a.level ?? 0;
-        const bl = b.level ?? 0;
-        if (al !== bl) return bl - al;
-        return a.username.localeCompare(b.username);
+        const d = (b.level ?? 0) - (a.level ?? 0);
+        return d !== 0 ? d : a.username.localeCompare(b.username);
       });
     } else {
       players.sort((a, b) => {
@@ -901,1054 +753,381 @@ export class SocialScreen implements Screen {
         return a.username.localeCompare(b.username);
       });
     }
-
-    return { players, onlineSet, friends, blocked, incomingFrom, outgoingTo, social };
+    return { players, onlineSet, social };
   }
 
   private renderUsersPanel(): void {
     const data = this.getUsersPanelData();
-    if (!data) {
-      this.panelContainer.innerHTML = '<div class="social-placeholder">Loading...</div>';
-      return;
-    }
-
-    const { players, social } = data;
-    const incoming = social.incomingFriendRequests ?? [];
-    const onlineSet = data.onlineSet;
-
-    const filters: { id: string; label: string }[] = [
-      { id: 'all', label: 'All' },
-      { id: 'room', label: 'Room' },
-      { id: 'zone', label: 'Zone' },
-      { id: 'friends', label: 'Friends' },
-      { id: 'guild', label: 'Guild' },
-    ];
-
-    // Incoming friend requests section
-    const incomingHtml = incoming.length > 0 ? `
-      <div class="social-group-header social-friend-requests-header">Friend Requests (${incoming.length})</div>
-      <div class="social-friend-requests">
-        ${incoming.map(r => `
-          <div class="social-user-row" data-username="${this.escapeHtml(r.fromUsername)}">
-            <span class="social-status-dot ${onlineSet.has(r.fromUsername) ? 'online' : 'offline'}"></span>
-            <span class="social-user-name-clickable" data-username="${this.escapeHtml(r.fromUsername)}">${this.classIcon(this.getPlayerClassName(r.fromUsername))} ${this.escapeHtml(r.fromUsername)}</span>
-            <div class="social-user-actions">
-              <button class="social-action-btn add-friend" data-action="accept_friend_request" data-username="${this.escapeHtml(r.fromUsername)}">Accept</button>
-              <button class="social-action-btn remove-friend" data-action="decline_friend_request" data-username="${this.escapeHtml(r.fromUsername)}">Decline</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    ` : '';
+    if (!data) { this.panelContainer.innerHTML = this.loadingHtml(); return; }
+    this.lastRenderedUsersKey = '';
 
     this.panelContainer.innerHTML = `
-      <div class="social-users-toolbar">
-        <input class="social-search" type="text" placeholder="Search..." value="${this.escapeHtml(this.searchQuery)}" />
-        <div class="social-toolbar-btns">
-          ${filters.map(f => `<button class="social-filter-btn${this.filterBy === f.id ? ' active' : ''}" data-filter="${f.id}">${f.label}</button>`).join('')}
-          <button class="social-sort-btn" title="Sort">${SocialScreen.sortLabel(this.sortBy)}</button>
+      <div class="soc-lb">
+        <div class="soc-lb__toolbar">
+          <input class="gc-input soc-search" type="search" enterkeyhint="search" placeholder="Search adventurers…" aria-label="Search players" value="${esc(this.searchQuery)}" />
+          <div class="soc-lb__controls">
+            <div class="soc-chips" role="group" aria-label="Filter">
+              ${FILTERS.map(f => `<button type="button" class="soc-chip" data-action="filter" data-filter="${f.id}" aria-pressed="${this.filterBy === f.id}">${f.label}</button>`).join('')}
+            </div>
+            <button type="button" class="gc-btn gc-btn--steel soc-sort" data-action="sort" aria-label="Change sort">${SocialScreen.sortLabel(this.sortBy)}</button>
+          </div>
+        </div>
+        <div class="soc-lb__scroll screen-scroll">
+          <div class="soc-lb__requests"></div>
+          <div class="soc-count"></div>
+          <div class="soc-list soc-lb__list"></div>
         </div>
       </div>
-      ${incomingHtml}
-      <div class="social-user-count">${players.length} player${players.length !== 1 ? 's' : ''}</div>
-      <div class="social-user-list">
-        ${this.renderUserListHtml(players, data.onlineSet)}
-      </div>
     `;
-    // All click/input handlers are delegated via wireDelegatedClicks() — no per-element wiring needed.
+    this.renderFriendRequests();
+    this.renderUserRows();
   }
 
-  /** Update just the friend requests section without rebuilding the whole panel. */
   private renderFriendRequests(): void {
+    const host = this.panelContainer.querySelector<HTMLElement>('.soc-lb__requests');
     const social = this.lastSocial;
-    if (!social) return;
+    if (!host || !social) return;
     const incoming = social.incomingFriendRequests ?? [];
     const onlineSet = new Set(social.onlinePlayers ?? []);
-
-    // Remove existing friend request elements
-    this.panelContainer.querySelector('.social-friend-requests-header')?.remove();
-    this.panelContainer.querySelector('.social-friend-requests')?.remove();
-
-    if (incoming.length > 0) {
-      const toolbar = this.panelContainer.querySelector('.social-users-toolbar');
-      if (toolbar) {
-        const headerEl = document.createElement('div');
-        headerEl.className = 'social-group-header social-friend-requests-header';
-        headerEl.textContent = `Friend Requests (${incoming.length})`;
-        toolbar.after(headerEl);
-
-        const requestsEl = document.createElement('div');
-        requestsEl.className = 'social-friend-requests';
-        requestsEl.innerHTML = incoming.map(r => `
-          <div class="social-user-row" data-username="${this.escapeHtml(r.fromUsername)}">
-            <span class="social-status-dot ${onlineSet.has(r.fromUsername) ? 'online' : 'offline'}"></span>
-            <span class="social-user-name-clickable" data-username="${this.escapeHtml(r.fromUsername)}">${this.classIcon(this.getPlayerClassName(r.fromUsername))} ${this.escapeHtml(r.fromUsername)}</span>
-            <div class="social-user-actions">
-              <button class="social-action-btn add-friend" data-action="accept_friend_request" data-username="${this.escapeHtml(r.fromUsername)}">Accept</button>
-              <button class="social-action-btn remove-friend" data-action="decline_friend_request" data-username="${this.escapeHtml(r.fromUsername)}">Decline</button>
-            </div>
-          </div>
-        `).join('');
-        headerEl.after(requestsEl);
-      }
-    }
+    host.innerHTML = incoming.length === 0 ? '' : `
+      <section class="soc-section soc-section--alert">
+        <h2 class="soc-section__title">Friend Requests <span class="gc-badge">${incoming.length}</span></h2>
+        <div class="soc-list">
+          ${incoming.map(r => `
+            <div class="gc-row soc-row" data-username="${esc(r.fromUsername)}">
+              ${this.whoHtml(r.fromUsername, { online: onlineSet.has(r.fromUsername) })}
+              <div class="soc-row__actions">
+                <button type="button" class="gc-btn gc-btn--green" data-action="accept-friend" data-username="${esc(r.fromUsername)}">Accept</button>
+                <button type="button" class="gc-btn gc-btn--red" data-action="decline-friend" data-username="${esc(r.fromUsername)}">Decline</button>
+              </div>
+            </div>`).join('')}
+        </div>
+      </section>`;
   }
 
-  /** Update just the user list rows without rebuilding search/filters. */
   private renderUserRows(): void {
     const data = this.getUsersPanelData();
     if (!data) return;
-    const listContainer = this.panelContainer.querySelector('.social-user-list');
-    const countEl = this.panelContainer.querySelector('.social-user-count');
-    if (listContainer) {
-      listContainer.innerHTML = this.renderUserListHtml(data.players, data.onlineSet);
-    }
-    if (countEl) {
-      countEl.textContent = `${data.players.length} player${data.players.length !== 1 ? 's' : ''}`;
-    }
+    const list = this.panelContainer.querySelector<HTMLElement>('.soc-lb__list');
+    const count = this.panelContainer.querySelector<HTMLElement>('.soc-count');
+    if (count) count.textContent = `${data.players.length} adventurer${data.players.length !== 1 ? 's' : ''}`;
+    if (list) list.innerHTML = this.renderUserListHtml(data.players, data.onlineSet);
   }
 
   private renderUserListHtml(players: PlayerListEntry[], onlineSet: Set<string>): string {
-    if (players.length === 0) return '<div class="social-empty">No players found</div>';
-
-    const friends = new Set(this.lastSocial?.friends ?? []);
-    const blocked = this.lastSocial?.blockedUsers ?? {};
-    const incomingFrom = new Set((this.lastSocial?.incomingFriendRequests ?? []).map(r => r.fromUsername));
-    const outgoingTo = new Set((this.lastSocial?.outgoingFriendRequests ?? []).map(r => r.toUsername));
-
+    if (players.length === 0) {
+      const filtered = this.searchQuery !== '' || this.filterBy !== 'all';
+      return emptyStateHtml({
+        emblem: EMBLEM_SPYGLASS,
+        title: 'No adventurers here',
+        body: filtered
+          ? 'Nobody matches that search. Try another name or widen the filter.'
+          : 'The realm is quiet. Check back soon.',
+        actionHtml: filtered ? '<button type="button" class="gc-btn gc-btn--gold gc-btn--lg" data-action="clear-filters">Show Everyone</button>' : '',
+      });
+    }
+    const ranks = this.rankMap();
+    const row = (p: PlayerListEntry) => this.renderUserRow(p, onlineSet, ranks.get(p.username));
     if (this.sortBy === 'status') {
-      const onlinePlayers = players.filter(p => onlineSet.has(p.username));
-      const offlinePlayers = players.filter(p => !onlineSet.has(p.username));
+      const on = players.filter(p => onlineSet.has(p.username));
+      const offl = players.filter(p => !onlineSet.has(p.username));
       return `
-        <div class="social-group-header">Online (${onlinePlayers.length})</div>
-        ${onlinePlayers.length === 0
-          ? '<div class="social-empty">No online users</div>'
-          : onlinePlayers.map(p => this.renderUserRow(p, friends, blocked, onlineSet, incomingFrom, outgoingTo)).join('')}
-        <div class="social-group-header">Offline (${offlinePlayers.length})</div>
-        ${offlinePlayers.length === 0
-          ? '<div class="social-empty">No offline users</div>'
-          : offlinePlayers.map(p => this.renderUserRow(p, friends, blocked, onlineSet, incomingFrom, outgoingTo)).join('')}
+        <h2 class="soc-section__title">Online <span class="soc-section__count">${on.length}</span></h2>
+        ${on.length === 0 ? '<p class="soc-muted">Nobody online right now.</p>' : on.map(row).join('')}
+        <h2 class="soc-section__title">Offline <span class="soc-section__count">${offl.length}</span></h2>
+        ${offl.length === 0 ? '<p class="soc-muted">Everyone is online!</p>' : offl.map(row).join('')}
       `;
     }
-    return players.map(p => this.renderUserRow(p, friends, blocked, onlineSet, incomingFrom, outgoingTo)).join('');
+    return players.map(row).join('');
   }
 
-  private renderUserRow(p: PlayerListEntry, friends: Set<string>, blocked: Record<string, unknown>, onlineSet: Set<string>, incomingFrom: Set<string>, outgoingTo: Set<string>): string {
-    const isFriend = friends.has(p.username);
-    const isBlocked = p.username in blocked;
-    const isOnline = onlineSet.has(p.username);
-    const hasIncoming = incomingFrom.has(p.username);
-    const hasSentTo = outgoingTo.has(p.username);
+  private renderUserRow(p: PlayerListEntry, onlineSet: Set<string>, rank?: number): string {
+    const social = this.lastSocial;
     const isSelf = p.username === (this.lastState?.username ?? '');
+    const isFriend = (social?.friends ?? []).includes(p.username);
+    const isBlocked = p.username in (social?.blockedUsers ?? {});
+    const hasIncoming = (social?.incomingFriendRequests ?? []).some(r => r.fromUsername === p.username);
+    const hasSent = (social?.outgoingFriendRequests ?? []).some(r => r.toUsername === p.username);
 
-    let statusBadge = '';
-    if (isSelf) statusBadge = '<span class="social-badge friend">You</span>';
-    else if (isFriend) statusBadge = '<span class="social-badge friend">Friend</span>';
-    else if (hasIncoming) statusBadge = '<span class="social-badge friend">Request</span>';
-    else if (hasSentTo) statusBadge = '<span class="social-badge">Pending</span>';
+    let tag = '';
+    if (isSelf) tag = tagHtml('You', 'gold');
+    else if (isFriend) tag = tagHtml('Friend', 'green');
+    else if (hasIncoming) tag = tagHtml('Request', 'green');
+    else if (hasSent) tag = tagHtml('Pending', 'steel');
+    if (isBlocked) tag += tagHtml('Blocked', 'red');
 
-    // Level sits to the LEFT of the name as plain inline text — not a
-    // pill — separated by a thin dash. Color-only emphasis (gold against
-    // the muted text). Keeping it outside the clickable name span so the
-    // username hit-target stays tight.
-    const levelText = (p.level !== undefined && p.level !== null)
-      ? `<span class="social-user-level">Lv ${p.level}</span><span class="social-user-sep">—</span>`
-      : '';
+    const rankHtml = rank
+      ? `<span class="soc-rank${rank <= 3 ? ` soc-rank--${rank}` : ''}" aria-label="Rank ${rank}">${rank}</span>`
+      : '<span class="soc-rank" aria-hidden="true"></span>';
+    const sub = subtitle(p.className, this.zoneOf(p.username)) || 'Adventurer';
 
-    return `<div class="social-user-row${isSelf ? ' self' : ''}" data-username="${this.escapeHtml(p.username)}">
-      <span class="social-status-dot ${isOnline ? 'online' : 'offline'}"></span>
-      ${levelText}
-      <span class="social-user-name-clickable" data-username="${this.escapeHtml(p.username)}">${this.classIcon(p.className)} ${this.escapeHtml(p.username)}</span>
-      <span class="social-user-badges">
-        ${statusBadge}
-        ${isBlocked ? '<span class="social-badge blocked">Blocked</span>' : ''}
+    return `<button type="button" class="gc-row soc-row soc-row--rank soc-user-btn${isSelf ? ' is-self' : ''}" data-username="${esc(p.username)}">
+      ${rankHtml}
+      ${portraitHtml({ name: p.username, className: p.className, size: 'sm', online: onlineSet.has(p.username), self: isSelf })}
+      <span class="gc-row__main">
+        <span class="gc-row__title">${esc(p.username)}</span>
+        <span class="gc-row__sub">${sub}</span>
       </span>
-    </div>`;
+      ${tag ? `<span class="soc-row__tags">${tag}</span>` : ''}
+      ${p.level !== undefined && p.level !== null ? `<span class="gc-badge gc-badge--level soc-row__level" aria-label="Level ${p.level}">${p.level}</span>` : ''}
+    </button>`;
   }
 
-  private static sortLabel(mode: 'name' | 'status' | 'level'): string {
+  private static sortLabel(mode: SortMode): string {
     if (mode === 'level') return 'Top';
     if (mode === 'status') return 'Status';
-    return 'A-Z';
+    return 'A–Z';
   }
 
-  // ── Guild Panel ──────────────────────────────────────────────
+  // ── Guild ────────────────────────────────────────────────────
 
   private renderGuildPanel(): void {
     const social = this.lastSocial;
-    if (!social) {
-      this.panelContainer.innerHTML = '<div class="social-placeholder">Loading...</div>';
-      return;
-    }
+    if (!social) { this.panelContainer.innerHTML = this.loadingHtml(); return; }
 
     const guild = social.guild;
-    const members = social.guildMembers ?? [];
-
     if (!guild) {
-      // No guild — show create form
-      this.panelContainer.innerHTML = `
-        <div class="social-guild-create">
-          <div class="social-empty">You are not in a guild.</div>
-          <div class="social-guild-form">
-            <input class="social-search social-guild-name-input" type="text" placeholder="Guild name..." maxlength="20" />
-            <button class="social-action-btn add-friend social-guild-create-btn">Create Guild</button>
+      this.setPanelHtml(`
+        <div class="soc-view screen-scroll">
+          <div class="soc-stack">
+            ${emptyStateHtml({
+              emblem: EMBLEM_SHIELD,
+              title: 'No guild yet',
+              body: 'Raise a banner and gather adventurers under one name. Founding a guild takes level 20.',
+              actionHtml: `<div class="soc-guild-form">
+                <input class="gc-input soc-guild-input" type="text" placeholder="Guild name" maxlength="20" aria-label="Guild name" enterkeyhint="done" />
+                <button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-action="create-guild">Found Guild</button>
+              </div>`,
+            })}
           </div>
-          <div class="social-guild-note">Requires level 20+</div>
         </div>
-      `;
+      `);
       return;
     }
 
-    // In a guild — show info + members
+    const members = social.guildMembers ?? [];
     const onlineSet = new Set(social.onlinePlayers ?? []);
+    const selfUsername = this.lastState?.username ?? '';
+    const onlineCount = members.filter(m => onlineSet.has(m.username)).length;
+    const sorted = [...members].sort((a, b) => {
+      if (a.role !== b.role) return a.role === 'leader' ? -1 : 1;
+      const ao = onlineSet.has(a.username) ? 0 : 1;
+      const bo = onlineSet.has(b.username) ? 0 : 1;
+      return ao !== bo ? ao - bo : a.username.localeCompare(b.username);
+    });
 
-    this.panelContainer.innerHTML = `
-      <div class="social-guild-info">
-        <div class="social-guild-header">
-          <span class="social-guild-name">${this.escapeHtml(guild.name)}</span>
-          <button class="social-action-btn remove-friend social-guild-leave-btn">Leave</button>
-        </div>
-        <div class="social-guild-leader">Leader: ${this.escapeHtml(guild.leaderUsername)}</div>
-      </div>
-      <div class="social-group-header">Members (${members.length})</div>
-      <div class="social-user-list">
-        ${members.map(m => `
-          <div class="social-user-row" data-username="${this.escapeHtml(m.username)}">
-            <span class="social-status-dot ${onlineSet.has(m.username) ? 'online' : 'offline'}"></span>
-            <span class="social-user-name-clickable" data-username="${this.escapeHtml(m.username)}">${this.classIcon(this.getPlayerClassName(m.username))} ${this.escapeHtml(m.username)}</span>
-            <span class="social-user-badges">
-              ${m.role === 'leader' ? '<span class="social-badge friend">Leader</span>' : ''}
-            </span>
+    this.setPanelHtml(`
+      <div class="soc-view screen-scroll">
+        <div class="soc-stack">
+          <section class="gc-card soc-guild">
+            <span class="soc-guild__crest gc-frame" aria-hidden="true"><span>${esc(guild.name.charAt(0).toUpperCase())}</span></span>
+            <div class="soc-guild__info">
+              <h2 class="soc-guild__name">${esc(guild.name)}</h2>
+              <div class="soc-guild__meta">Led by ${esc(guild.leaderUsername)}</div>
+              <div class="soc-guild__meta">${members.length} member${members.length !== 1 ? 's' : ''} · ${onlineCount} online</div>
+            </div>
+          </section>
+          <section class="soc-section">
+            <h2 class="soc-section__title">Members <span class="soc-section__count">${members.length}</span></h2>
+            <div class="soc-list">
+              ${sorted.map(m => `
+                <div class="gc-row soc-row" data-username="${esc(m.username)}">
+                  ${this.whoHtml(m.username, { online: onlineSet.has(m.username), self: m.username === selfUsername })}
+                  <span class="soc-row__tags">
+                    ${m.role === 'leader' ? tagHtml('Leader', 'gold') : ''}
+                    ${m.username === selfUsername ? tagHtml('You', 'steel') : ''}
+                  </span>
+                </div>`).join('')}
+            </div>
+          </section>
+          <div class="soc-footer-actions">
+            <button type="button" class="gc-btn gc-btn--red" data-action="leave-guild">Leave Guild</button>
           </div>
-        `).join('')}
+        </div>
       </div>
-    `;
+    `);
   }
 
-  // ── Party Panel ─────────────────────────────────────────────
+  // ── Party ────────────────────────────────────────────────────
 
   private renderPartyPanel(): void {
     const social = this.lastSocial;
-    if (!social) {
-      this.panelContainer.innerHTML = '<div class="social-placeholder">Loading...</div>';
-      return;
-    }
-
-    const party = social.party;
-
-    if (!party) {
-      this.panelContainer.innerHTML = '<div class="social-placeholder">Loading...</div>';
-      return;
-    }
+    const party = social?.party;
+    if (!social || !party) { this.panelContainer.innerHTML = this.loadingHtml(); return; }
 
     const selfUsername = this.lastState?.username ?? '';
-    const selfMember = party.members.find(m => m.username === selfUsername);
-    const selfRole = selfMember?.role ?? 'member';
+    const selfRole = party.members.find(m => m.username === selfUsername)?.role ?? 'member';
     const isOwner = selfRole === 'owner';
-    const isLeaderOrOwner = selfRole === 'owner' || selfRole === 'leader';
+    const isLeaderOrOwner = isOwner || selfRole === 'leader';
     const isSolo = party.members.length === 1;
     const onlineSet = new Set(social.onlinePlayers ?? []);
-    const memberMap = new Map(party.members.map(m => [m.gridPosition, m]));
-    const partyMembers = new Set(party.members.map(m => m.username));
+    const partyNames = new Set(party.members.map(m => m.username));
 
-    // Pending invites for this player
-    const pendingInvites = social.pendingInvites ?? [];
-    const invitesHtml = pendingInvites.length > 0 ? `
-      <div class="social-group-header">Party Invites</div>
-      <div class="social-user-list">
-        ${pendingInvites.map(inv => `
-          <div class="social-user-row" data-party-id="${this.escapeHtml(inv.partyId)}">
-            <span class="social-user-name">${this.escapeHtml(inv.inviterUsername)}'s party</span>
-            <div class="social-user-actions">
-              <button class="social-action-btn add-friend social-accept-invite" data-party-id="${this.escapeHtml(inv.partyId)}">Accept</button>
-              <button class="social-action-btn remove-friend social-decline-invite" data-party-id="${this.escapeHtml(inv.partyId)}">Decline</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    ` : '';
-
-    // Same-tile players (not already in our party)
-    const sameTilePlayers = (this.lastState?.otherPlayers ?? [])
-      .filter(p => p.col === this.lastState?.party.col && p.row === this.lastState?.party.row)
-      .filter(p => !partyMembers.has(p.username))
-      .map(p => p.username)
-      .sort();
-    const outgoingInvites = new Set(social.outgoingPartyInvites ?? []);
-
-    const nearbyHtml = isLeaderOrOwner ? `
-      <div class="social-group-header">Nearby Players</div>
-      <div class="social-user-list">
-        ${sameTilePlayers.length === 0
-          ? '<div class="social-empty">No other players in this room</div>'
-          : sameTilePlayers.map(p => {
-            const alreadyInvited = outgoingInvites.has(p);
-            return `
-            <div class="social-user-row" data-username="${this.escapeHtml(p)}">
-              <span class="social-status-dot online"></span>
-              <span class="social-user-name-clickable" data-username="${this.escapeHtml(p)}">${this.classIcon(this.getPlayerClassName(p))} ${this.escapeHtml(p)}</span>
-              <div class="social-user-actions">
-                <button class="social-action-btn add-friend social-nearby-invite" data-username="${this.escapeHtml(p)}"${alreadyInvited ? ' disabled' : ''}>${alreadyInvited ? 'Invited' : 'Invite'}</button>
+    // Invites waiting on this player
+    const pending = social.pendingInvites ?? [];
+    const invitesHtml = pending.length === 0 ? '' : `
+      <section class="soc-section soc-section--alert">
+        <h2 class="soc-section__title">Party Invites <span class="gc-badge">${pending.length}</span></h2>
+        <div class="soc-list">
+          ${pending.map(inv => `
+            <div class="gc-row soc-row" data-party-id="${esc(inv.partyId)}">
+              ${this.whoHtml(inv.inviterUsername, { online: onlineSet.has(inv.inviterUsername), sub: 'Invites you to their party' })}
+              <div class="soc-row__actions">
+                <button type="button" class="gc-btn gc-btn--green" data-action="accept-invite" data-party-id="${esc(inv.partyId)}">Join</button>
+                <button type="button" class="gc-btn gc-btn--red" data-action="decline-invite" data-party-id="${esc(inv.partyId)}">Decline</button>
               </div>
-            </div>
-          `;}).join('')}
-      </div>
-    ` : '';
+            </div>`).join('')}
+        </div>
+      </section>`;
 
-    // Render 3x3 grid
-    let gridHtml = '<div class="social-party-grid">';
-    for (let i = 0; i < 9; i++) {
-      const member = memberMap.get(i as any);
-      const row = Math.floor(i / 3);
-      const rowLabel = row === 0 ? 'Front' : row === 1 ? 'Mid' : 'Back';
-      gridHtml += `<div class="social-party-cell${member ? ' occupied' : ''}" data-pos="${i}" title="${rowLabel} row">`;
-      if (member) {
-        const isOnline = onlineSet.has(member.username);
-        gridHtml += `<span class="social-status-dot ${isOnline ? 'online' : 'offline'}"></span>`;
-        gridHtml += `<span class="social-party-cell-name">${this.classIcon(this.getPlayerClassName(member.username))} ${this.escapeHtml(member.username)}</span>`;
-        const roleBadge = member.role === 'owner' ? 'O' : member.role === 'leader' ? 'L' : '';
-        const badgeClass = member.role === 'owner' ? 'owner' : 'friend';
-        if (roleBadge) {
-          gridHtml += `<span class="social-badge ${badgeClass}">${roleBadge}</span>`;
-        }
-      } else {
-        gridHtml += '<span class="social-party-cell-empty">Empty</span>';
-      }
-      gridHtml += '</div>';
-    }
-    gridHtml += '</div>';
+    // Players in the same room who aren't with us — owner/leader can invite them.
+    const nearby = this.sameRoomPlayers().filter(p => !partyNames.has(p));
+    const outgoing = new Set(social.outgoingPartyInvites ?? []);
+    const nearbyHtml = !isLeaderOrOwner ? '' : `
+      <section class="soc-section">
+        <h2 class="soc-section__title">In This Room <span class="soc-section__count">${nearby.length}</span></h2>
+        ${nearby.length === 0
+          ? '<p class="soc-muted">No one else is in this room right now. Travel to a friend, or wait for someone to wander by.</p>'
+          : `<div class="soc-list">${nearby.map(p => {
+            const invited = outgoing.has(p);
+            return `<div class="gc-row soc-row" data-username="${esc(p)}">
+              ${this.whoHtml(p, { online: true })}
+              <div class="soc-row__actions soc-row__actions--inline">
+                <button type="button" class="gc-btn gc-btn--green" data-action="nearby-invite" data-username="${esc(p)}"${invited ? ' disabled' : ''}>${invited ? 'Invited' : 'Invite'}</button>
+              </div>
+            </div>`;
+          }).join('')}</div>`}
+      </section>`;
 
-    // Build member action buttons based on viewer's role
-    const renderMemberActions = (m: { username: string; role: string }): string => {
+    const soloHtml = !isSolo ? '' : emptyStateHtml({
+      emblem: EMBLEM_SWORDS,
+      title: "You're adventuring solo",
+      body: 'Every class fights better together. Invite someone in your room to share battles and loot.',
+      actionHtml: '<button type="button" class="gc-btn gc-btn--gold gc-btn--lg" data-action="find-players">Find Adventurers</button>',
+    });
+
+    const memberActions = (m: GamePartyMember): string => {
       if (m.username === selfUsername) return '';
-      const actions: string[] = [];
-
+      const u = esc(m.username);
+      const a: string[] = [];
       if (isOwner) {
-        if (m.role === 'member') {
-          actions.push(`<button class="social-action-btn add-friend social-promote-btn" data-username="${this.escapeHtml(m.username)}">Promote</button>`);
-        }
-        if (m.role === 'leader') {
-          actions.push(`<button class="social-action-btn remove-friend social-demote-btn" data-username="${this.escapeHtml(m.username)}">Demote</button>`);
-        }
-        actions.push(`<button class="social-action-btn add-friend social-transfer-btn" data-username="${this.escapeHtml(m.username)}">Transfer</button>`);
-        actions.push(`<button class="social-action-btn remove-friend social-kick-btn" data-username="${this.escapeHtml(m.username)}">Kick</button>`);
+        if (m.role === 'member') a.push(`<button type="button" class="gc-btn gc-btn--green" data-action="promote" data-username="${u}">Promote</button>`);
+        if (m.role === 'leader') a.push(`<button type="button" class="gc-btn gc-btn--steel" data-action="demote" data-username="${u}">Demote</button>`);
+        a.push(`<button type="button" class="gc-btn" data-action="transfer" data-username="${u}">Make Owner</button>`);
+        a.push(`<button type="button" class="gc-btn gc-btn--red" data-action="kick" data-username="${u}">Kick</button>`);
       } else if (selfRole === 'leader') {
-        if (m.role === 'member') {
-          actions.push(`<button class="social-action-btn add-friend social-promote-btn" data-username="${this.escapeHtml(m.username)}">Promote</button>`);
-        }
-        if (m.role !== 'owner') {
-          actions.push(`<button class="social-action-btn remove-friend social-kick-btn" data-username="${this.escapeHtml(m.username)}">Kick</button>`);
-        }
+        if (m.role === 'member') a.push(`<button type="button" class="gc-btn gc-btn--green" data-action="promote" data-username="${u}">Promote</button>`);
+        if (m.role !== 'owner') a.push(`<button type="button" class="gc-btn gc-btn--red" data-action="kick" data-username="${u}">Kick</button>`);
       }
-
-      return actions.join('');
+      return a.length ? `<div class="soc-row__actions">${a.join('')}</div>` : '';
     };
 
-    this.panelContainer.innerHTML = `
-      ${invitesHtml}
-      ${isSolo ? '<div class="social-empty">You\'re all alone. Invite someone to your party!</div>' : ''}
-      ${gridHtml}
-      ${!isSolo ? `
-        <div class="social-party-actions">
-          <button class="social-action-btn remove-friend social-party-leave-btn">Leave Party</button>
+    const roleTag = (m: GamePartyMember) =>
+      m.role === 'owner' ? tagHtml('Owner', 'gold') : m.role === 'leader' ? tagHtml('Leader', 'teal') : '';
+
+    const membersHtml = `
+      <section class="soc-section">
+        <h2 class="soc-section__title">Members <span class="soc-section__count">${party.members.length}/${MAX_PARTY_SIZE}</span></h2>
+        <div class="soc-list">
+          ${party.members.map(m => `
+            <div class="gc-row soc-row${m.username === selfUsername ? ' is-self' : ''}" data-username="${esc(m.username)}">
+              ${this.whoHtml(m.username, { online: onlineSet.has(m.username), self: m.username === selfUsername })}
+              <span class="soc-row__tags">${roleTag(m)}${m.username === selfUsername ? tagHtml('You', 'steel') : ''}</span>
+              ${memberActions(m)}
+            </div>`).join('')}
         </div>
-      ` : ''}
-      <div class="social-group-header">Members (${party.members.length}/${MAX_PARTY_SIZE})</div>
-      <div class="social-user-list">
-        ${party.members.map(m => `
-          <div class="social-user-row" data-username="${this.escapeHtml(m.username)}">
-            <span class="social-status-dot ${onlineSet.has(m.username) ? 'online' : 'offline'}"></span>
-            <span class="social-user-name-clickable" data-username="${this.escapeHtml(m.username)}">${this.classIcon(this.getPlayerClassName(m.username))} ${this.escapeHtml(m.username)}</span>
-            <span class="social-user-badges">
-              ${m.role === 'owner' ? '<span class="social-badge owner">Owner</span>' : ''}
-              ${m.role === 'leader' ? '<span class="social-badge friend">Leader</span>' : ''}
-            </span>
-            <div class="social-user-actions">
-              ${renderMemberActions(m)}
-            </div>
-          </div>
-        `).join('')}
+      </section>`;
+
+    this.setPanelHtml(`
+      <div class="soc-view screen-scroll">
+        <div class="soc-stack">
+          ${invitesHtml}
+          ${soloHtml}
+          ${this.formationHtml()}
+          ${isSolo ? '' : membersHtml}
+          ${nearbyHtml}
+          ${isSolo ? '' : `<div class="soc-footer-actions">
+            <button type="button" class="gc-btn gc-btn--red" data-action="leave-party">Leave Party</button>
+          </div>`}
+        </div>
       </div>
-      ${nearbyHtml}
-    `;
-  }
-
-  // ── Chat Panel ───────────────────────────────────────────────
-
-  private static readonly CHAT_CHANNELS: { type: ChatChannelType; tag: string; label: string; sendable?: boolean }[] = [
-    { type: 'tile', tag: 'R', label: 'Room' },
-    { type: 'zone', tag: 'Z', label: 'Zone' },
-    { type: 'party', tag: 'P', label: 'Party' },
-    { type: 'guild', tag: 'G', label: 'Guild' },
-    { type: 'global', tag: 'W', label: 'World' },
-    { type: 'dm', tag: 'DM', label: 'DM' },
-    { type: 'server', tag: 'S', label: 'Server', sendable: false },
-  ];
-
-  /** Resolve the channel ID for a given channel type from current game state. */
-  private resolveChatChannelId(type: ChatChannelType): string {
-    const state = this.gameClient.lastState;
-    const social = this.lastSocial;
-    switch (type) {
-      case 'tile': return state ? `${state.party.col},${state.party.row}` : '';
-      case 'zone': return state?.zoneName ?? '';
-      case 'party': return social?.party?.id ?? '';
-      case 'guild': return social?.guild?.id ?? '';
-      case 'global': return 'global';
-      case 'dm': return this.chatDmTarget;
-      case 'server': return 'server';
-    }
+    `);
   }
 
   /**
-   * Open the chat popout pre-filled for a DM to `username`. Also persists
-   * the choice as the user's chat preferences for cross-device sync.
+   * 3×3 formation, laid out like the combat screen: each grid row is a lane
+   * (a screen column) and grid column 2 is the front line, drawn on top
+   * nearest the enemy.
    */
-  startDm(username: string): void {
-    this.chatSendChannel = 'dm';
-    this.chatDmTarget = username;
-    this.gameClient.sendSetChatPreferences(this.chatSendChannel, this.chatDmTarget);
-    this.chatFocusAfterRender = true;
-    this.onDmRequest?.(username);
-  }
-
-  /** Wire an external handler that opens the global chat popout to a DM. */
-  setOnDmRequest(cb: (username: string) => void): void {
-    this.onDmRequest = cb;
-  }
-
-
-  private static formatTimestamp(ts: number): string {
-    const d = new Date(ts);
-    const h = d.getHours().toString().padStart(2, '0');
-    const m = d.getMinutes().toString().padStart(2, '0');
-    return `${h}:${m}`;
-  }
-
-  private static formatDateFull(ts: number): string {
-    const d = new Date(ts);
-    return d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  }
-
-  private renderChatMsgHtml(msg: ChatMessage): string {
-    const ch = SocialScreen.CHAT_CHANNELS.find(c => c.type === msg.channelType);
-    const tag = ch?.tag ?? '?';
-    const selfName = this.lastState?.username ?? '';
-    const isSelfDm = msg.channelType === 'dm' && msg.senderUsername === selfName;
-    const dmTo = isSelfDm
-      ? ` <span class="chat-dm-to">to ${this.escapeHtml(msg.channelId)}</span>` : '';
-    const dmTargetAttr = isSelfDm ? ` data-dm-target="${this.escapeHtml(msg.channelId)}"` : '';
-    const time = SocialScreen.formatTimestamp(msg.timestamp);
-    const dateFull = SocialScreen.formatDateFull(msg.timestamp);
-    return `<div class="social-chat-msg">
-      <span class="chat-timestamp" title="${dateFull}">${time}</span>
-      <span class="chat-tag chat-color-${msg.channelType} chat-clickable" data-switch-channel="${msg.channelType}">[${tag}]</span>
-      <span class="social-chat-sender chat-color-${msg.channelType} social-user-name-clickable" data-username="${this.escapeHtml(msg.senderUsername)}"${dmTargetAttr}>${msg.senderUsername === 'Server' ? serverIconHtml() : this.classIcon(this.getPlayerClassName(msg.senderUsername))} ${this.escapeHtml(msg.senderUsername)}${dmTo}</span>
-      <span class="social-chat-text">${this.escapeHtml(msg.text)}</span>
-    </div>`;
-  }
-
-  /** Update just the chat message list without rebuilding filters/input. */
-  private renderChatMessages(): void {
-    const msgContainer = this.panelContainer.querySelector('.social-chat-messages');
-    if (!msgContainer) return;
-
-    const wasAtBottom = msgContainer.scrollTop + msgContainer.clientHeight >= msgContainer.scrollHeight - 20;
-    const filtered = this.chatStore.getFiltered(this.chatFilters, this.lastSocial?.blockedUsers);
-
-    msgContainer.innerHTML = filtered.length === 0
-      ? '<div class="social-empty">No messages yet</div>'
-      : filtered.map(m => this.renderChatMsgHtml(m)).join('');
-
-    if (wasAtBottom) {
-      msgContainer.scrollTop = msgContainer.scrollHeight;
-    }
-  }
-
-  private renderChatPanel(): void {
-    // Filter messages by enabled channel types and blocked users
-    const filtered = this.chatStore.getFiltered(this.chatFilters, this.lastSocial?.blockedUsers);
-
-    // Build send channel options — all shown, some disabled based on context
-    const social = this.lastSocial;
-    const sendOptions = SocialScreen.CHAT_CHANNELS
-      .filter(ch => ch.sendable !== false)
-      .map(ch => {
-        let disabled = false;
-        if (ch.type === 'party') disabled = (social?.party?.members.length ?? 0) <= 1;
-        if (ch.type === 'guild') disabled = !social?.guild;
-        return { ...ch, disabled };
-      });
-
-    // Capture scroll position before re-render
-    const oldMsgContainer = this.panelContainer.querySelector('.social-chat-messages');
-    const oldScrollTop = oldMsgContainer ? oldMsgContainer.scrollTop : 0;
-    const wasAtBottom = !oldMsgContainer || (oldScrollTop + oldMsgContainer.clientHeight >= oldMsgContainer.scrollHeight - 20);
-
-    this.panelContainer.innerHTML = `
-      <div class="social-chat-container">
-        <div class="social-chat-filters">
-          ${SocialScreen.CHAT_CHANNELS.map(ch => `
-            <button class="chat-filter-btn chat-color-${ch.type}${this.chatFilters.has(ch.type) ? ' active' : ''}"
-              data-channel="${ch.type}">${ch.label}</button>
-          `).join('')}
-        </div>
-        <div class="social-chat-messages">
-          ${filtered.length === 0
-            ? '<div class="social-empty">No messages yet</div>'
-            : filtered.map(m => this.renderChatMsgHtml(m)).join('')
-          }
-        </div>
-        <div class="social-chat-input-bar">
-          <select class="chat-send-select">
-            ${sendOptions.map(ch => `<option value="${ch.type}"${ch.type === this.chatSendChannel ? ' selected' : ''}${ch.disabled ? ' disabled' : ''}>${ch.label}</option>`).join('')}
-          </select>
-          <input class="social-search social-chat-dm-target" type="text" placeholder="Username..." value="${this.escapeHtml(this.chatDmTarget)}" style="display:${this.chatSendChannel === 'dm' ? 'block' : 'none'}" />
-          <input class="social-search social-chat-input" type="text" placeholder="Type a message..." maxlength="500" />
-          <button class="social-action-btn add-friend social-chat-send-btn">Send</button>
-        </div>
-      </div>
-    `;
-
-    // Restore scroll position
-    const msgContainer = this.panelContainer.querySelector('.social-chat-messages');
-    if (msgContainer) {
-      if (wasAtBottom) {
-        msgContainer.scrollTop = msgContainer.scrollHeight;
-      } else {
-        msgContainer.scrollTop = oldScrollTop;
-      }
-    }
-
-    // Initialize DM input state
-    this.updateChatDmState();
-
-    // Restore focus to message input after re-render (e.g. after startDm)
-    if (this.chatFocusAfterRender) {
-      this.chatFocusAfterRender = false;
-      const chatInput = this.panelContainer.querySelector('.social-chat-input') as HTMLInputElement | null;
-      chatInput?.focus();
-    }
-    // All click/input/change/keydown handlers are delegated via wireDelegatedClicks() — no per-element wiring needed.
-  }
-
-  /* `appendChatMessage` and the chat sub-tab are gone — chat lives in the
-     global pop-out now. The renderer / store are kept for any code paths
-     that still want to format a chat row (tooltip previews, etc.). */
-
-  // ── Trade Modal ───────────────────────────────────────────────
-
-  /**
-   * Open the trade modal. If a trade with `targetUsername` already exists,
-   * resume it; otherwise start composing a new proposal.
-   */
-  openTradeModal(targetUsername: string): void {
+  private formationHtml(): string {
+    const party = this.lastSocial?.party;
+    if (!party) return '';
     const selfUsername = this.lastState?.username ?? '';
-    const existing = (this.lastSocial?.proposedTrades ?? []).find(t => {
-      const a = t.initiator.username;
-      const b = t.target?.username;
-      return (a === selfUsername && b === targetUsername) || (a === targetUsername && b === selfUsername);
-    });
-    if (existing) {
-      this.openExistingTrade(existing.id);
+    const onlineSet = new Set(this.lastSocial?.onlinePlayers ?? []);
+    const byPos = new Map<number, GamePartyMember>(party.members.map(m => [m.gridPosition as number, m]));
+
+    let cells = '';
+    for (let depth = 0; depth < 3; depth++) {
+      cells += `<span class="soc-formation__depth" style="grid-row:${depth + 2}">${DEPTH_LABELS[depth]}</span>`;
+      for (let lane = 0; lane < 3; lane++) {
+        const pos = lane * 3 + (2 - depth);
+        cells += this.cellHtml(pos, byPos.get(pos), selfUsername, onlineSet, depth, lane);
+      }
+    }
+
+    return `
+      <section class="gc-card soc-formation">
+        <div class="soc-formation__head">
+          <h2 class="soc-section__title">Formation</h2>
+          <span class="soc-formation__hint">Tap or drag to a spot to move</span>
+        </div>
+        <div class="soc-formation__grid">
+          <span class="soc-formation__enemy" aria-hidden="true">▲ Enemies ▲</span>
+          ${cells}
+        </div>
+      </section>`;
+  }
+
+  private cellHtml(pos: number, member: GamePartyMember | undefined, selfUsername: string, onlineSet: Set<string>, depth: number, lane: number): string {
+    const place = `grid-row:${depth + 2};grid-column:${lane + 2}`;
+    const where = `${DEPTH_LABELS[depth]} row, lane ${lane + 1}`;
+    if (!member) {
+      return `<button type="button" class="soc-cell" data-pos="${pos}" style="${place}" aria-label="${where}: empty — move here">
+        <span class="soc-cell__plus" aria-hidden="true">+</span>
+      </button>`;
+    }
+    const isSelf = member.username === selfUsername;
+    const role = member.role === 'owner' ? '<span class="soc-cell__role soc-cell__role--owner" aria-hidden="true">★</span>'
+      : member.role === 'leader' ? '<span class="soc-cell__role" aria-hidden="true">★</span>' : '';
+    return `<button type="button" class="soc-cell is-occupied${isSelf ? ' is-self' : ''}" data-pos="${pos}" data-username="${esc(member.username)}" style="${place}" aria-label="${where}: ${esc(member.username)}${isSelf ? ' (you)' : ''}">
+      ${portraitHtml({ name: member.username, className: this.getPlayerClassName(member.username), size: 'sm', online: onlineSet.has(member.username), self: isSelf })}
+      <span class="soc-cell__name">${esc(member.username)}</span>
+      ${role}
+    </button>`;
+  }
+
+  // ── Formation repositioning ──────────────────────────────────
+
+  private onCellTap(cell: HTMLElement): void {
+    const pos = parseInt(cell.getAttribute('data-pos') ?? '', 10);
+    if (isNaN(pos)) return;
+    if (cell.classList.contains('is-occupied')) {
+      // Someone else's spot → shake no
+      if (!cell.classList.contains('is-self')) this.flashGridCell(cell);
       return;
     }
-    this.tradeActiveId = null;
-    this.tradeTargetUsername = targetUsername;
-    this.tradeSelectedItems = new Map();
-    this.snapshotInventoryForTrade();
-    this.renderTradeModal();
+    this.animateGridMove(pos);
+    this.gameClient.sendSetPartyGridPosition(pos);
   }
 
-  /** Open the trade modal for an existing trade, identified by trade ID. */
-  openExistingTrade(tradeId: string): void {
-    this.tradeActiveId = tradeId;
-    this.tradeTargetUsername = null;
-    this.tradeSelectedItems = new Map();
-    this.snapshotInventoryForTrade();
-    this.renderTradeModal();
-  }
-
-  private snapshotInventoryForTrade(): void {
-    const inv = this.lastState?.character?.inventory ?? {};
-    this.tradeInventorySnapshot = { ...inv };
-    this.lastTradeRenderKey = '';
-  }
-
-  /** Find the active trade for this modal in social state. */
-  private getActiveTrade() {
-    if (!this.tradeActiveId) return null;
-    return this.lastSocial?.proposedTrades?.find(t => t.id === this.tradeActiveId) ?? null;
-  }
-
-  private renderTradeModal(): void {
-    if (this.tradeModalEl) {
-      this.tradeModalEl.remove();
-      this.tradeModalEl = null;
-    }
-
-    const overlay = document.createElement('div');
-    overlay.className = 'trade-modal-overlay';
-
-    const modal = document.createElement('div');
-    modal.className = 'trade-modal';
-    overlay.appendChild(modal);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        // Backdrop click — close without cancelling. Trade persists asynchronously.
-        this.dismissTradeModal();
-        return;
-      }
-
-      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
-      if (!btn) return;
-
-      if (btn.matches('.trade-modal-close-btn')) {
-        this.dismissTradeModal();
-        return;
-      }
-
-      if (btn.matches('.trade-modal-cancel-btn')) {
-        const trade = this.getActiveTrade();
-        if (trade) this.gameClient.sendCancelTrade(trade.id);
-        this.dismissTradeModal();
-        return;
-      }
-
-      if (btn.matches('.trade-modal-confirm-btn')) {
-        const trade = this.getActiveTrade();
-        if (trade) this.gameClient.sendConfirmTrade(trade.id);
-        return;
-      }
-
-      if (btn.matches('.trade-qty-inc')) {
-        const itemId = btn.getAttribute('data-item-id');
-        if (!itemId) return;
-        const inventory = this.tradeInventorySnapshot ?? {};
-        const maxQty = (inventory[itemId] as number) ?? 0;
-        const current = this.tradeSelectedItems.get(itemId) ?? 0;
-        if (current < maxQty) {
-          this.tradeSelectedItems.set(itemId, current + 1);
-          this.updateTradeModal();
-        }
-        return;
-      }
-
-      if (btn.matches('.trade-qty-dec')) {
-        const itemId = btn.getAttribute('data-item-id');
-        if (!itemId) return;
-        const current = this.tradeSelectedItems.get(itemId) ?? 0;
-        if (current > 1) {
-          this.tradeSelectedItems.set(itemId, current - 1);
-        } else {
-          this.tradeSelectedItems.delete(itemId);
-        }
-        this.updateTradeModal();
-        return;
-      }
-
-      if (btn.matches('.trade-send-btn')) {
-        const items: TradeOfferItem[] = Array.from(this.tradeSelectedItems.entries())
-          .map(([itemId, quantity]) => ({ itemId, quantity }));
-        if (items.length === 0) return;
-        const trade = this.getActiveTrade();
-        if (trade) {
-          this.gameClient.sendCounterTrade(trade.id, items);
-        } else if (this.tradeTargetUsername) {
-          this.gameClient.sendProposeTrade(this.tradeTargetUsername, items);
-        }
-        // Clear local selection — server response will repaint with the new state
-        this.tradeSelectedItems = new Map();
-        return;
-      }
-    });
-
-    document.body.appendChild(overlay);
-    this.tradeModalEl = overlay;
-    bringToFront(overlay);
-    wireFocusOnInteract(overlay);
-    this.updateTradeModal();
-  }
-
-  private updateTradeModal(): void {
-    const overlay = this.tradeModalEl;
-    if (!overlay) return;
-    const modal = overlay.querySelector('.trade-modal');
-    if (!modal) return;
-
-    const trade = this.getActiveTrade();
-    const selfUsername = this.lastState?.username ?? '';
-    const itemDefs = this.lastState?.itemDefinitions ?? {};
-    const skillDefs = this.worldCache.getSkillContent().skills;
-    // Inventory comes from the frozen snapshot, not live state. The picker
-    // and qty buttons all reference this snapshot, so the tick can't move
-    // items out from under the user's selection. The server validates the
-    // offer at submission time (issue #342).
-    const inventory = this.tradeInventorySnapshot ?? {};
-
-    // Skip the re-render entirely when nothing the user can see has changed.
-    // Without this, every server tick wipes innerHTML and resets scroll, focus,
-    // etc., even when the active trade and the local selection are identical.
-    const renderKey = this.computeTradeRenderKey(trade);
-    if (renderKey === this.lastTradeRenderKey) return;
-    this.lastTradeRenderKey = renderKey;
-
-    // If a trade was being viewed but is now gone (cancelled/confirmed), close.
-    if (this.tradeActiveId && !trade) {
-      this.dismissTradeModal();
-      return;
-    }
-
-    // If no trade and no target (somehow), close.
-    if (!trade && !this.tradeTargetUsername) {
-      this.dismissTradeModal();
-      return;
-    }
-
-    const targetUsername = trade
-      ? (trade.initiator.username === selfUsername
-        ? (trade.target?.username ?? '')
-        : trade.initiator.username)
-      : (this.tradeTargetUsername ?? '');
-
-    const isSelfInitiator = trade ? trade.initiator.username === selfUsername : true;
-    const myOffer = trade
-      ? (isSelfInitiator ? trade.initiator.items : (trade.target?.items ?? []))
-      : [];
-    const theirOffer = trade
-      ? (isSelfInitiator ? (trade.target?.items ?? []) : trade.initiator.items)
-      : [];
-    const waitingOnMe = trade ? trade.lastUpdatedBy !== selfUsername : false;
-
-    const tradeableItems = listUnequippedEntries(inventory).map(([id]) => id);
-
-    const renderOfferCard = (offerItems: TradeOfferItem[], label: string): string => {
-      if (offerItems.length === 0) {
-        return `<div class="trade-item-card trade-item-empty">
-          <div class="trade-item-label">${label}</div>
-          <div class="trade-item-none">Nothing yet</div>
-        </div>`;
-      }
-      const rows = offerItems.map(({ itemId, quantity }) => {
-        const def = itemDefs[itemId];
-        const color = def ? (RARITY_COLORS[def.rarity] ?? '#e8e8e8') : '#e8e8e8';
-        const effect = def ? getItemEffectText(def, skillDefs) : '';
-        return `<div class="trade-offer-row">
-          <span class="trade-offer-name" style="color:${color}">${this.escapeHtml(def?.name ?? itemId)}</span>
-          <span class="trade-offer-qty">×${quantity}</span>
-          ${effect ? `<span class="trade-offer-effect">${this.escapeHtml(effect)}</span>` : ''}
-        </div>`;
-      }).join('');
-      return `<div class="trade-item-card"><div class="trade-item-label">${label}</div>${rows}</div>`;
-    };
-
-    const renderPicker = (): string => {
-      if (tradeableItems.length === 0) {
-        return '<div class="trade-picker-list"><div class="trade-empty">No tradeable items in inventory</div></div>';
-      }
-      const rows = tradeableItems.map(id => {
-        const def = itemDefs[id];
-        const color = def ? (RARITY_COLORS[def.rarity] ?? '#e8e8e8') : '#e8e8e8';
-        const invCount = (inventory[id] as number) ?? 0;
-        const selQty = this.tradeSelectedItems.get(id) ?? 0;
-        const effect = def ? getItemEffectText(def, skillDefs) : '';
-        return `<div class="trade-picker-row">
-          <div class="trade-picker-info">
-            <span class="trade-item-name" style="color:${color}">${this.escapeHtml(def?.name ?? id)}</span>
-            ${effect ? `<span class="trade-item-effect-small">${this.escapeHtml(effect)}</span>` : ''}
-          </div>
-          <div class="trade-picker-qty">
-            <span class="trade-item-count">×${invCount}</span>
-            <button class="trade-qty-dec" data-item-id="${this.escapeHtml(id)}"${selQty === 0 ? ' disabled' : ''}>−</button>
-            <span class="trade-qty-val">${selQty}</span>
-            <button class="trade-qty-inc" data-item-id="${this.escapeHtml(id)}"${selQty >= invCount ? ' disabled' : ''}>+</button>
-          </div>
-        </div>`;
-      }).join('');
-      return `<div class="trade-picker-list">${rows}</div>`;
-    };
-
-    const selItems: TradeOfferItem[] = Array.from(this.tradeSelectedItems.entries())
-      .map(([itemId, quantity]) => ({ itemId, quantity }));
-    const hasSelection = selItems.length > 0;
-
-    let html = `<div class="trade-modal-header">Trade with ${this.escapeHtml(targetUsername)}</div>`;
-
-    if (!trade) {
-      // Composing a new proposal
-      html += `
-        <div class="trade-picker-label">Select items to offer:</div>
-        ${renderPicker()}
-        ${renderOfferCard(selItems, 'Your offer')}
-        <div class="trade-actions">
-          <button class="social-action-btn add-friend trade-send-btn"${hasSelection ? '' : ' disabled'}>Send Trade</button>
-          <button class="social-action-btn remove-friend trade-modal-close-btn">Close</button>
-        </div>`;
-    } else if (trade.status === 'countered' && waitingOnMe) {
-      // Both offers exist and the OTHER player just countered — confirm or counter back
-      html += `
-        <div class="trade-offers">
-          ${renderOfferCard(myOffer, 'Your offer')}
-          <div class="trade-vs">⇄</div>
-          ${renderOfferCard(theirOffer, `${this.escapeHtml(targetUsername)}'s offer`)}
-        </div>
-        <div class="trade-status">${this.escapeHtml(targetUsername)} updated their offer. Confirm to accept, or counter with new items.</div>
-        <div class="trade-picker-label">Counter with:</div>
-        ${renderPicker()}
-        <div class="trade-actions">
-          <button class="social-action-btn add-friend trade-modal-confirm-btn">Confirm Trade</button>
-          <button class="social-action-btn add-friend trade-send-btn"${hasSelection ? '' : ' disabled'}>Counter</button>
-          <button class="social-action-btn remove-friend trade-modal-cancel-btn">Cancel Trade</button>
-          <button class="social-action-btn trade-modal-close-btn">Close</button>
-        </div>`;
-    } else if (trade.status === 'countered' && !waitingOnMe) {
-      // I last updated; partner needs to act
-      html += `
-        <div class="trade-offers">
-          ${renderOfferCard(myOffer, 'Your offer')}
-          <div class="trade-vs">⇄</div>
-          ${renderOfferCard(theirOffer, `${this.escapeHtml(targetUsername)}'s offer`)}
-        </div>
-        <div class="trade-status">Waiting for ${this.escapeHtml(targetUsername)} to confirm or counter...</div>
-        <div class="trade-picker-label">Update your offer:</div>
-        ${renderPicker()}
-        <div class="trade-actions">
-          <button class="social-action-btn add-friend trade-send-btn"${hasSelection ? '' : ' disabled'}>Update Offer</button>
-          <button class="social-action-btn remove-friend trade-modal-cancel-btn">Cancel Trade</button>
-          <button class="social-action-btn trade-modal-close-btn">Close</button>
-        </div>`;
-    } else if (waitingOnMe) {
-      // Pending — partner offered, my slot empty: pick counter items
-      html += `
-        <div class="trade-offers">
-          ${renderOfferCard(theirOffer, `${this.escapeHtml(targetUsername)} offers`)}
-          ${renderOfferCard(selItems, 'Your counter')}
-        </div>
-        <div class="trade-picker-label">Select items to counter with:</div>
-        ${renderPicker()}
-        <div class="trade-actions">
-          <button class="social-action-btn add-friend trade-send-btn"${hasSelection ? '' : ' disabled'}>Send Back</button>
-          <button class="social-action-btn remove-friend trade-modal-cancel-btn">Decline</button>
-          <button class="social-action-btn trade-modal-close-btn">Close</button>
-        </div>`;
-    } else {
-      // Pending — I sent a proposal, waiting for partner. Allow updating my offer.
-      html += `
-        <div class="trade-offers">
-          ${renderOfferCard(myOffer, 'Your offer')}
-          ${renderOfferCard([], `${this.escapeHtml(targetUsername)}'s offer`)}
-        </div>
-        <div class="trade-status">Waiting for ${this.escapeHtml(targetUsername)} to respond...</div>
-        <div class="trade-picker-label">Update your offer:</div>
-        ${renderPicker()}
-        <div class="trade-actions">
-          <button class="social-action-btn add-friend trade-send-btn"${hasSelection ? '' : ' disabled'}>Update Offer</button>
-          <button class="social-action-btn remove-friend trade-modal-cancel-btn">Cancel Trade</button>
-          <button class="social-action-btn trade-modal-close-btn">Close</button>
-        </div>`;
-    }
-
-    modal.innerHTML = html;
-  }
-
-  /**
-   * Fingerprint of the trade state + local selection. Used to skip the
-   * tick-driven re-render when nothing has actually changed.
-   */
-  private computeTradeRenderKey(trade: TradeState | null): string {
-    const selStr = Array.from(this.tradeSelectedItems.entries())
-      .map(([id, qty]) => `${id}:${qty}`)
-      .sort()
-      .join(',');
-    if (!trade) {
-      return `new|${this.tradeTargetUsername ?? ''}|${selStr}`;
-    }
-    const offerStr = (items: TradeOfferItem[]): string =>
-      items.map(i => `${i.itemId}:${i.quantity}`).sort().join(',');
-    return [
-      trade.id,
-      trade.status,
-      trade.lastUpdatedBy,
-      offerStr(trade.initiator.items),
-      offerStr(trade.target?.items ?? []),
-      selStr,
-    ].join('|');
-  }
-
-  dismissTradeModal(): void {
-    if (this.tradeModalEl) {
-      release(this.tradeModalEl);
-      this.tradeModalEl.remove();
-      this.tradeModalEl = null;
-    }
-    this.tradeSelectedItems = new Map();
-    this.tradeActiveId = null;
-    this.tradeTargetUsername = null;
-    this.tradeInventorySnapshot = null;
-    this.lastTradeRenderKey = '';
-  }
-
-  // ── Gift Modal ────────────────────────────────────────────────
-
-  openGiftModal(targetUsername: string): void {
-    this.giftTargetUsername = targetUsername;
-    this.giftSelectedItems = new Map();
-    this.renderGiftModal();
-  }
-
-  private renderGiftModal(): void {
-    if (this.giftModalEl) {
-      this.giftModalEl.remove();
-      this.giftModalEl = null;
-    }
-    const overlay = document.createElement('div');
-    overlay.className = 'trade-modal-overlay';
-    const modal = document.createElement('div');
-    modal.className = 'trade-modal';
-    overlay.appendChild(modal);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) { this.dismissGiftModal(); return; }
-      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
-      if (!btn) return;
-
-      if (btn.matches('.gift-close-btn')) { this.dismissGiftModal(); return; }
-
-      if (btn.matches('.gift-qty-inc')) {
-        const itemId = btn.getAttribute('data-item-id');
-        if (!itemId) return;
-        const inventory = this.lastState?.character?.inventory ?? {};
-        const maxQty = (inventory[itemId] as number) ?? 0;
-        const current = this.giftSelectedItems.get(itemId) ?? 0;
-        if (current < maxQty) {
-          this.giftSelectedItems.set(itemId, current + 1);
-          this.updateGiftModal();
-        }
-        return;
-      }
-
-      if (btn.matches('.gift-qty-dec')) {
-        const itemId = btn.getAttribute('data-item-id');
-        if (!itemId) return;
-        const current = this.giftSelectedItems.get(itemId) ?? 0;
-        if (current > 1) this.giftSelectedItems.set(itemId, current - 1);
-        else this.giftSelectedItems.delete(itemId);
-        this.updateGiftModal();
-        return;
-      }
-
-      if (btn.matches('.gift-send-btn')) {
-        if (!this.giftTargetUsername) return;
-        const target = this.giftTargetUsername;
-        // Send each item entry as its own gift so the mailbox has separate stacks.
-        for (const [itemId, quantity] of this.giftSelectedItems) {
-          this.gameClient.sendGift(target, itemId, quantity);
-        }
-        this.dismissGiftModal();
-        return;
-      }
-    });
-
-    document.body.appendChild(overlay);
-    this.giftModalEl = overlay;
-    bringToFront(overlay);
-    wireFocusOnInteract(overlay);
-    this.updateGiftModal();
-  }
-
-  private updateGiftModal(): void {
-    const overlay = this.giftModalEl;
-    if (!overlay) return;
-    const modal = overlay.querySelector('.trade-modal');
-    if (!modal) return;
-
-    const itemDefs = this.lastState?.itemDefinitions ?? {};
-    const skillDefs = this.worldCache.getSkillContent().skills;
-    const inventory = this.lastState?.character?.inventory ?? {};
-    const target = this.giftTargetUsername ?? '';
-    const giftableItems = listUnequippedEntries(inventory).map(([id]) => id);
-
-    const selItems = Array.from(this.giftSelectedItems.entries());
-    const hasSelection = selItems.length > 0;
-
-    const renderPicker = (): string => {
-      if (giftableItems.length === 0) {
-        return '<div class="trade-picker-list"><div class="trade-empty">No giftable items in inventory</div></div>';
-      }
-      const rows = giftableItems.map(id => {
-        const def = itemDefs[id];
-        const color = def ? (RARITY_COLORS[def.rarity] ?? '#e8e8e8') : '#e8e8e8';
-        const invCount = (inventory[id] as number) ?? 0;
-        const selQty = this.giftSelectedItems.get(id) ?? 0;
-        const effect = def ? getItemEffectText(def, skillDefs) : '';
-        return `<div class="trade-picker-row">
-          <div class="trade-picker-info">
-            <span class="trade-item-name" style="color:${color}">${this.escapeHtml(def?.name ?? id)}</span>
-            ${effect ? `<span class="trade-item-effect-small">${this.escapeHtml(effect)}</span>` : ''}
-          </div>
-          <div class="trade-picker-qty">
-            <span class="trade-item-count">×${invCount}</span>
-            <button class="gift-qty-dec" data-item-id="${this.escapeHtml(id)}"${selQty === 0 ? ' disabled' : ''}>−</button>
-            <span class="trade-qty-val">${selQty}</span>
-            <button class="gift-qty-inc" data-item-id="${this.escapeHtml(id)}"${selQty >= invCount ? ' disabled' : ''}>+</button>
-          </div>
-        </div>`;
-      }).join('');
-      return `<div class="trade-picker-list">${rows}</div>`;
-    };
-
-    const summaryHtml = selItems.length === 0
-      ? '<div class="trade-item-card trade-item-empty"><div class="trade-item-none">No items selected</div></div>'
-      : `<div class="trade-item-card"><div class="trade-item-label">You will gift</div>${selItems.map(([id, q]) => {
-          const def = itemDefs[id];
-          const color = def ? (RARITY_COLORS[def.rarity] ?? '#e8e8e8') : '#e8e8e8';
-          return `<div class="trade-offer-row">
-            <span class="trade-offer-name" style="color:${color}">${this.escapeHtml(def?.name ?? id)}</span>
-            <span class="trade-offer-qty">×${q}</span>
-          </div>`;
-        }).join('')}</div>`;
-
-    modal.innerHTML = `
-      <div class="trade-modal-header">Send gift to ${this.escapeHtml(target)}</div>
-      <div class="trade-status">Gifts arrive in their mailbox. They can accept or decline; declined gifts return to your mailbox.</div>
-      <div class="trade-picker-label">Select items to gift:</div>
-      ${renderPicker()}
-      ${summaryHtml}
-      <div class="trade-actions">
-        <button class="social-action-btn add-friend gift-send-btn"${hasSelection ? '' : ' disabled'}>Send Gift</button>
-        <button class="social-action-btn remove-friend gift-close-btn">Cancel</button>
-      </div>
-    `;
-  }
-
-  dismissGiftModal(): void {
-    if (this.giftModalEl) {
-      release(this.giftModalEl);
-      this.giftModalEl.remove();
-      this.giftModalEl = null;
-    }
-    this.giftTargetUsername = null;
-    this.giftSelectedItems = new Map();
-  }
-
-  private escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  // ── Party grid repositioning ──────────────────────────────
-
-  /** Flash a party grid cell red to indicate it's occupied. */
   private flashGridCell(cell: HTMLElement): void {
-    cell.classList.remove('grid-flash-red');
+    cell.classList.remove('is-denied');
     void cell.offsetWidth;
-    cell.classList.add('grid-flash-red');
-    cell.addEventListener('animationend', () => {
-      cell.classList.remove('grid-flash-red');
-    }, { once: true });
+    cell.classList.add('is-denied');
+    cell.addEventListener('animationend', () => cell.classList.remove('is-denied'), { once: true });
   }
 
-  /** Animate the current player's cell tilting and sliding toward targetPos. */
+  /** Tilt-and-slide the player's own cell toward the target, then swap optimistically. */
   private animateGridMove(targetPos: number): void {
     const party = this.lastSocial?.party;
     const selfUsername = this.lastState?.username;
@@ -1956,145 +1135,109 @@ export class SocialScreen implements Screen {
     const self = party.members.find(m => m.username === selfUsername);
     if (!self || self.gridPosition === undefined) return;
 
-    const srcPos = self.gridPosition as number;
-    const grid = this.panelContainer.querySelector('.social-party-grid');
-    if (!grid) return;
-    const sourceCell = grid.querySelector(`.social-party-cell[data-pos="${srcPos}"]`) as HTMLElement | null;
-    const targetCell = grid.querySelector(`.social-party-cell[data-pos="${targetPos}"]`) as HTMLElement | null;
-    if (!sourceCell || !targetCell) return;
+    const grid = this.panelContainer.querySelector('.soc-formation__grid');
+    const src = grid?.querySelector<HTMLElement>(`.soc-cell[data-pos="${self.gridPosition}"]`);
+    const dst = grid?.querySelector<HTMLElement>(`.soc-cell[data-pos="${targetPos}"]`);
+    if (!src || !dst) return;
 
-    // Use actual bounding rects for precise pixel offset
-    const srcRect = sourceCell.getBoundingClientRect();
-    const dstRect = targetCell.getBoundingClientRect();
-    const dx = dstRect.left - srcRect.left;
-    const dy = dstRect.top - srcRect.top;
-
-    const srcCol = srcPos % 3;
-    const dstCol = targetPos % 3;
-    const srcRow = Math.floor(srcPos / 3);
-    const dstRow = Math.floor(targetPos / 3);
-    const tiltDeg = (dstCol - srcCol) * 8 + (dstRow - srcRow) * 4;
-
-    sourceCell.style.setProperty('--tilt', `${tiltDeg}deg`);
-    sourceCell.style.setProperty('--move-x', `${dx}px`);
-    sourceCell.style.setProperty('--move-y', `${dy}px`);
+    const a = src.getBoundingClientRect();
+    const b = dst.getBoundingClientRect();
+    const dx = b.left - a.left;
+    const dy = b.top - a.top;
+    const tilt = Math.sign(dx) * 8 + Math.sign(dy) * 4;
+    src.style.setProperty('--tilt', `${tilt}deg`);
+    src.style.setProperty('--move-x', `${dx}px`);
+    src.style.setProperty('--move-y', `${dy}px`);
 
     this.gridAnimating = true;
-    void sourceCell.offsetWidth;
-    sourceCell.classList.add('grid-move-anim');
-
-    sourceCell.addEventListener('animationend', () => {
-      sourceCell.classList.remove('grid-move-anim');
-      sourceCell.style.removeProperty('--tilt');
-      sourceCell.style.removeProperty('--move-x');
-      sourceCell.style.removeProperty('--move-y');
-      // Optimistic UI: swap cell contents so player appears at new position immediately
-      const srcHtml = sourceCell.innerHTML;
-      const srcOccupied = sourceCell.classList.contains('occupied');
-      sourceCell.innerHTML = targetCell.innerHTML;
-      sourceCell.classList.toggle('occupied', targetCell.classList.contains('occupied'));
-      targetCell.innerHTML = srcHtml;
-      targetCell.classList.toggle('occupied', srcOccupied);
+    void src.offsetWidth;
+    src.classList.add('is-moving');
+    src.addEventListener('animationend', () => {
+      src.classList.remove('is-moving');
+      src.style.removeProperty('--tilt');
+      src.style.removeProperty('--move-x');
+      src.style.removeProperty('--move-y');
+      // Swap contents + state so the player shows in the new spot right away.
+      const swap = (attr: string) => {
+        const av = src.getAttribute(attr);
+        const bv = dst.getAttribute(attr);
+        if (bv === null) src.removeAttribute(attr); else src.setAttribute(attr, bv);
+        if (av === null) dst.removeAttribute(attr); else dst.setAttribute(attr, av);
+      };
+      const html = src.innerHTML;
+      src.innerHTML = dst.innerHTML;
+      dst.innerHTML = html;
+      swap('data-username');
+      for (const c of ['is-occupied', 'is-self']) {
+        const had = src.classList.contains(c);
+        src.classList.toggle(c, dst.classList.contains(c));
+        dst.classList.toggle(c, had);
+      }
       this.gridAnimating = false;
     }, { once: true });
   }
 
   private onGridDragStart(e: MouseEvent | TouchEvent): void {
-    const target = (e.target as HTMLElement).closest('.social-party-cell.occupied[data-pos]') as HTMLElement | null;
-    if (!target) return;
-
-    const pos = parseInt(target.getAttribute('data-pos')!, 10);
-    const party = this.lastSocial?.party;
+    const cell = (e.target as HTMLElement).closest<HTMLElement>('.soc-cell.is-self[data-pos]');
+    if (!cell) return;
     const selfUsername = this.lastState?.username;
-    if (!party || !selfUsername) return;
-
-    const member = party.members.find(m => m.gridPosition === pos);
-    if (!member || member.username !== selfUsername) return; // can only drag self
+    if (!selfUsername) return;
 
     e.preventDefault();
     this.gridDragging = true;
-    this.gridDragSourcePos = pos;
+    this.gridDragSourcePos = parseInt(cell.getAttribute('data-pos')!, 10);
 
-    // Create ghost
     const ghost = document.createElement('div');
-    ghost.className = 'party-drag-ghost';
-    ghost.innerHTML = `${this.classIcon(this.getPlayerClassName(selfUsername))} ${this.escapeHtml(selfUsername)}`;
+    ghost.className = 'soc-drag-ghost';
+    ghost.innerHTML = `${portraitHtml({ name: selfUsername, className: this.getPlayerClassName(selfUsername), size: 'sm', self: true })}<span>${esc(selfUsername)}</span>`;
     document.body.appendChild(ghost);
     this.gridDragGhost = ghost;
-
     const { clientX, clientY } = this.getPointerXY(e);
-    ghost.style.left = `${clientX - 20}px`;
-    ghost.style.top = `${clientY - 16}px`;
+    this.placeGhost(clientX, clientY);
+  }
+
+  private placeGhost(x: number, y: number): void {
+    if (!this.gridDragGhost) return;
+    this.gridDragGhost.style.left = `${x - 28}px`;
+    this.gridDragGhost.style.top = `${y - 28}px`;
   }
 
   private onGridDragMove(e: MouseEvent | TouchEvent): void {
     if (!this.gridDragging || !this.gridDragGhost) return;
     e.preventDefault();
     const { clientX, clientY } = this.getPointerXY(e);
-    this.gridDragGhost.style.left = `${clientX - 20}px`;
-    this.gridDragGhost.style.top = `${clientY - 16}px`;
+    this.placeGhost(clientX, clientY);
 
-    // Update hover throb on cells under cursor
-    const elUnder = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-    const cell = elUnder?.closest('.social-party-cell[data-pos]') as HTMLElement | null;
-    const validCell = cell && cell !== this.gridDragHoverCell
-      && parseInt(cell.getAttribute('data-pos')!, 10) !== this.gridDragSourcePos
-      ? cell : (cell && parseInt(cell.getAttribute('data-pos')!, 10) === this.gridDragSourcePos ? null : cell);
-
-    if (validCell !== this.gridDragHoverCell) {
-      // Remove old hover
-      if (this.gridDragHoverCell) {
-        this.gridDragHoverCell.classList.remove('drag-hover-green', 'drag-hover-red');
-        this.gridDragHoverCell = null;
-      }
-      // Add new hover if valid target (not source)
-      if (validCell) {
-        const pos = parseInt(validCell.getAttribute('data-pos')!, 10);
-        if (!isNaN(pos) && pos !== this.gridDragSourcePos) {
-          this.gridDragHoverCell = validCell;
-          validCell.classList.add(validCell.classList.contains('occupied') ? 'drag-hover-red' : 'drag-hover-green');
-        }
-      }
-    }
+    const under = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const cell = under?.closest<HTMLElement>('.soc-cell[data-pos]') ?? null;
+    const valid = cell && parseInt(cell.getAttribute('data-pos')!, 10) !== this.gridDragSourcePos ? cell : null;
+    if (valid === this.gridDragHoverCell) return;
+    this.gridDragHoverCell?.classList.remove('is-drop-ok', 'is-drop-bad');
+    this.gridDragHoverCell = valid;
+    valid?.classList.add(valid.classList.contains('is-occupied') ? 'is-drop-bad' : 'is-drop-ok');
   }
 
   private onGridDragEnd(e: MouseEvent | TouchEvent): void {
     if (!this.gridDragging) return;
     this.gridDragging = false;
+    this.gridDragGhost?.remove();
+    this.gridDragGhost = null;
+    this.gridDragHoverCell?.classList.remove('is-drop-ok', 'is-drop-bad');
+    this.gridDragHoverCell = null;
 
-    // Remove ghost
-    if (this.gridDragGhost) {
-      this.gridDragGhost.remove();
-      this.gridDragGhost = null;
-    }
-
-    // Clear hover throb
-    if (this.gridDragHoverCell) {
-      this.gridDragHoverCell.classList.remove('drag-hover-green', 'drag-hover-red');
-      this.gridDragHoverCell = null;
-    }
-
-    // Determine drop target
     const { clientX, clientY } = this.getPointerXY(e);
-    const dropEl = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-    if (!dropEl) { this.gridDragSourcePos = null; return; }
-
-    const cell = dropEl.closest('.social-party-cell[data-pos]') as HTMLElement | null;
-    if (!cell) { this.gridDragSourcePos = null; return; }
-
+    const cell = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>('.soc-cell[data-pos]');
+    const source = this.gridDragSourcePos;
+    this.gridDragSourcePos = null;
+    if (!cell) return;
     const pos = parseInt(cell.getAttribute('data-pos')!, 10);
-    if (isNaN(pos) || pos === this.gridDragSourcePos) { this.gridDragSourcePos = null; return; }
-
-    if (cell.classList.contains('occupied')) {
-      // Dropped on another player → flash red
+    if (isNaN(pos) || pos === source) return;
+    if (cell.classList.contains('is-occupied')) {
       this.flashGridCell(cell);
     } else {
-      // Dropped on empty cell → animate then move
       this.animateGridMove(pos);
       this.gameClient.sendSetPartyGridPosition(pos);
     }
-
-    this.gridDragSourcePos = null;
   }
 
   private getPointerXY(e: MouseEvent | TouchEvent): { clientX: number; clientY: number } {
@@ -2102,197 +1245,6 @@ export class SocialScreen implements Screen {
       const t = e.changedTouches?.[0] ?? e.touches?.[0];
       return t ? { clientX: t.clientX, clientY: t.clientY } : { clientX: 0, clientY: 0 };
     }
-    return { clientX: (e as MouseEvent).clientX, clientY: (e as MouseEvent).clientY };
-  }
-
-  // ── Player Profile Modal ─────────────────────────────
-
-  private showPlayerProfile(username: string): void {
-    this.gameClient.sendViewPlayer(username);
-
-    const unsub = this.gameClient.onPlayerProfile((profile) => {
-      if (profile.username !== username) return;
-      unsub();
-      this.renderPlayerProfileModal(profile);
-    });
-  }
-
-  private renderPlayerProfileModal(profile: PlayerProfileMessage): void {
-    // Dismiss any existing profile modal
-    const existing = document.querySelector('.player-profile-overlay') as HTMLElement | null;
-    if (existing) {
-      release(existing);
-      existing.remove();
-    }
-
-    const overlay = document.createElement('div');
-    overlay.className = 'player-profile-overlay';
-
-    const modal = document.createElement('div');
-    modal.className = 'player-profile-modal';
-    overlay.appendChild(modal);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        release(overlay);
-        overlay.remove();
-      }
-    });
-
-    const icon = classIconHtml(profile.className);
-
-    // Equipment section
-    // Mainhand/offhand sit at the bottom of their respective columns now —
-    // no separate bottom row. A small CSS gap separates them visually.
-    const LEFT_SLOTS = ['head', 'shoulders', 'chest', 'gloves', 'foot', 'mainhand'];
-    const RIGHT_SLOTS = ['back', 'necklace', 'bracers', 'ring', 'relic', 'offhand'];
-
-    const renderProfileSlot = (slot: string) => {
-      const itemId = profile.equipment[slot];
-      const def = itemId ? profile.itemDefinitions[itemId] : null;
-      const dataAttrs: Record<string, string> = { slot, 'item-id': itemId ?? '' };
-      if (def && itemId) {
-        return renderItemIcon(itemId, def, {
-          showSlotIcon: true,
-          slotOverride: slot,
-          extraClass: 'profile-slot-square',
-          dataAttrs,
-        });
-      }
-      return renderEmptySlotIcon(slot, {
-        extraClass: 'profile-slot-square',
-        dataAttrs,
-      });
-    };
-
-    const leftSlotsHtml = LEFT_SLOTS.map(renderProfileSlot).join('');
-    const rightSlotsHtml = RIGHT_SLOTS.map(renderProfileSlot).join('');
-
-    // Class portrait replaces the old CSS silhouette in the equipment panel
-    // center slot. Falls through to placehold.co if the artwork is missing.
-    const portraitHtml = renderAssetImg('class', profile.className, {
-      label: profile.className,
-      width: 360,
-      height: 440,
-      className: 'profile-portrait-img',
-      alt: `${profile.className} portrait`,
-    });
-
-    const equipHtml = `
-      <div class="profile-equip-panel">
-        <div class="profile-equip-col profile-equip-left">${leftSlotsHtml}</div>
-        <div class="profile-equip-figure profile-portrait">${portraitHtml}</div>
-        <div class="profile-equip-col profile-equip-right">${rightSlotsHtml}</div>
-      </div>`;
-
-
-    // Skills section — slots come from the PROFILE player's class schedule;
-    // skills resolve via the cross-class catalog so any player renders.
-    const skillHtml = this.worldCache.getSlotSchedule(profile.className).map((slot, i) => {
-      const skillId = profile.skillLoadout.equippedSkills[i];
-      const skill = skillId ? this.worldCache.getSkill(skillId) : null;
-      const isUnlocked = profile.level >= slot.unlocksAtLevel;
-      if (!isUnlocked) {
-        return `<div class="profile-skill-slot locked">
-          <span class="profile-skill-type">${slot.type}</span>
-          <span class="profile-skill-name">Locked (Lv ${slot.unlocksAtLevel})</span>
-        </div>`;
-      }
-      if (!skill) {
-        return `<div class="profile-skill-slot empty">
-          <span class="profile-skill-type">${slot.type}</span>
-          <span class="profile-skill-name">Empty</span>
-        </div>`;
-      }
-      return `<div class="profile-skill-slot ${skill.type}">
-        <span class="profile-skill-type">${skill.type}${skill.cooldown ? ` CD${skill.cooldown}` : ''}</span>
-        <span class="profile-skill-name">${this.escapeHtml(skill.name)}</span>
-      </div>`;
-    }).join('');
-
-    // Party members section
-    const partyHtml = profile.partyMembers.length > 1
-      ? profile.partyMembers.map(m => {
-        const memberIcon = classIconHtml(m.className);
-        const lvl = m.level ? ` Lv ${m.level}` : '';
-        return `<div class="profile-party-member">${memberIcon} ${this.escapeHtml(m.username)}${lvl}</div>`;
-      }).join('')
-      : '<div class="profile-empty">Solo</div>';
-
-    modal.innerHTML = `
-      <div class="profile-header">
-        <span class="profile-class-icon">${icon}</span>
-        <span class="profile-name">${this.escapeHtml(profile.username)}</span>
-        <span class="profile-level">Lv ${profile.level}</span>
-      </div>
-      <div class="profile-class">${profile.className}</div>
-      <div class="profile-guild">${profile.guildName ? this.escapeHtml(profile.guildName) : 'No Guild'}</div>
-      <div class="profile-section-label">Equipment</div>
-      ${equipHtml}
-      <div class="profile-section-label">Skills</div>
-      <div class="profile-skills">${skillHtml}</div>
-      <div class="profile-section-label">Party</div>
-      <div class="profile-party">${partyHtml}</div>
-      <button class="profile-close-btn">Close</button>
-    `;
-
-    modal.querySelector('.profile-close-btn')!.addEventListener('click', () => overlay.remove());
-
-    // Wire equipment square clicks to show read-only item popup
-    const setDefs = profile.setDefinitions ?? {};
-    const equippedItemIds = getEquippedItemIds(profile.equipment);
-    const profileClassName = profile.className;
-
-    for (const el of modal.querySelectorAll('.profile-slot-square')) {
-      el.addEventListener('click', () => {
-        const itemId = el.getAttribute('data-item-id');
-        if (!itemId) return;
-        const def = profile.itemDefinitions[itemId];
-        if (!def) return;
-        this.showProfileItemPopup(def, setDefs, equippedItemIds, profileClassName, el as HTMLElement);
-      });
-    }
-
-    document.body.appendChild(overlay);
-    bringToFront(overlay);
-    wireFocusOnInteract(overlay);
-  }
-
-  private showProfileItemPopup(
-    def: ItemDefinition,
-    setDefs: Record<string, SetDefinition>,
-    equippedItemIds: Set<string>,
-    profileClassName: string,
-    _anchor: HTMLElement,
-  ): void {
-    // Remove any existing popup
-    document.querySelector('.profile-item-popup-overlay')?.remove();
-
-    // Use the profile's item defs (sent with the profile message). Fall back to the
-    // viewer's itemDefinitions only as a last resort — don't merge their item names
-    // into another player's profile.
-    const profileMsg = this.gameClient.lastState;
-    const itemDefs = profileMsg?.itemDefinitions ?? {};
-    const popupContent = renderItemPopupContent(def, {
-      itemDefs,
-      setDefs,
-      ownedItemIds: equippedItemIds,
-      equippedItemIds,
-      className: profileClassName,
-      skills: this.worldCache.getSkillContent().skills,
-      actionsHtml: '<button class="profile-item-close-btn">Close</button>',
-    });
-
-    const overlay = document.createElement('div');
-    overlay.className = 'profile-item-popup-overlay item-popup-overlay';
-    overlay.innerHTML = `<div class="item-popup">${popupContent}</div>`;
-
-    const dismiss = () => { release(overlay); overlay.remove(); };
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
-    overlay.querySelector('.profile-item-close-btn')!.addEventListener('click', dismiss);
-
-    document.body.appendChild(overlay);
-    bringToFront(overlay);
-    wireFocusOnInteract(overlay);
+    return { clientX: e.clientX, clientY: e.clientY };
   }
 }
