@@ -19,6 +19,8 @@ import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
 import type { RoomEntryFailureKind } from './RoomRequirements.js';
+import type { BankErrorCode } from './BankTypes.js';
+import type { InventoryErrorCode } from './BagTypes.js';
 
 
 export type BattleTimerState = 'battle' | 'result';
@@ -315,7 +317,9 @@ export type ServerErrorCode =
   | 'home_invite_refused'
   | 'home_too_far'
   | 'home_cannot_travel'
-  | 'home_invalid_request';
+  | 'home_invalid_request'
+  | InventoryErrorCode
+  | BankErrorCode;
 
 export interface WelcomeBackItem {
   itemId: string;

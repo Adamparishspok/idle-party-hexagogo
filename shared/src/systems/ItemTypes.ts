@@ -1,4 +1,5 @@
 import type { SkillDefinition } from './SkillTypes.js';
+import type { PartialAttributes } from './AttributeTypes.js';
 
 // --- Types ---
 
@@ -27,6 +28,10 @@ export interface ItemDefinition {
   iconColor?: string;
   /** Skill IDs this item grants while equipped (availability only — the player still equips the skill into a slot). */
   grantedSkillIds?: string[];
+  /** Core attributes this item grants while equipped. Heirlooms scale them by level. See docs/architecture/gear-stats-bank.md. */
+  attributes?: PartialAttributes;
+  /** Present (> 0) only on bags: extra backpack slots while the bag sits in a bag slot. Bags have no `equipSlot`. */
+  bagSlots?: number;
 }
 
 export interface ItemDrop {

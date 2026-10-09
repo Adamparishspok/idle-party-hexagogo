@@ -561,3 +561,118 @@ export type {
   ClientHousingMessage,
   HomeLocation,
 } from './systems/HousingTypes.js';
+
+// Core attributes and derived stats
+export {
+  ATTRIBUTE_NAMES,
+  ATTRIBUTE_LABELS,
+  ATTRIBUTE_ABBREVIATIONS,
+  CLASS_ATTRIBUTE_PROFILES,
+  STRENGTH_PER_ARMOR,
+  INTELLECT_PER_RESIST,
+  CRIT_PER_AGILITY,
+  DODGE_PER_AGILITY,
+  MAX_ATTRIBUTE_CRIT,
+  MAX_ATTRIBUTE_DODGE,
+  RARITY_ATTRIBUTE_BUDGET,
+  emptyAttributes,
+  addAttributes,
+  hasAttributes,
+  classBaseAttributes,
+  itemAttributes,
+  equipmentAttributes,
+  computeSetAttributes,
+  computeDerivedStats,
+  derivedToEquipmentBonuses,
+  suggestedAttributeBudget,
+  validateAttributes,
+} from './systems/AttributeTypes.js';
+export type {
+  AttributeName,
+  PrimaryAttribute,
+  ClassAttributeProfile,
+  AttributeBlock,
+  PartialAttributes,
+  DerivedStats,
+  DerivedStatsInput,
+} from './systems/AttributeTypes.js';
+
+// Gear picker / tooltip / compare helpers
+export {
+  canClassUse,
+  slotAccepts,
+  itemsForSlot,
+  previewEquip,
+  statDelta,
+  compareEquip,
+  describeItemStats,
+} from './systems/GearTypes.js';
+export type {
+  SlotCandidate,
+  ItemStatLineKind,
+  ItemStatLine,
+  DerivedStatKey,
+  StatDeltaLine,
+} from './systems/GearTypes.js';
+
+// Backpack capacity, bags, Lost & Found
+export {
+  BACKPACK_BASE_SLOTS,
+  BAG_SLOT_COUNT,
+  MAX_BAG_SIZE,
+  LOST_AND_FOUND_SLOTS,
+  isBag,
+  normalizeBagSlots,
+  inventoryCapacity,
+  usedInventorySlots,
+  freeInventorySlots,
+  fitsInventoryChanges,
+  canAddToInventory,
+  maxAddable,
+  equipBag,
+  unequipBag,
+  routeIncomingItems,
+  claimFromPouch,
+  validateBagItem,
+} from './systems/BagTypes.js';
+export type {
+  BagSlots,
+  InventoryErrorCode,
+  BagResult,
+  ItemRouting,
+  ClientEquipBagMessage,
+  ClientUnequipBagMessage,
+  ClientClaimLostFoundMessage,
+  ClientDiscardLostFoundMessage,
+  ClientInventoryMessage,
+} from './systems/BagTypes.js';
+
+// Bank
+export {
+  BANK_BASE_TABS,
+  BANK_SLOTS_PER_TAB,
+  BANK_TAB_PRICES,
+  MAX_BANK_TABS,
+  emptyBank,
+  normalizeBank,
+  nextBankTabPrice,
+  addBankTab,
+  bankTabUsedSlots,
+  canDepositToTab,
+  chooseDepositTab,
+  bankDeposit,
+  bankWithdraw,
+  bankMove,
+  toClientBankState,
+} from './systems/BankTypes.js';
+export type {
+  PlayerBank,
+  ClientBankState,
+  BankErrorCode,
+  BankResult,
+  ClientBankDepositMessage,
+  ClientBankWithdrawMessage,
+  ClientBankMoveMessage,
+  ClientBankBuyTabMessage,
+  ClientBankMessage,
+} from './systems/BankTypes.js';

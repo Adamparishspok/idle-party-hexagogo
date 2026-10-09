@@ -15,6 +15,8 @@ export interface ShopDefinition {
   henchmanIds?: string[];
   /** Houses this shop sells (an estate agent), by `HouseDefinition.id`. */
   houseIds?: string[];
+  /** A banker: standing in this shop's room opens the player's bank. */
+  banker?: boolean;
 }
 
 /** What a room's shop offers, without its stock — enough to label explored rooms on the map. */
@@ -24,6 +26,7 @@ export interface ShopSummary {
   sellsItems: boolean;
   hiresHenchmen: boolean;
   sellsHouses: boolean;
+  isBanker: boolean;
 }
 
 export function toShopSummary(shop: ShopDefinition): ShopSummary {
@@ -33,5 +36,6 @@ export function toShopSummary(shop: ShopDefinition): ShopSummary {
     sellsItems: (shop.inventory?.length ?? 0) > 0,
     hiresHenchmen: (shop.henchmanIds?.length ?? 0) > 0,
     sellsHouses: (shop.houseIds?.length ?? 0) > 0,
+    isBanker: shop.banker === true,
   };
 }

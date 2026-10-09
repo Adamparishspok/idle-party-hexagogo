@@ -1,5 +1,6 @@
 import type { EquipmentBonuses, ItemDefinition } from './ItemTypes.js';
 import type { SkillDefinition } from './SkillTypes.js';
+import type { PartialAttributes } from './AttributeTypes.js';
 
 // --- Types ---
 
@@ -28,6 +29,8 @@ export interface SetBonuses {
   percentHp?: number;
   /** Skill IDs this tier grants while active (availability only — the player still equips the skill into a slot). */
   grantedSkillIds?: string[];
+  /** Core attributes this tier grants. Summed by `computeSetAttributes`, not by `computeActiveSetBonuses`. */
+  attributes?: PartialAttributes;
 }
 
 /**
@@ -167,7 +170,7 @@ export function computeActiveSetBonuses(
   }
 
   const activeSetIds: string[] = [];
-  const combined: Required<SetBonuses> = {
+  const combined: Required<Omit<SetBonuses, 'attributes'>> = {
     cooldownReduction: 0,
     damagePercent: 0,
     damageResistancePercent: 0,
