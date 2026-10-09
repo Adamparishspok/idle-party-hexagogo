@@ -1,0 +1,596 @@
+[
+  {
+    "kind": "item",
+    "id": "janky_helmet",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_helm_chainmail_coif.png",
+    "note": "Battered grey helm with a rag hanging off it \u2014 reads as a janky starter helmet. v2 pixel gear (craftpix has no armor)."
+  },
+  {
+    "kind": "item",
+    "id": "leather_vest",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_chest_leather_vest.png",
+    "note": "Exact name match: brown leather vest."
+  },
+  {
+    "kind": "item",
+    "id": "old_leather_boots",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_boots_arena_runners.png",
+    "note": "Plain brown leather boot; hide_boots is purple so this reads better as old leather."
+  },
+  {
+    "kind": "item",
+    "id": "magma_boots",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_boots_flamestride.png",
+    "note": "Golden boots wreathed in flame \u2014 magma walking."
+  },
+  {
+    "kind": "item",
+    "id": "tarnished_ring",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_ring_copper_band.png",
+    "note": "Plain dull copper band \u2014 tarnished."
+  },
+  {
+    "kind": "item",
+    "id": "ancestral_signet",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_ring_godblood.png",
+    "note": "Gold ring with a red stone \u2014 signet look, matches the gold/silver ancestral set."
+  },
+  {
+    "kind": "item",
+    "id": "frayed_cord_necklace",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_amulet_wolftooth_necklace.png",
+    "note": "Simple cord with a tooth pendant."
+  },
+  {
+    "kind": "item",
+    "id": "prayer_beads",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/rpg_496/Ac_Necklace08.png",
+    "note": "Bead chain with a cross (rosary). 34px rpg_496 icon \u2014 nothing painted fits; will look small/pixelated."
+  },
+  {
+    "kind": "item",
+    "id": "splintered_buckler",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_offhand_wooden_shield.png",
+    "note": "Plain wooden shield \u2014 splintered buckler."
+  },
+  {
+    "kind": "item",
+    "id": "ancestral_ward",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_offhand_kite_shield.png",
+    "note": "Ornate gold-trimmed kite shield with emblem \u2014 heirloom ward."
+  },
+  {
+    "kind": "item",
+    "id": "cracked_bracers",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_gauntlets_berserker.png",
+    "note": "Pair of scuffed metal vambraces."
+  },
+  {
+    "kind": "item",
+    "id": "worn_gloves",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_gauntlets_leather_wraps.png",
+    "note": "Pair of worn brown leather hand wraps \u2014 closest thing to plain gloves (no glove icon exists)."
+  },
+  {
+    "kind": "item",
+    "id": "tattered_pauldrons",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/gear/gear_starter_shoulders.png",
+    "note": "Starter shoulder armor (only in the v1 repo; v2 dropped the starter_* set)."
+  },
+  {
+    "kind": "item",
+    "id": "moth_eaten_cloak",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/resources/42.png",
+    "note": "Folded tan cloth (painted craftpix) \u2014 nothing cloak-shaped exists; reads as an old cloth garment. Review."
+  },
+  {
+    "kind": "item",
+    "id": "iron_battleaxe",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/gear/gear_weapon_iron_battle_axe.png",
+    "note": "Exact name match: iron battle axe."
+  },
+  {
+    "kind": "monster",
+    "id": "stone_wall",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/blacksmith/33.png",
+    "note": "Painted cobblestone slab \u2014 reads as a section of stone wall. Weak-ish fit; review."
+  },
+  {
+    "kind": "nav-icon",
+    "id": "combat",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/skills/skill 67.png",
+    "note": "Painted crossed swords."
+  },
+  {
+    "kind": "nav-icon",
+    "id": "map",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/rpg_496/I_Map.png",
+    "note": "Parchment map. Only map icon in any repo; 34px pixel art \u2014 will look soft next to the painted ones."
+  },
+  {
+    "kind": "nav-icon",
+    "id": "items",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/skill_berserker/2.png",
+    "note": "Painted horned-helmet hero face \u2014 \"Character\" tab."
+  },
+  {
+    "kind": "nav-icon",
+    "id": "craft",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/blacksmith/5.png",
+    "note": "Painted steel anvil."
+  },
+  {
+    "kind": "nav-icon",
+    "id": "social",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/skills/skill 90.png",
+    "note": "Painted clasped hands \u2014 fellowship/party."
+  },
+  {
+    "kind": "nav-icon",
+    "id": "settings",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/blacksmith/50.png",
+    "note": "Painted steel cog."
+  },
+  {
+    "kind": "nav-icon-alt",
+    "id": "combat-axes-shield",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/skill_berserker/24.png",
+    "note": "Alternate combat icon: crossed axes over a round shield."
+  },
+  {
+    "kind": "nav-icon-alt",
+    "id": "social-warriors",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/skill_berserker/27.png",
+    "note": "Alternate social icon: two warriors side by side."
+  },
+  {
+    "kind": "nav-icon-alt",
+    "id": "items-shield",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/skill_berserker/7.png",
+    "note": "Alternate Character icon: round wooden shield."
+  },
+  {
+    "kind": "nav-icon-alt",
+    "id": "craft-hammer",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/blacksmith/13.png",
+    "note": "Alternate craft icon: smithing hammer."
+  },
+  {
+    "kind": "nav-icon-alt",
+    "id": "map-scroll",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/icons/craftpix/blacksmith/22.png",
+    "note": "Alternate map icon: painted scroll (it is a dagger blueprint, but reads as a parchment at nav size)."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "hatchetmill",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-sword_shield.png",
+    "note": "Village yard: palisade, stone hut, tree, lantern. (Hatchetmill is a town). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "hatchetmill",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-sword_shield.png",
+    "note": "Village yard: palisade, stone hut, tree, lantern. (Hatchetmill is a town). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "darkwood",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (Darkwood is a forest). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "darkwood",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (Darkwood is a forest). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_sunscar_plains",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-greatsword.png",
+    "note": "Open grassland, fence and shelter, mountains behind. (plains biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_sunscar_plains",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-greatsword.png",
+    "note": "Open grassland, fence and shelter, mountains behind. (plains biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_approach",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-greatsword.png",
+    "note": "Open grassland, fence and shelter, mountains behind. (Old Roads: open countryside). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_approach",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-greatsword.png",
+    "note": "Open grassland, fence and shelter, mountains behind. (Old Roads: open countryside). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_verdant_trail",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-greatsword.png",
+    "note": "Open grassland, fence and shelter, mountains behind. (green trail). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_verdant_trail",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-greatsword.png",
+    "note": "Open grassland, fence and shelter, mountains behind. (green trail). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_whispering_pines",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (forest biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_whispering_pines",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (forest biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_bramblewood_hedge",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (forest biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_bramblewood_hedge",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (forest biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_thornwall_maze",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (overgrown forest). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_thornwall_maze",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (overgrown forest). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_forgotten_vale",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (overgrown ruins). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_forgotten_vale",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-battle_axe.png",
+    "note": "Dark forest with mossy stone ruin and an axe on a stump. (overgrown ruins). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_saltmarsh_delta",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-spear.png",
+    "note": "Misty marsh with rope posts and a watchtower. (marsh biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_saltmarsh_delta",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-spear.png",
+    "note": "Misty marsh with rope posts and a watchtower. (marsh biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_hollow_mire",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-spear.png",
+    "note": "Misty marsh with rope posts and a watchtower. (marsh biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_hollow_mire",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-spear.png",
+    "note": "Misty marsh with rope posts and a watchtower. (marsh biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_mire_of_yore",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-spear.png",
+    "note": "Misty marsh with rope posts and a watchtower. (marsh biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_mire_of_yore",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-spear.png",
+    "note": "Misty marsh with rope posts and a watchtower. (marsh biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_skybound_peaks",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-dual_wield.png",
+    "note": "Moonlit stone tower, mountain range, cobbled road. (mountain biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_skybound_peaks",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-dual_wield.png",
+    "note": "Moonlit stone tower, mountain range, cobbled road. (mountain biome). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_ironvein_hills",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-dual_wield.png",
+    "note": "Moonlit stone tower, mountain range, cobbled road. (hills/mountains). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_ironvein_hills",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-dual_wield.png",
+    "note": "Moonlit stone tower, mountain range, cobbled road. (hills/mountains). Pixel-art 1280x720."
+  },
+  {
+    "kind": "combat-bg",
+    "id": "dev_riftstone_ruins",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-dual_wield.png",
+    "note": "Moonlit stone tower, mountain range, cobbled road. (stone ruins). Pixel-art 1280x720."
+  },
+  {
+    "kind": "room-bg",
+    "id": "dev_riftstone_ruins",
+    "source": "/Users/adamparish/blood-conquest/public/assets/sprites/locations/location-trainer-dual_wield.png",
+    "note": "Moonlit stone tower, mountain range, cobbled road. (stone ruins). Pixel-art 1280x720."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-arena",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-arena.png",
+    "note": "64px pixel map building (arena)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-dungeon",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-dungeon.png",
+    "note": "64px pixel map building (dungeon)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-inn",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-inn.png",
+    "note": "64px pixel map building (inn)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-merchant",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-merchant.png",
+    "note": "64px pixel map building (merchant)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-raid",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-raid.png",
+    "note": "64px pixel map building (raid)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-tavern",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-tavern.png",
+    "note": "64px pixel map building (tavern)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "building-trainer",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/locations/map-trainer.png",
+    "note": "64px pixel map building (trainer)."
+  },
+  {
+    "kind": "map-prop",
+    "id": "reference-world-map",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/map/world-map.jpg",
+    "note": "Painted 8192x6144 parchment world map (mountains, castle, tower). Reference/style source for the painted renderer, not a prop. 10.5 MB jpg."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-nav-bar",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/bottom_bar.png",
+    "note": "nav-bar candidate: dark brush-stroke bar, 1024x134."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-nav-button",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/button.png",
+    "note": "nav-button candidate: dark brush-stroke button, 256x72."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-nav-button-active",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/button_primary.png",
+    "note": "nav-button-active candidate: red brush-stroke button."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-nav-button-hover",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/button_hover.png",
+    "note": "hover variant of the brush button."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-xp-frame",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/xp_bg.png",
+    "note": "xp-frame candidate: 512x36 bar trough."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-xp-fill",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/xp_fill.png",
+    "note": "matching XP fill strip (no slot for it today)."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-hud-pill",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/nameplate_bg.png",
+    "note": "hud-pill candidate: brushed dark plate, 487x79."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "mmo-header",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/ui/mmo/header.png",
+    "note": "alternate hud-pill / header plate."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-nav-bar",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/frame-header.png",
+    "note": "nav-bar candidate: navy pixel frame with gold trim, 128x40 (9-slice)."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-nav-button",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/tab-inactive.png",
+    "note": "nav-button candidate: navy pixel tab."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-nav-button-active",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/tab-active.png",
+    "note": "nav-button-active candidate: gold-trim pixel tab."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-xp-frame",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/progress-bg.png",
+    "note": "xp-frame candidate: pixel progress trough."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-xp-fill",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/progress-bar-gold.png",
+    "note": "matching gold progress fill."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-hud-pill",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/btn-up.png",
+    "note": "hud-pill candidate: navy pixel button plate."
+  },
+  {
+    "kind": "ui-candidate",
+    "id": "pixui-frame-panel",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/sprites/pixui/frame-panel.png",
+    "note": "panel frame (9-slice) \u2014 general chrome."
+  },
+  {
+    "kind": "sfx",
+    "id": "ui-tap",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/click_001.ogg",
+    "note": "Kenney interface click, 0.10s."
+  },
+  {
+    "kind": "sfx",
+    "id": "ui-open",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/open_001.ogg",
+    "note": "Kenney interface open, 0.15s."
+  },
+  {
+    "kind": "sfx",
+    "id": "ui-close",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/close_001.ogg",
+    "note": "Kenney interface close, 0.15s."
+  },
+  {
+    "kind": "sfx",
+    "id": "tab-switch",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/toggle_002.ogg",
+    "note": "Kenney interface toggle, 0.14s."
+  },
+  {
+    "kind": "sfx",
+    "id": "hit",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_impact-sounds/Audio/impactPunch_medium_000.ogg",
+    "note": "Kenney medium punch impact."
+  },
+  {
+    "kind": "sfx",
+    "id": "hit-crit",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/sfx-critical-hit.mp3",
+    "note": "Named critical-hit sfx from blood-conquest-v2 (2.0s, mp3)."
+  },
+  {
+    "kind": "sfx",
+    "id": "miss",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/sfx-dodge-whoosh.mp3",
+    "note": "Named dodge whoosh from v2 (0.8s, mp3)."
+  },
+  {
+    "kind": "sfx",
+    "id": "heal",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/spell-heal.mp3",
+    "note": "Named heal spell from v2 (5.1s, mp3) \u2014 long; consider trimming or fading."
+  },
+  {
+    "kind": "sfx",
+    "id": "skill",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/tommusic/OGG Files/SFX/Spells/Spell Impact 1.ogg",
+    "note": "Generic magic spell impact (tommusic pack)."
+  },
+  {
+    "kind": "sfx",
+    "id": "victory",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/win-160.mp3",
+    "note": "Named win jingle from v2 (3.6s, mp3). Battles are continuous \u2014 may want a shorter cue."
+  },
+  {
+    "kind": "sfx",
+    "id": "defeat",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/loose-160.mp3",
+    "note": "Named lose jingle from v2 (5.1s, mp3)."
+  },
+  {
+    "kind": "sfx",
+    "id": "level-up",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/levelup-160.mp3",
+    "note": "Named level-up jingle from v2 (5.7s, mp3)."
+  },
+  {
+    "kind": "sfx",
+    "id": "coin",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_rpg-audio/Audio/handleCoins.ogg",
+    "note": "Kenney RPG coin handling."
+  },
+  {
+    "kind": "sfx",
+    "id": "loot",
+    "source": "/Users/adamparish/blood-conquest-v2/assets/audio/sfx/grab-160.mp3",
+    "note": "Named grab/pickup from v2 (0.5s, mp3)."
+  },
+  {
+    "kind": "sfx",
+    "id": "equip",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_rpg-audio/Audio/clothBelt.ogg",
+    "note": "Kenney RPG cloth/belt rustle \u2014 gearing up."
+  },
+  {
+    "kind": "sfx",
+    "id": "craft-complete",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/confirmation_002.ogg",
+    "note": "Kenney interface confirmation, 0.54s."
+  },
+  {
+    "kind": "sfx",
+    "id": "chat-message",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/pluck_001.ogg",
+    "note": "Kenney interface pluck, 0.10s \u2014 soft."
+  },
+  {
+    "kind": "sfx",
+    "id": "notification",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/glass_001.ogg",
+    "note": "Kenney interface glass chime, 0.28s."
+  },
+  {
+    "kind": "sfx",
+    "id": "error",
+    "source": "/Users/adamparish/blood-conquest-arena/assets/audio/packs/kenney_interface-sounds/Audio/error_001.ogg",
+    "note": "Kenney interface error, 0.16s."
+  }
+]
