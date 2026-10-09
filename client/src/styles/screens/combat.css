@@ -418,6 +418,12 @@
   font-size: var(--t-body);
 }
 
+/* While the mobile chat sheet is docked, it takes the log's job and the
+   battlefield needs every pixel left above it. */
+body[data-chat-open="1"][data-chat-layout="sheet"] .cb-feed {
+  display: none;
+}
+
 /* ── Controls band (shares the perch row with the portrait + chat) ── */
 
 .cb-controls {

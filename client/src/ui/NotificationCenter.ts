@@ -69,7 +69,7 @@ export class NotificationCenter {
     this.bellButton.className = 'notif-bell-btn';
     this.bellButton.setAttribute('aria-label', 'Notifications');
     this.bellButton.innerHTML = `
-      <span class="notif-bell-icon">🔔</span>
+      <svg class="notif-bell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v4l-2 3h16l-2-3V9a6 6 0 0 0-6-6z" fill="#f5c842" stroke="#3a2817" stroke-width="1.6" stroke-linejoin="round"/><path d="M9.5 18.5a2.5 2.5 0 0 0 5 0" fill="none" stroke="#3a2817" stroke-width="1.8" stroke-linecap="round"/></svg>
       <span class="notif-bell-badge"></span>
     `;
     this.bellButton.addEventListener('click', (e) => {

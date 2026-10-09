@@ -5718,56 +5718,6 @@ body, button, input, select, textarea {
   margin-top: 8px;
 }
 
-/* ── Notification Center (bell + dropdown + toast) ──────────
-   Bell sits fixed at top-right — the top of the viewport is free chrome
-   (the persistent XP bar and bottom nav are both bottom-pinned). Bell is
-   just above bottom-nav's tier (1000); the dropdown panel is promoted via
-   ModalStack like every other overlay. */
-
-.notif-bell-btn {
-  position: fixed;
-  top: 8px;
-  right: 8px;
-  z-index: 1001;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-panel);
-  border: 2px solid var(--border-pixel);
-  border-radius: 50%;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-  padding: 0;
-}
-.notif-bell-btn:hover {
-  border-color: var(--accent-gold);
-}
-.notif-bell-icon {
-  font-size: 16px;
-  line-height: 1;
-}
-.notif-bell-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 3px;
-  border-radius: 8px;
-  background: var(--accent-red);
-  color: #fff;
-  font-family: var(--pixel-font);
-  font-size: 9px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-}
-.notif-bell-badge.visible {
-  display: flex;
-}
-
 /* ── Notification Preferences grid (Settings → Notifications) ── */
 
 .notif-prefs-modal {
