@@ -2,10 +2,10 @@
  * WebGL-backed world map renderer (replaces CanvasWorldMap).
  *
  * Rendering split:
- *   • three.js (WebGL canvas) renders the *static* layers — parchment
- *     background, drop shadow, baked tile composite (tile fills + artwork
- *     + outlines + zone overlay + zone borders). These are uploaded as
- *     textures and the per-frame work collapses to a camera-matrix update.
+ *   • three.js (WebGL canvas) renders the *static* layers — the sea
+ *     backdrop and the painted terrain, which is baked per chunk at a zoom-
+ *     matched level of detail (ChunkedMapLayer + terrainPainter). Textures
+ *     live on the GPU, so per-frame work collapses to a camera-matrix update.
  *   • An HTML overlay (`.wm-overlay`) sits on top of the canvas
  *     and hosts every *dynamic* element — party marker, other-party
  *     portrait markers + pips, hover highlight, path preview. The overlay
@@ -32,6 +32,8 @@ import {
   HEX_SIZE,
   getHexCorners,
   getNeighbors,
+  cubeToKey,
+  keyToCube,
   pixelToCube,
   offsetToCube,
   cubeToPixel,
@@ -45,7 +47,9 @@ import type {
   WorldTileDefinition,
 } from '@idle-party-rpg/shared';
 import type { WorldCache } from '../network/WorldCache';
-import { artworkUrl, placeholderUrl } from './assets';
+import { artworkUrl } from './assets';
+import { ChunkedMapLayer } from './map/ChunkedMapLayer';
+import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
 
 export interface TileClickInfo {
   col: number;
@@ -67,7 +71,8 @@ export interface TileClickInfo {
 // Party marker look (portrait frame, fighting/defeat states) lives in CSS —
 // see `.wm-marker--party[data-visual]` in styles/screens/map.css.
 
-const PARCHMENT_FALLBACK_COLOR = '#3a2a1a';
+/** Sea color behind everything until the sea texture is ready. */
+const SEA_FALLBACK_COLOR = '#2f86bf';
 
 /** Key glyph for the "party inside this room's dungeon" marker pip. */
 const KEY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M11.5 11.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>';
@@ -85,21 +90,6 @@ const ZOOM_STORAGE_KEY = 'mapZoom';
 const OVERDRAG_FACTOR = 0.25;
 const SPRING_DURATION = 250;
 const DRAG_THRESHOLD = 5;
-
-const DIR_TO_EDGE: [number, number][] = [
-  [0, 1],
-  [5, 0],
-  [4, 5],
-  [3, 4],
-  [2, 3],
-  [1, 2],
-];
-
-const SHADOW_OFFSET_X_WORLD = 40;
-const SHADOW_OFFSET_Y_WORLD = 60;
-const SHADOW_ALPHA = 0.5;
-const SHADOW_BLUR_RADIUS = 10;
-const SHADOW_BLUR_PAD = 30;
 
 // Parchment plane is sized to a fixed quad and follows the camera at a
 // reduced rate so it reads as a deeper background layer (parallax).
@@ -189,24 +179,14 @@ export class ThreeWorldMap {
   private parchmentMesh: THREE.Mesh | null = null;
   private parchmentMaterial: THREE.MeshBasicMaterial;
   private parchmentTexture: THREE.Texture | null = null;
-  private shadowMesh: THREE.Mesh | null = null;
-  private shadowMaterial: THREE.MeshBasicMaterial;
-  private shadowTexture: THREE.CanvasTexture | null = null;
-  private staticMesh: THREE.Mesh | null = null;
-  private staticMaterial: THREE.MeshBasicMaterial;
-  private staticTexture: THREE.CanvasTexture | null = null;
-
-  // Bake state.
-  private staticCanvas: HTMLCanvasElement | null = null;
-  private staticBounds: { minX: number; minY: number; w: number; h: number } | null = null;
-  private staticDirty = true;
-  private shadowCanvas: HTMLCanvasElement | null = null;
-  private shadowBlurredCanvas: HTMLCanvasElement | null = null;
-  private shadowBounds: { minX: number; minY: number; w: number; h: number } | null = null;
+  /** Painted terrain, baked per chunk. */
+  private terrain: ChunkedMapLayer;
 
   // Image cache (shared across renders).
   private imageCache = new ImageCache();
   private hexSpriteCache = new Map<string, HTMLCanvasElement>();
+  /** Tile keys waiting on each art URL, so a late load re-bakes just them. */
+  private artWaiters = new Map<string, Set<string>>();
   /** Map id whose parchment texture is currently loaded/loading (per-map backgrounds). */
   private parchmentMapId: string | null = null;
 
@@ -368,7 +348,7 @@ export class ThreeWorldMap {
       alpha: false,
       premultipliedAlpha: true,
     });
-    this.renderer.setClearColor(new THREE.Color(PARCHMENT_FALLBACK_COLOR), 1);
+    this.renderer.setClearColor(new THREE.Color(SEA_FALLBACK_COLOR), 1);
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
 
     this.scene = new THREE.Scene();
@@ -382,20 +362,13 @@ export class ThreeWorldMap {
     // Materials are persistent; their textures are swapped in as the
     // various bakes complete.
     this.parchmentMaterial = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(PARCHMENT_FALLBACK_COLOR),
+      color: new THREE.Color(SEA_FALLBACK_COLOR),
       depthWrite: false,
       transparent: false,
     });
-    this.shadowMaterial = new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      opacity: SHADOW_ALPHA,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.staticMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
+    this.terrain = new ChunkedMapLayer(this.scene, {
+      getArt: (tile) => this.getTileArt(tile),
+      onBaked: () => this.requestRender(),
     });
 
     // ── Grid + content ───────────────────────────────────────
@@ -460,6 +433,7 @@ export class ThreeWorldMap {
     if (unlockedChanged || shouldSnap) {
       this.grid = this.buildGridFromCache();
     }
+    let terrainStale = unlockedChanged || shouldSnap;
 
     this.applyPartyState(state.party, shouldSnap);
     this.currentBattleVisual = state.battle.visual;
@@ -469,7 +443,9 @@ export class ThreeWorldMap {
     const myTile = this.grid.getTile(offsetToCube({ col: state.party.col, row: state.party.row }));
     const prevZone = this.currentZone;
     this.currentZone = myTile?.zone ?? '';
-    if (this.currentZone !== prevZone) this.staticDirty = true;
+    if (this.currentZone !== prevZone) terrainStale = true;
+    // Only chunks touching tiles whose fog/zone-dim state changed re-bake.
+    if (terrainStale) this.syncTerrain(mapChanged);
 
     this.partyMemberUsernames = (state.social?.party?.members ?? []).map(m => m.username);
     // Only show players on the same map as us.
@@ -503,6 +479,8 @@ export class ThreeWorldMap {
 
   rebuildFromCache(): void {
     this.grid = this.buildGridFromCache();
+    // World content changed (admin deploy): drop every baked chunk.
+    this.syncTerrain(true);
     this.requestRender();
   }
 
@@ -514,11 +492,8 @@ export class ThreeWorldMap {
     window.removeEventListener('resize', this.resizeHandler);
     this.resizeObserver?.disconnect();
 
-    this.staticTexture?.dispose();
-    this.shadowTexture?.dispose();
+    this.terrain.dispose();
     this.parchmentTexture?.dispose();
-    this.staticMaterial.dispose();
-    this.shadowMaterial.dispose();
     this.parchmentMaterial.dispose();
     this.renderer.dispose();
 
@@ -558,10 +533,6 @@ export class ThreeWorldMap {
       grid.addTile(tile);
       this.worldTileDefs.set(`${tileDef.col},${tileDef.row}`, tileDef);
     }
-
-    this.shadowBounds = null;
-    this.shadowBlurredCanvas = null;
-    this.staticDirty = true;
 
     return grid;
   }
@@ -1088,14 +1059,14 @@ export class ThreeWorldMap {
     const ch = this.canvasCssHeight();
     if (cw <= 0 || ch <= 0) return;
 
-    if (this.staticDirty || !this.staticCanvas || !this.staticBounds) {
-      this.bakeStaticLayer();
-      this.updateStaticMesh();
-    }
-    if (!this.shadowCanvas || !this.shadowBlurredCanvas || !this.shadowBounds) {
-      this.bakeShadow();
-      this.updateShadowMesh();
-    }
+    this.terrain.update({
+      camX: this.camWorldX,
+      camY: this.camWorldY,
+      zoom: this.zoom,
+      viewW: cw,
+      viewH: ch,
+      dpr: window.devicePixelRatio || 1,
+    });
     this.updateParchmentMesh();
 
     // Camera: world Y flipped so positive world-Y reads as "down" on
@@ -1122,65 +1093,6 @@ export class ThreeWorldMap {
 
   // ─── Mesh / texture management ────────────────────────────
 
-  private updateStaticMesh(): void {
-    if (!this.staticBounds || !this.staticCanvas) {
-      if (this.staticMesh) { this.scene.remove(this.staticMesh); this.staticMesh = null; }
-      return;
-    }
-    const b = this.staticBounds;
-
-    // (Re)build the texture; CanvasTexture wraps the offscreen canvas
-    // and uploads to the GPU. `needsUpdate = true` triggers a re-upload
-    // when the underlying canvas bytes change.
-    if (this.staticTexture) this.staticTexture.dispose();
-    this.staticTexture = new THREE.CanvasTexture(this.staticCanvas);
-    this.staticTexture.colorSpace = THREE.SRGBColorSpace;
-    this.staticTexture.minFilter = THREE.LinearFilter;
-    this.staticTexture.magFilter = THREE.LinearFilter;
-    this.staticMaterial.map = this.staticTexture;
-    this.staticMaterial.needsUpdate = true;
-
-    if (this.staticMesh) { this.scene.remove(this.staticMesh); this.staticMesh.geometry.dispose(); }
-    const geom = new THREE.PlaneGeometry(b.w, b.h);
-    this.staticMesh = new THREE.Mesh(geom, this.staticMaterial);
-    // Place the mesh centered on the bounds midpoint; Y flipped for
-    // canvas → three.js convention.
-    this.staticMesh.position.set(b.minX + b.w / 2, -(b.minY + b.h / 2), 2);
-    this.scene.add(this.staticMesh);
-  }
-
-  private updateShadowMesh(): void {
-    if (!this.shadowBounds || !this.shadowBlurredCanvas) {
-      if (this.shadowMesh) { this.scene.remove(this.shadowMesh); this.shadowMesh = null; }
-      return;
-    }
-    const b = this.shadowBounds;
-    const pad = SHADOW_BLUR_PAD;
-    const padded = { w: b.w + 2 * pad, h: b.h + 2 * pad };
-
-    if (this.shadowTexture) this.shadowTexture.dispose();
-    this.shadowTexture = new THREE.CanvasTexture(this.shadowBlurredCanvas);
-    this.shadowTexture.colorSpace = THREE.SRGBColorSpace;
-    this.shadowTexture.minFilter = THREE.LinearFilter;
-    this.shadowTexture.magFilter = THREE.LinearFilter;
-    // The shadow material is black; we use the texture as alpha so the
-    // material's `opacity` × the texture's RGB gives the final cast.
-    this.shadowMaterial.map = this.shadowTexture;
-    this.shadowMaterial.needsUpdate = true;
-
-    if (this.shadowMesh) { this.scene.remove(this.shadowMesh); this.shadowMesh.geometry.dispose(); }
-    const geom = new THREE.PlaneGeometry(padded.w, padded.h);
-    this.shadowMesh = new THREE.Mesh(geom, this.shadowMaterial);
-    // The padded blurred canvas extends pad units around the silhouette
-    // bounds; centerpoint stays at the bounds midpoint + shadow offset.
-    this.shadowMesh.position.set(
-      b.minX + b.w / 2 + SHADOW_OFFSET_X_WORLD,
-      -(b.minY + b.h / 2 + SHADOW_OFFSET_Y_WORLD),
-      1,
-    );
-    this.scene.add(this.shadowMesh);
-  }
-
   private updateParchmentMesh(): void {
     if (this.parchmentMesh) return;
     // Sized large enough to always cover the viewport at min zoom even
@@ -1190,239 +1102,6 @@ export class ThreeWorldMap {
     this.parchmentMesh = new THREE.Mesh(geom, this.parchmentMaterial);
     this.parchmentMesh.position.set(0, 0, 0);
     this.scene.add(this.parchmentMesh);
-  }
-
-  // ─── Bakes ────────────────────────────────────────────────
-
-  /**
-   * Bake the static map composite (tile fills + artwork + outlines +
-   * zone overlay + zone borders) into an offscreen canvas at zoom=1 in
-   * world coords. Three.js then uploads this as a texture; pan/zoom is
-   * a free GPU-side matrix update.
-   */
-  /**
-   * Max bake canvas dimension in pixels. Conservatively chosen so the
-   * resulting texture fits inside the WebGL `MAX_TEXTURE_SIZE` cap of
-   * essentially every desktop GPU (and most modern mobile devices).
-   * Beyond this we scale the bake down proportionally — the static
-   * layer goes slightly blurry at high zoom but the renderer keeps
-   * working on sprawling dev maps.
-   */
-  private static readonly MAX_BAKE_DIM = 8192;
-
-  private bakeStaticLayer(): void {
-    const tiles = this.grid.getAllTiles().filter(t => t.type !== 'void');
-    if (tiles.length === 0) {
-      this.staticCanvas = null;
-      this.staticBounds = null;
-      this.staticDirty = false;
-      return;
-    }
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const t of tiles) {
-      const p = t.pixelPosition;
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const margin = HEX_SIZE + 8;
-    const bx = Math.floor(minX - margin);
-    const by = Math.floor(minY - margin);
-    const worldW = Math.ceil(maxX - minX + margin * 2);
-    const worldH = Math.ceil(maxY - minY + margin * 2);
-
-    // If the world bounds exceed the max bake dim, downscale the bake
-    // (and account for it when the plane mesh samples the texture).
-    // The plane mesh is sized to `worldW × worldH` in scene units, so a
-    // smaller bake just means the texture is sampled at lower density —
-    // the visual position of every tile stays correct.
-    const scale = Math.min(1, ThreeWorldMap.MAX_BAKE_DIM / Math.max(worldW, worldH));
-    const bw = Math.ceil(worldW * scale);
-    const bh = Math.ceil(worldH * scale);
-
-    if (!this.staticCanvas) this.staticCanvas = document.createElement('canvas');
-    this.staticCanvas.width = bw;
-    this.staticCanvas.height = bh;
-    const ctx = this.staticCanvas.getContext('2d');
-    if (!ctx) {
-      this.staticDirty = false;
-      return;
-    }
-    ctx.clearRect(0, 0, bw, bh);
-
-    const corners = getHexCorners(HEX_SIZE);
-    // Bake-space coords: (worldX − bx) * scale. The drawTile/overlay/
-    // borders helpers take an (ox, oy, z) trio that they apply as
-    // `worldX * z + ox`, so we can fold the bake's downscale into `z`.
-    const bakeZ = scale;
-    const bakeOx = -bx * scale;
-    const bakeOy = -by * scale;
-
-    for (const tile of tiles) {
-      this.drawTile(ctx, tile, corners, bakeOx, bakeOy, bakeZ);
-    }
-    this.drawZoneOverlay(ctx, corners, bakeOx, bakeOy, bakeZ);
-    this.drawZoneBorders(ctx, corners, bakeOx, bakeOy, bakeZ);
-
-    // Bounds stay in world units (the mesh is sized in world units).
-    this.staticBounds = { minX: bx, minY: by, w: worldW, h: worldH };
-    this.staticDirty = false;
-
-    if (scale < 1) {
-      console.log(
-        `[ThreeWorldMap] Static bake downscaled to ${(scale * 100).toFixed(1)}% ` +
-        `(${bw}×${bh} from ${worldW}×${worldH}) to stay under the ${ThreeWorldMap.MAX_BAKE_DIM}px cap.`,
-      );
-    }
-  }
-
-  private bakeShadow(): void {
-    const tiles = this.grid.getAllTiles().filter(t => t.type !== 'void');
-    if (tiles.length === 0) {
-      this.shadowCanvas = null;
-      this.shadowBlurredCanvas = null;
-      this.shadowBounds = null;
-      return;
-    }
-    const corners = getHexCorners(HEX_SIZE);
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const t of tiles) {
-      const p = t.pixelPosition;
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const margin = HEX_SIZE + 2;
-    const bx = Math.floor(minX - margin);
-    const by = Math.floor(minY - margin);
-    const worldW = Math.ceil(maxX - minX + margin * 2);
-    const worldH = Math.ceil(maxY - minY + margin * 2);
-
-    // Same downscale-to-fit story as the static layer — the shadow
-    // mesh is sized in world units, so a smaller source canvas just
-    // means slightly softer edges (which is fine for a blurred shadow
-    // silhouette anyway).
-    const scale = Math.min(1, ThreeWorldMap.MAX_BAKE_DIM / Math.max(worldW, worldH));
-    const bw = Math.ceil(worldW * scale);
-    const bh = Math.ceil(worldH * scale);
-
-    if (!this.shadowCanvas) this.shadowCanvas = document.createElement('canvas');
-    this.shadowCanvas.width = bw;
-    this.shadowCanvas.height = bh;
-    const sctx = this.shadowCanvas.getContext('2d');
-    if (!sctx) return;
-
-    sctx.clearRect(0, 0, bw, bh);
-    sctx.fillStyle = '#000';
-    sctx.beginPath();
-    for (const tile of tiles) {
-      const p = tile.pixelPosition;
-      const sx = (p.x - bx) * scale;
-      const sy = (p.y - by) * scale;
-      for (let i = 0; i < 6; i++) {
-        const cx = sx + corners[i].x * scale;
-        const cy = sy + corners[i].y * scale;
-        if (i === 0) sctx.moveTo(cx, cy); else sctx.lineTo(cx, cy);
-      }
-      sctx.closePath();
-    }
-    sctx.fill('nonzero');
-
-    // Pre-blurred copy: pad on each side so the blur halo isn't cropped.
-    // Pad scales with the bake's downscale so the halo stays a fixed
-    // visual size relative to the silhouette.
-    const pad = SHADOW_BLUR_PAD;
-    const blurred = document.createElement('canvas');
-    blurred.width = bw + pad * 2;
-    blurred.height = bh + pad * 2;
-    const bctx = blurred.getContext('2d');
-    if (bctx) {
-      bctx.filter = `blur(${SHADOW_BLUR_RADIUS}px)`;
-      bctx.drawImage(this.shadowCanvas, pad, pad);
-      bctx.filter = 'none';
-    }
-    this.shadowBlurredCanvas = blurred;
-    // Bounds stay in world units so the shadow mesh is sized in scene
-    // units (the bake canvas is scaled down but the mesh isn't).
-    this.shadowBounds = { minX: bx, minY: by, w: worldW, h: worldH };
-  }
-
-  // ─── Bake helpers (Canvas2D draws into the offscreen bake) ───
-
-  private drawTile(
-    ctx: CanvasRenderingContext2D,
-    tile: HexTile, corners: { x: number; y: number }[], ox: number, oy: number, z: number,
-  ): void {
-    const p = tile.pixelPosition;
-    const sx = p.x * z + ox;
-    const sy = p.y * z + oy;
-
-    const offset = cubeToOffset(tile.coord);
-    const isNonTraversable = !tile.isTraversable;
-    const isUnlocked = isNonTraversable ? false : this.worldCache.isUnlocked(offset.col, offset.row);
-    const isZoneUnlocked = isNonTraversable ? false : this.worldCache.isZoneUnlocked(tile.zone);
-
-    const darkenFactor = isNonTraversable ? 0.42 : isUnlocked ? 1 : isZoneUnlocked ? 0.55 : 0.32;
-    const fillColor = darkenFactor >= 0.999
-      ? this.colorToHex(tile.color)
-      : this.darkenColorHex(this.colorToHex(tile.color), darkenFactor);
-
-    ctx.save();
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const cx = sx + corners[i].x * z;
-      const cy = sy + corners[i].y * z;
-      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
-    }
-    ctx.closePath();
-    ctx.fillStyle = fillColor;
-    ctx.fill();
-
-    const drewArtwork = this.tryDrawTileArtwork(ctx, tile, sx, sy, z);
-
-    ctx.strokeStyle = isUnlocked ? 'rgba(26,26,46,0.5)' : 'rgba(10,10,30,0.3)';
-    ctx.lineWidth = Math.max(1, 2 * z);
-    ctx.stroke();
-
-    ctx.restore();
-
-    if (!drewArtwork) {
-      this.drawTileIcon(ctx, tile, sx, sy, z, darkenFactor);
-    }
-  }
-
-  private tryDrawTileArtwork(
-    ctx: CanvasRenderingContext2D,
-    tile: HexTile, sx: number, sy: number, z: number,
-  ): boolean {
-    const offset = cubeToOffset(tile.coord);
-    const def = this.worldTileDefs.get(`${offset.col},${offset.row}`);
-    const tileId = def?.id ?? '';
-
-    const candidates: string[] = [];
-    if (tileId) candidates.push(artworkUrl('tile', tileId));
-    candidates.push(artworkUrl('tile-type', tile.type));
-
-    let img: HTMLImageElement | null = null;
-    let imgUrl = '';
-    for (const url of candidates) {
-      img = this.imageCache.get(url, null, () => {
-        this.staticDirty = true;
-        this.requestRender();
-      });
-      if (img) { imgUrl = url; break; }
-    }
-    if (!img) return false;
-
-    const sprite = this.getHexSprite(imgUrl, img);
-    const w = HEX_SIZE * 2 * z;
-    const h = Math.sqrt(3) * HEX_SIZE * z;
-    ctx.drawImage(sprite, sx - w / 2, sy - h / 2, w, h);
-    return true;
   }
 
   private getHexSprite(url: string, img: HTMLImageElement): HTMLCanvasElement {
@@ -1455,101 +1134,75 @@ export class ThreeWorldMap {
     return canvas;
   }
 
-  private drawTileIcon(
-    ctx: CanvasRenderingContext2D,
-    tile: HexTile, sx: number, sy: number, z: number, darkenFactor: number,
-  ): void {
-    const typeDef = this.worldCache.getTileTypeDef(tile.type);
-    const icon = typeDef?.icon;
-    if (!icon) return;
-    ctx.save();
-    ctx.globalAlpha = Math.max(0.35, darkenFactor);
-    ctx.font = `${Math.round(24 * z)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(icon, sx, sy);
-    ctx.restore();
+  // ─── Terrain feed ──────────────────────────────────────────
+
+  /**
+   * Hand the painted-terrain layer the current tiles with their visual state
+   * (fog, zone dimming). The layer diffs per-tile fingerprints, so only chunks
+   * touching changed tiles re-bake. `reset` drops every chunk (map switch,
+   * content deploy).
+   */
+  private syncTerrain(reset = false): void {
+    const tiles: PaintTile[] = [];
+    for (const tile of this.grid.getAllTiles()) {
+      if (tile.type === 'void') continue;
+      const offset = cubeToOffset(tile.coord);
+      const zoneOpen = this.worldCache.isZoneUnlocked(tile.zone);
+      let fog: FogState;
+      if (!tile.isTraversable) {
+        // Scenery (mountains, lakes) is revealed with its zone.
+        fog = zoneOpen ? 'open' : 'fog';
+      } else if (this.worldCache.isUnlocked(offset.col, offset.row)) {
+        fog = 'open';
+      } else {
+        fog = zoneOpen ? 'haze' : 'fog';
+      }
+      const p = tile.pixelPosition;
+      tiles.push({
+        key: tile.key,
+        x: p.x,
+        y: p.y,
+        type: tile.type,
+        color: this.colorToHex(tile.color),
+        zone: tile.zone,
+        traversable: tile.isTraversable,
+        fog,
+        dimmed: !!this.currentZone && tile.zone !== this.currentZone && tile.isTraversable,
+        // Index = direction, so the painter can pick the shared edge.
+        neighborKeys: getNeighbors(tile.coord).map(n => (this.grid.getTile(n) ? cubeToKey(n) : '')),
+        icon: this.worldCache.getTileTypeDef(tile.type)?.icon,
+      });
+    }
+    this.terrain.setTiles(tiles, reset);
+    this.requestRender();
   }
 
-  private drawZoneOverlay(
-    ctx: CanvasRenderingContext2D,
-    corners: { x: number; y: number }[], ox: number, oy: number, z: number,
-  ): void {
-    if (!this.currentZone) return;
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    for (const tile of this.grid.getAllTiles()) {
-      if (tile.type === 'void') continue;
-      if (!tile.isTraversable) continue;
-      if (tile.zone === this.currentZone) continue;
-      const p = tile.pixelPosition;
-      const sx = p.x * z + ox;
-      const sy = p.y * z + oy;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const cx = sx + corners[i].x * z;
-        const cy = sy + corners[i].y * z;
-        if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
-      }
-      ctx.closePath();
-      ctx.fill();
+  /**
+   * Uploaded art for a tile (per-room art, then per-type art), as a hex
+   * sprite, or null while loading / when there is none. A late load re-bakes
+   * only the chunks around the tiles that asked for it.
+   */
+  private getTileArt(tile: PaintTile): CanvasImageSource | null {
+    const cube = this.grid.getTile(keyToCube(tile.key));
+    if (!cube) return null;
+    const offset = cubeToOffset(cube.coord);
+    const def = this.worldTileDefs.get(`${offset.col},${offset.row}`);
+    const candidates: string[] = [];
+    if (def?.id) candidates.push(artworkUrl('tile', def.id));
+    candidates.push(artworkUrl('tile-type', tile.type));
+    for (const url of candidates) {
+      const img = this.imageCache.get(url, null, () => {
+        const waiters = this.artWaiters.get(url);
+        this.artWaiters.delete(url);
+        if (waiters) this.terrain.markTileKeysDirty(waiters);
+        this.requestRender();
+      });
+      if (img) return this.getHexSprite(url, img);
+      let w = this.artWaiters.get(url);
+      if (!w) { w = new Set(); this.artWaiters.set(url, w); }
+      w.add(tile.key);
     }
-    ctx.restore();
-  }
-
-  private drawZoneBorders(
-    ctx: CanvasRenderingContext2D,
-    corners: { x: number; y: number }[], ox: number, oy: number, z: number,
-  ): void {
-    const processed = new Set<string>();
-    ctx.save();
-    ctx.lineCap = 'round';
-
-    ctx.strokeStyle = 'rgba(255,170,0,0.3)';
-    ctx.lineWidth = Math.max(2, 4 * z);
-    for (const tile of this.grid.getAllTiles()) {
-      if (tile.type === 'void') continue;
-      const neighbors = getNeighbors(tile.coord);
-      const p = tile.pixelPosition;
-      const sx = p.x * z + ox;
-      const sy = p.y * z + oy;
-      for (let dir = 0; dir < 6; dir++) {
-        const nb = this.grid.getTile(neighbors[dir]);
-        if (!nb || nb.zone === tile.zone) continue;
-        const key = tile.key < nb.key ? `${tile.key}|${nb.key}` : `${nb.key}|${tile.key}`;
-        if (processed.has(key)) continue;
-        processed.add(key);
-        const [ci0, ci1] = DIR_TO_EDGE[dir];
-        ctx.beginPath();
-        ctx.moveTo(sx + corners[ci0].x * z, sy + corners[ci0].y * z);
-        ctx.lineTo(sx + corners[ci1].x * z, sy + corners[ci1].y * z);
-        ctx.stroke();
-      }
-    }
-
-    processed.clear();
-    ctx.strokeStyle = 'rgba(255,204,68,0.7)';
-    ctx.lineWidth = Math.max(1.5, 2 * z);
-    for (const tile of this.grid.getAllTiles()) {
-      if (tile.type === 'void') continue;
-      const neighbors = getNeighbors(tile.coord);
-      const p = tile.pixelPosition;
-      const sx = p.x * z + ox;
-      const sy = p.y * z + oy;
-      for (let dir = 0; dir < 6; dir++) {
-        const nb = this.grid.getTile(neighbors[dir]);
-        if (!nb || nb.zone === tile.zone) continue;
-        const key = tile.key < nb.key ? `${tile.key}|${nb.key}` : `${nb.key}|${tile.key}`;
-        if (processed.has(key)) continue;
-        processed.add(key);
-        const [ci0, ci1] = DIR_TO_EDGE[dir];
-        ctx.beginPath();
-        ctx.moveTo(sx + corners[ci0].x * z, sy + corners[ci0].y * z);
-        ctx.lineTo(sx + corners[ci1].x * z, sy + corners[ci1].y * z);
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
+    return null;
   }
 
   // ─── DOM overlay ───────────────────────────────────────────
@@ -1724,14 +1377,6 @@ export class ThreeWorldMap {
     return '#' + color.toString(16).padStart(6, '0');
   }
 
-  private darkenColorHex(hex: string, factor: number): string {
-    const n = parseInt(hex.replace('#', ''), 16);
-    const r = Math.floor(((n >> 16) & 0xff) * factor);
-    const g = Math.floor(((n >> 8) & 0xff) * factor);
-    const b = Math.floor((n & 0xff) * factor);
-    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
-  }
-
   private hashHue(s: string): number {
     let h = 0;
     for (let i = 0; i < s.length; i++) {
@@ -1752,7 +1397,6 @@ export class ThreeWorldMap {
     this.parchmentMapId = mapId;
     const loader = new THREE.TextureLoader();
     const url = artworkUrl('parchment', mapId);
-    const fallback = placeholderUrl('parchment', { w: 256, h: 256, bg: '3a2a1a', fg: '5a4a3a' });
     const onLoaded = (tex: THREE.Texture) => {
       // A later map switch already superseded this load — drop it.
       if (this.parchmentMapId !== mapId) { tex.dispose(); return; }
@@ -1771,7 +1415,9 @@ export class ThreeWorldMap {
       this.requestRender();
     };
     loader.load(url, onLoaded, undefined, () => {
-      loader.load(fallback, onLoaded, undefined, () => { /* keep solid color */ });
+      // No uploaded backdrop for this map: paint the procedural sea.
+      const sea = new THREE.CanvasTexture(createSeaCanvas(256));
+      onLoaded(sea);
     });
   }
 }

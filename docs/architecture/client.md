@@ -57,21 +57,32 @@ Each player has a `PlayerSession` with character state, unlocks, combat log, and
 
 ## World map (three.js)
 
-`client/src/ui/ThreeWorldMap.ts` renders the world map with **three.js (WebGL)** plus a sibling HTML overlay. The split:
+`client/src/ui/ThreeWorldMap.ts` renders the world map with **three.js (WebGL)** plus a sibling HTML overlay. Full design and roadmap: `ideas/world-map-renderer.md`.
 
-- **WebGL canvas** owns the static layers only — parchment background, drop shadow, baked tile composite. These are uploaded as textures and the per-frame work collapses to a camera-matrix update; pan/zoom are essentially free GPU operations.
-- **`.three-map-overlay` HTML div** sits on top of the canvas and hosts every *dynamic* element — party sprite, other-player flags, count badges, hover highlight, path preview. The overlay carries a single `transform: translate(W/2, H/2) scale(zoom) translate(-camX, -camY)` mirroring the three.js camera, so a single style update moves every child together when the user pans/zooms (no per-child JS). Children are absolutely positioned in world coords (`left:Xpx; top:Ypx`) and centered via `translate(-50%, -50%)`.
-- **Tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element (no map transform).
+The WebGL canvas holds two static layers:
 
-**Render-on-demand**: there's no always-on RAF loop. `requestRender()` schedules a single render on the next animation frame, coalescing multiple state pushes into one. An anim loop runs only while the spring-back is active (overdrag → bounce). Party movement and the party pulse live entirely in CSS (`transition: left/top 400ms ease-in-out` on `.three-map-party` matches `MOVE_DURATION`; pulse is a CSS keyframe), so they don't drive any JS or WebGL work. Idle map screens cost effectively zero.
+- **Sea backdrop.** A large plane with slight parallax. It shows per-map art (`/parchment-artwork/{mapId}.png`, uploaded in the admin Maps tab), or a procedural, seamlessly tiling painted sea (`createSeaCanvas`).
+- **Painted terrain** (`map/ChunkedMapLayer.ts` + `map/terrainPainter.ts`), still hex-based underneath. The world plane is cut into 512×512 world-unit chunks.
+  - **Baking:** each chunk is baked on demand into its own `CanvasTexture` and plane mesh, at a level of detail matched to `zoom × devicePixelRatio`. There are 5 scales, from 2 down to 1/8; props and brush texture are skipped at ≤ 1/4.
+  - **Which chunks:** only visible chunks plus one ring of prefetch are wanted. They bake nearest-first, time-sliced to about 8 ms per frame.
+  - **Memory:** a byte budget (96 MB desktop, 48 MB touch) evicts the farthest unwanted chunks.
+  - **Invalidation:** each tile carries a visual fingerprint (type, fog, zone-dim, zone). `syncTerrain()` runs on unlock and zone changes, and only chunks touching changed tiles re-bake. Late-loading tile art re-bakes only the tiles that asked for it.
+  - **Seams:** painting is deterministic (seeded by tile key and world-position noise), runs in one global draw order per pass, and bakes with a 2 px overlap. Adjacent chunks therefore agree at their seams.
 
-**Tile layering** (unchanged from the prior Canvas2D renderer): every tile renders in three stages — tile-type color (always; darkened per fog/zone-unlock factor), real artwork overlay if uploaded (`/tile-artwork/{id}.png` → `/tile-type-artwork/{type}.png`, NO placehold.co fallback so missing art falls through), otherwise the tile-type emoji glyph centered in the hex. Tile artwork is baked into hex-clipped offscreen sprites in `hexSpriteCache` on first load — the bake then draws each sprite with a single `drawImage(sprite)` (no `clip()` call).
+The **painter** draws its passes in this order:
+1. Shallows halo, foam ring, and sand rim around all land, as union fills of noise-wobbled hex blobs, so land reads as one coastline.
+2. Terrain fills in layer order, with feathered borders and brush dabs.
+3. Lakes.
+4. Uploaded `tile` / `tile-type` art, clipped to the tile. It replaces the procedural props for that tile.
+5. Depth-sorted procedural props: pines, peaks, houses, dunes, lava cracks, volcano, hedges, cave mouths, tufts. Unknown types fall back to their emoji.
+6. Fog clouds over unexplored tiles, haze over explored-zone-but-locked tiles, and dimming outside the current zone.
+7. A faint hex grid on explored land, and soft dashed gold zone borders.
 
-**Static-layer bake → texture**: the full static composite (tile fills + artwork + outlines + zone overlay + zone borders) is baked once into an offscreen canvas at zoom=1 in world coords, wrapped as a `THREE.CanvasTexture`, and rendered as a single textured quad in the WebGL scene. The cache is invalidated (`staticDirty = true`) on grid rebuild, unlock-set change, current-zone change, and artwork image-load — invalidation triggers a re-bake + texture re-upload on the next `render()`. Compared to the prior Canvas2D approach, the per-frame blit is replaced by a GPU-side transform on an already-uploaded texture, which is what drives the perf win.
+The **`.wm-overlay` HTML layer** sits on top of the canvas and holds every dynamic element: markers, hover highlight, path preview. It carries a single `transform: translate(W/2, H/2) scale(zoom) translate(-camX, -camY)` mirroring the three.js camera, so one style update moves every child together. Children are absolutely positioned in world coords and centered via `translate(-50%, -50%)`.
 
-**Map drop-shadow**: silhouette baked at zoom=1 in world coords, pre-blurred into a padded offscreen, uploaded as a CanvasTexture, drawn as a black-tinted quad at 50% alpha at z=1. Offset is in world units (40, 60) so it scales naturally with zoom — no scale-shrink (which used to drift the shadow inside the map on larger islands).
+The **tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element, with no map transform.
 
-**Parchment**: a fixed 8000×8000 plane at z=0 with the tiled parchment texture. Each frame its world position is set to `camWorld × (1 − 0.3)` so it follows the camera at 70% rate — i.e. apparent shift on screen is only 30% of the world's, giving the "deeper" parallax feel. The texture is **per-map** (`/parchment-artwork/{mapId}.png`, uploaded in the admin Maps tab): `loadParchment(mapId)` loads it on init and reloads on map switch, discarding stale loads if the map changes mid-fetch.
+**Render-on-demand.** There's no always-on RAF loop. `requestRender()` schedules one render on the next animation frame, coalescing multiple state pushes. The chunk layer schedules its own time-sliced bake frames and calls back to re-render as chunks land. An animation loop runs only while the spring-back is active. Party movement and the party pulse live in CSS. An idle map costs effectively zero.
 
 ## RoomView
 
