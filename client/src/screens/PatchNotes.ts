@@ -36,6 +36,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'When your backpack is full, new loot goes to Lost & Found instead of disappearing. Claim it from anywhere once you have room. If Lost & Found fills up too, you\'ll get a notification about anything lost.',
       'Already carrying more than your backpack holds? You keep everything. New loot just goes to Lost & Found until you make room.',
       'Banks! Visit a banker to store items in tabs of 28 slots. Your first tab is free and you can buy more. You can only use your bank while standing in a banker\'s room.',
+      'Bankers are marked with 🏦 on the map, so you can spot the nearest bank at a glance.',
     ],
   },
   {

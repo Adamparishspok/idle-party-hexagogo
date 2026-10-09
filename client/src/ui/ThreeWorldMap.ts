@@ -50,7 +50,7 @@ import type { WorldCache } from '../network/WorldCache';
 import { artworkUrl } from './assets';
 import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
-import { ROOM_ICONS, getRoomActions, readyQuestIds, roomHome } from './RoomActions';
+import { ROOM_ICONS, getRoomActions, markerActions, readyQuestIds, roomHome } from './RoomActions';
 import type { RoomAction, RoomHome } from './RoomActions';
 
 export interface TileClickInfo {
@@ -1493,8 +1493,7 @@ export class ThreeWorldMap {
     marker.style.left = `${p.x}px`;
     marker.style.top = `${p.y + HEX_SIZE * 0.55}px`;
 
-    const firstExit = actions.find(a => a.kind === 'travel');
-    const icons = [...actions.filter(a => a.kind !== 'travel'), ...(firstExit ? [firstExit] : [])];
+    const icons = markerActions(actions);
     for (const action of icons.slice(0, MAX_MARKER_ICONS)) {
       const icon = document.createElement('span');
       icon.className = action.questReady ? 'three-map-marker-icon quest-ready-pip' : 'three-map-marker-icon';

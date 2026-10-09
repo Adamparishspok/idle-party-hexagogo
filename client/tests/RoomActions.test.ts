@@ -8,8 +8,9 @@ import {
   getRoomActions,
   readyQuestIds,
   roomHome,
+  markerActions,
 } from '../src/ui/RoomActions';
-import type { RoomActionLookups } from '../src/ui/RoomActions';
+import type { RoomAction, RoomActionLookups } from '../src/ui/RoomActions';
 
 const NPCS: Record<string, NpcDefinition> = {
   mira: { id: 'mira', name: 'Mira', emoji: '🧙', greeting: 'Hi', questIds: ['q1', 'q2'] },
@@ -162,5 +163,29 @@ describe('home room action', () => {
     expect(getRoomActions({ id: 'elsewhere' }, lookups, undefined, roomHome(house))).toEqual([]);
     expect(roomHome({ ...house, location: undefined })).toBeUndefined();
     expect(roomHome(undefined)).toBeUndefined();
+  });
+});
+
+describe('markerActions', () => {
+  const act = (kind: RoomAction['kind'], name: string, questReady = false): RoomAction =>
+    ({ kind, icon: kind, name, targetId: name, ...(questReady ? { questReady } : {}) });
+
+  it('puts home, ready quests and the bank ahead of other places, then one exit', () => {
+    const actions = [
+      act('npc', 'Smith'),
+      act('shop', 'Store'),
+      act('dungeon', 'Crypt'),
+      act('bank', 'Bank'),
+      act('npc', 'Elder', true),
+      act('travel', 'North'),
+      act('travel', 'South'),
+      act('home', 'Cottage'),
+    ];
+    expect(markerActions(actions).map(a => a.name)).toEqual(['Cottage', 'Elder', 'Bank', 'Smith', 'Store', 'Crypt', 'North']);
+  });
+
+  it('keeps the bank within the first three icons beside a home and a shop', () => {
+    const icons = markerActions([act('shop', 'Store'), act('npc', 'Smith'), act('bank', 'Bank'), act('home', 'Cottage')]).slice(0, 3);
+    expect(icons.map(a => a.kind)).toEqual(['home', 'bank', 'shop']);
   });
 });

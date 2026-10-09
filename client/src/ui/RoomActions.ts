@@ -95,6 +95,16 @@ export function getRoomActions(
   return actions;
 }
 
+const MARKER_RANK: Partial<Record<RoomAction['kind'], number>> = { home: 0, bank: 2 };
+
+/** Map-marker icons in priority order: home, ready quests and the bank first, then the rest, then one exit. */
+export function markerActions(actions: readonly RoomAction[]): RoomAction[] {
+  const rank = (a: RoomAction) => (a.questReady ? 1 : MARKER_RANK[a.kind] ?? 3);
+  const places = actions.filter(a => a.kind !== 'travel').sort((a, b) => rank(a) - rank(b));
+  const firstExit = actions.find(a => a.kind === 'travel');
+  return firstExit ? [...places, firstExit] : places;
+}
+
 /** Button/chip text for acting on a room action. */
 export function actionLabel(action: RoomAction): string {
   switch (action.kind) {
