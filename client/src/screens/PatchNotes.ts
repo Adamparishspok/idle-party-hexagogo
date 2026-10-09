@@ -18,6 +18,10 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'A new title screen greets you when you sign in, and choosing your class now uses big swipeable cards showing each class\'s art, stats and passive.',
       'Settings, notification preferences and patch notes are redesigned, with big toggle switches that are easy to tap.',
       'The game now has sound effects for combat, buttons, rewards and more — adjust or mute them in Settings.',
+      'Shops that offer henchmen now have a Hire tab — see each hireling\'s level, health and damage, and if your party is full, pick which henchman makes room.',
+      'Hired henchmen show in your party on the Social screen — see them in your formation, move them around, or dismiss them. They fight alongside you on the new combat screen too.',
+      'Trades now ask you to re-check an offer if it changes while you\'re about to confirm.',
+      'The Quest Log has moved to its own parchment window, and the room panel on the map shows what your current room offers as big buttons.',
     ],
   },
   {
