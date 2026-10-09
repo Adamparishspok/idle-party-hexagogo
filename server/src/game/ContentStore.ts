@@ -5,14 +5,14 @@ import type { MonsterDefinition, ItemDefinition, ZoneDefinition, WorldData, Worl
 import type { SetDefinition } from '@idle-party-rpg/shared';
 import type { ShopDefinition } from '@idle-party-rpg/shared';
 import { zoneMapConflict } from '@idle-party-rpg/shared';
-import type { HenchmanDefinition } from '@idle-party-rpg/shared';
+import type { HenchmanDefinition, HouseDefinition } from '@idle-party-rpg/shared';
 import type { RecipeDefinition } from '@idle-party-rpg/shared';
 import type { NpcDefinition } from '@idle-party-rpg/shared';
 import type { QuestDefinition } from '@idle-party-rpg/shared';
 import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
-import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
+import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
 import { TileType } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
@@ -24,6 +24,7 @@ const ENCOUNTERS_FILE = path.join(DATA_DIR, 'encounters.json');
 const SETS_FILE = path.join(DATA_DIR, 'sets.json');
 const SHOPS_FILE = path.join(DATA_DIR, 'shops.json');
 const HENCHMEN_FILE = path.join(DATA_DIR, 'henchmen.json');
+const HOUSES_FILE = path.join(DATA_DIR, 'houses.json');
 const TILE_TYPES_FILE = path.join(DATA_DIR, 'tile-types.json');
 const RECIPES_FILE = path.join(DATA_DIR, 'recipes.json');
 const NPCS_FILE = path.join(DATA_DIR, 'npcs.json');
@@ -46,6 +47,7 @@ export class ContentStore {
   private sets = new Map<string, SetDefinition>();
   private shops = new Map<string, ShopDefinition>();
   private henchmen = new Map<string, HenchmanDefinition>();
+  private houses = new Map<string, HouseDefinition>();
   private tileTypes = new Map<string, TileTypeDefinition>();
   private recipes = new Map<string, RecipeDefinition>();
   private npcs = new Map<string, NpcDefinition>();
@@ -80,6 +82,7 @@ export class ContentStore {
     await fs.writeFile(SETS_FILE, JSON.stringify(Array.from(this.sets.values()), null, 2));
     await fs.writeFile(SHOPS_FILE, JSON.stringify(Array.from(this.shops.values()), null, 2));
     await fs.writeFile(HENCHMEN_FILE, JSON.stringify(Array.from(this.henchmen.values()), null, 2));
+    await fs.writeFile(HOUSES_FILE, JSON.stringify(Array.from(this.houses.values()), null, 2));
     await fs.writeFile(TILE_TYPES_FILE, JSON.stringify(Array.from(this.tileTypes.values()), null, 2));
     await fs.writeFile(RECIPES_FILE, JSON.stringify(Array.from(this.recipes.values()), null, 2));
     await fs.writeFile(NPCS_FILE, JSON.stringify(Array.from(this.npcs.values()), null, 2));
@@ -159,6 +162,16 @@ export class ContentStore {
   getAllHenchmen(): Record<string, HenchmanDefinition> {
     const result: Record<string, HenchmanDefinition> = {};
     for (const [id, def] of this.henchmen) result[id] = def;
+    return result;
+  }
+
+  getHouse(id: string): HouseDefinition | undefined {
+    return this.houses.get(id);
+  }
+
+  getAllHouses(): Record<string, HouseDefinition> {
+    const result: Record<string, HouseDefinition> = {};
+    for (const [id, def] of this.houses) result[id] = def;
     return result;
   }
 
@@ -541,6 +554,27 @@ export class ContentStore {
     return { success: true };
   }
 
+  // --- House CRUD ---
+
+  async addOrUpdateHouse(house: HouseDefinition): Promise<void> {
+    this.houses.set(house.id, house);
+    await this.save();
+  }
+
+  async deleteHouse(id: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.houses.has(id)) {
+      return { success: false, error: 'House not found.' };
+    }
+    for (const shop of this.shops.values()) {
+      if (shop.houseIds?.includes(id)) {
+        return { success: false, error: `Cannot delete: house is sold by shop "${shop.name}".` };
+      }
+    }
+    this.houses.delete(id);
+    await this.save();
+    return { success: true };
+  }
+
   // --- NPC CRUD ---
 
   async addOrUpdateNpc(npc: NpcDefinition): Promise<void> {
@@ -700,7 +734,7 @@ export class ContentStore {
   // --- Snapshot ---
 
   /** Export current live state as a ContentSnapshot. */
-  toSnapshot(): { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters: EncounterDefinition[]; sets: SetDefinition[]; shops: ShopDefinition[]; henchmen: HenchmanDefinition[]; tileTypes: TileTypeDefinition[]; recipes: RecipeDefinition[]; npcs: NpcDefinition[]; quests: QuestDefinition[]; dungeons: DungeonDefinition[]; skills: SkillDefinition[]; skillSlotSchedules: { className: string; slots: SkillSlot[] }[]; designNotes: DesignNote[]; world: WorldData } {
+  toSnapshot(): { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters: EncounterDefinition[]; sets: SetDefinition[]; shops: ShopDefinition[]; henchmen: HenchmanDefinition[]; houses: HouseDefinition[]; tileTypes: TileTypeDefinition[]; recipes: RecipeDefinition[]; npcs: NpcDefinition[]; quests: QuestDefinition[]; dungeons: DungeonDefinition[]; skills: SkillDefinition[]; skillSlotSchedules: { className: string; slots: SkillSlot[] }[]; designNotes: DesignNote[]; world: WorldData } {
     return {
       monsters: Array.from(this.monsters.values()),
       items: Array.from(this.items.values()),
@@ -709,6 +743,7 @@ export class ContentStore {
       sets: Array.from(this.sets.values()),
       shops: Array.from(this.shops.values()),
       henchmen: Array.from(this.henchmen.values()),
+      houses: Array.from(this.houses.values()),
       tileTypes: Array.from(this.tileTypes.values()),
       recipes: Array.from(this.recipes.values()),
       npcs: Array.from(this.npcs.values()),
@@ -722,7 +757,7 @@ export class ContentStore {
   }
 
   /** Bulk-replace all content from a snapshot (used for deploy). */
-  async replaceAll(snapshot: { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters?: EncounterDefinition[]; sets?: SetDefinition[]; shops?: ShopDefinition[]; henchmen?: HenchmanDefinition[]; tileTypes?: TileTypeDefinition[]; recipes?: RecipeDefinition[]; npcs?: NpcDefinition[]; quests?: QuestDefinition[]; dungeons?: DungeonDefinition[]; skills?: SkillDefinition[]; skillSlotSchedules?: { className: string; slots: SkillSlot[] }[]; designNotes?: DesignNote[]; world: WorldData }): Promise<void> {
+  async replaceAll(snapshot: { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters?: EncounterDefinition[]; sets?: SetDefinition[]; shops?: ShopDefinition[]; henchmen?: HenchmanDefinition[]; houses?: HouseDefinition[]; tileTypes?: TileTypeDefinition[]; recipes?: RecipeDefinition[]; npcs?: NpcDefinition[]; quests?: QuestDefinition[]; dungeons?: DungeonDefinition[]; skills?: SkillDefinition[]; skillSlotSchedules?: { className: string; slots: SkillSlot[] }[]; designNotes?: DesignNote[]; world: WorldData }): Promise<void> {
     this.monsters.clear();
     for (const m of snapshot.monsters) this.monsters.set(m.id, m);
 
@@ -787,6 +822,12 @@ export class ContentStore {
     }
     // keep-when-absent: an absent `henchmen` key keeps live henchmen; `[]` clears them.
 
+    if (snapshot.houses !== undefined) {
+      this.houses.clear();
+      for (const h of snapshot.houses) this.houses.set(h.id, h);
+    }
+    // keep-when-absent: an absent `houses` key keeps live houses; `[]` clears them.
+
     if (snapshot.skillSlotSchedules !== undefined) {
       this.skillSlotSchedules.clear();
       for (const entry of snapshot.skillSlotSchedules) this.skillSlotSchedules.set(entry.className, entry.slots);
@@ -817,7 +858,7 @@ export class ContentStore {
     this.migrateItems();
 
     await this.save();
-    console.log(`[ContentStore] Replaced all content: ${this.monsters.size} monsters, ${this.items.size} items, ${this.zones.size} zones, ${this.encounters.size} encounters, ${this.sets.size} sets, ${this.shops.size} shops, ${this.henchmen.size} henchmen, ${this.dungeons.size} dungeons, ${this.world.tiles.length} tiles`);
+    console.log(`[ContentStore] Replaced all content: ${this.monsters.size} monsters, ${this.items.size} items, ${this.zones.size} zones, ${this.encounters.size} encounters, ${this.sets.size} sets, ${this.shops.size} shops, ${this.henchmen.size} henchmen, ${this.houses.size} houses, ${this.dungeons.size} dungeons, ${this.world.tiles.length} tiles`);
   }
 
   // --- Private ---
@@ -882,6 +923,18 @@ export class ContentStore {
         if (process.env.NODE_ENV !== 'production') {
           for (const h of Object.values(SEED_HENCHMEN)) this.henchmen.set(h.id, h);
           henchmenSeeded = true;
+        }
+      }
+
+      let housesSeeded = false;
+      try {
+        const housesRaw = await fs.readFile(HOUSES_FILE, 'utf-8');
+        const housesArr: HouseDefinition[] = JSON.parse(housesRaw);
+        for (const h of housesArr) this.houses.set(h.id, h);
+      } catch {
+        if (process.env.NODE_ENV !== 'production') {
+          for (const h of Object.values(SEED_HOUSES)) this.houses.set(h.id, h);
+          housesSeeded = true;
         }
       }
 
@@ -985,7 +1038,7 @@ export class ContentStore {
       // Migrate items: twoHanded → twohanded slot, remove dodge, classRestriction→array, add value
       const itemsMigrated = this.migrateItems();
 
-      if (migrated > 0 || worldMigrated || encountersMigrated || itemsMigrated || henchmenSeeded || tileTypesSeeded || recipesSeeded || skillsSeeded || skillSlotsSeeded) {
+      if (migrated > 0 || worldMigrated || encountersMigrated || itemsMigrated || henchmenSeeded || housesSeeded || tileTypesSeeded || recipesSeeded || skillsSeeded || skillSlotsSeeded) {
         await this.save();
       }
 
@@ -1151,6 +1204,10 @@ export class ContentStore {
       for (const h of Object.values(SEED_HENCHMEN)) {
         this.henchmen.set(h.id, h);
       }
+    }
+
+    for (const h of Object.values(SEED_HOUSES)) {
+      this.houses.set(h.id, h);
     }
 
     // Dungeons

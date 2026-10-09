@@ -29,7 +29,8 @@ import { AssetStore } from './game/AssetStore.js';
 import swaggerUi from 'swagger-ui-express';
 import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
-import type { ClassName, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
+import type { ClassName, ClientHousingMessage, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
+import { HOUSING_MESSAGE_TYPES } from './game/housing/HousingService.js';
 import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
 import { getVapidPublicKey } from './game/social/BrowserPushNotificationDriver.js';
@@ -693,6 +694,12 @@ wss.on('connection', (ws) => {
         const itemName = quantity > 1 ? `${itemDef.name} x${quantity}` : itemDef.name;
         session.addLogEntry(`Sold ${itemName} for ${sellValue} gold`, 'victory');
         playerManager.sendStateToPlayer(username);
+        return;
+      }
+
+      if (HOUSING_MESSAGE_TYPES.has(msg.type)) {
+        const refusal = playerManager.housing.handle(username, msg as ClientHousingMessage);
+        if (refusal) ws.send(JSON.stringify({ type: 'error', message: refusal.message, code: refusal.code }));
         return;
       }
 

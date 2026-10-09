@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet, findZonesSpanningMaps } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition } from '@idle-party-rpg/shared';
 import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
@@ -20,6 +20,7 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
   const encounterIds = new Set((snapshot.encounters ?? []).map(e => e.id));
   const shopIds = new Set((snapshot.shops ?? []).map(s => s.id));
   const henchmanIds = new Set((snapshot.henchmen ?? []).map(h => h.id));
+  const houseIds = new Set((snapshot.houses ?? []).map(h => h.id));
   const npcIds = new Set((snapshot.npcs ?? []).map(n => n.id));
   const questIds = new Set((snapshot.quests ?? []).map(q => q.id));
   const dungeonIds = new Set((snapshot.dungeons ?? []).map(d => d.id));
@@ -161,6 +162,14 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
         }
       });
     }
+    // keep-when-absent: an absent `houses` key means unknown, not empty.
+    if (snapshot.houses !== undefined) {
+      (shop.houseIds ?? []).forEach((hid, index) => {
+        if (!houseIds.has(hid)) {
+          problems.push(`Shop '${shop.id}' houseIds references unknown house '${hid}' (index ${index}).`);
+        }
+      });
+    }
   }
 
   // --- Zones ---
@@ -177,6 +186,12 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
         }
       });
     }
+  }
+
+  // --- Houses ---
+  for (const house of snapshot.houses ?? []) {
+    const invalid = validateHouseDefinition(house);
+    if (invalid) problems.push(`House '${house.id}': ${invalid}`);
   }
 
   // --- Recipes ---

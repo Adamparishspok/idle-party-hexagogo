@@ -27,6 +27,8 @@ export const ASSET_KINDS = [
   'class',
   'npc',
   'henchman',
+  'house',
+  'house-interior',
   'logo',
   'combat-bg',
   'room-bg',
@@ -38,7 +40,7 @@ export const ASSET_KINDS = [
   'sfx',
 ] as const;
 
-export type AssetKind = (typeof ASSET_KINDS)[number];
+export type AssetKind= (typeof ASSET_KINDS)[number];
 
 /**
  * Painted chrome pieces the game shell reaches for under `/ui-artwork/{id}.png`.
@@ -107,6 +109,7 @@ export type AssetIdSource =
   | 'tileTypes'
   | 'npcs'
   | 'henchmen'
+  | 'houses'
   | 'maps'
   | 'classes'
   | 'equipSlots'
@@ -284,6 +287,24 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
     idFormat: 'HenchmanDefinition.id',
     shape: 'square',
   },
+  house: {
+    label: 'House',
+    description: 'House exterior cards in the estate agent list and the home header. Houses may instead point at any URL via HouseDefinition.artworkUrl; the emoji shows when neither exists.',
+    dir: 'data/house-artwork',
+    mount: '/house-artwork',
+    idSource: 'houses',
+    idFormat: 'HouseDefinition.id',
+    shape: 'any',
+  },
+  'house-interior': {
+    label: 'House interior',
+    description: 'Wide backdrop inside a home, behind the campfire, shelves and occupants. Falls back to a CSS scene.',
+    dir: 'data/house-interior-artwork',
+    mount: '/house-interior-artwork',
+    idSource: 'houses',
+    idFormat: 'HouseDefinition.id',
+    shape: 'any',
+  },
   logo: {
     label: 'Logo',
     description: 'Splash-screen logo shown while the game loads.',
@@ -405,6 +426,8 @@ export const MANAGED_ASSET_KINDS = [
   'class',
   'npc',
   'henchman',
+  'house',
+  'house-interior',
   'logo',
   'combat-bg',
   'room-bg',

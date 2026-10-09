@@ -56,6 +56,21 @@ const sharedComponents = {
         },
       },
     },
+    HouseDefinition: {
+      type: 'object',
+      required: ['id', 'name', 'tier', 'price', 'storageSlots', 'displaySlots', 'emoji'],
+      properties: {
+        id: { type: 'string', example: 'cottage' },
+        name: { type: 'string', example: 'Cottage' },
+        description: { type: 'string' },
+        tier: { type: 'integer', minimum: 1, maximum: 5, example: 1 },
+        price: { type: 'integer', minimum: 0, example: 1000 },
+        storageSlots: { type: 'integer', minimum: 0, example: 6, description: 'Distinct item stacks the storage chest holds.' },
+        displaySlots: { type: 'integer', minimum: 0, example: 3, description: 'Trophy shelf slots, fixed for a player when they buy.' },
+        emoji: { type: 'string', example: '🛖' },
+        artworkUrl: { type: 'string', description: 'Exterior card art; falls back to /house-artwork/{id}.png, then the emoji.' },
+      },
+    },
     ZoneDefinition: {
       type: 'object',
       required: ['id', 'displayName', 'levelRange', 'encounterTable'],
@@ -309,6 +324,7 @@ export const adminSwaggerSpec = {
     { name: 'Items', description: 'Item definition CRUD' },
     { name: 'Monsters', description: 'Monster definition CRUD' },
     { name: 'Zones', description: 'Zone definition CRUD' },
+    { name: 'Houses', description: 'Player house definition CRUD. Shops sell houses through ShopDefinition.houseIds.' },
     { name: 'Skills', description: 'Skill definition CRUD and per-class slot schedules' },
     { name: 'World', description: 'World map tile CRUD' },
     { name: 'Assets', description: 'Game imagery — kind registry, coverage audit, and PNG upload/delete. The `set` and `shop` kinds exist in the game but are not managed here yet; GET /api/admin/assets lists them under `deferred` with the reason. Assets are live and unversioned: they are not part of ContentSnapshot, so uploads bypass the draft/publish/deploy flow and take effect immediately.' },
@@ -620,6 +636,46 @@ export const adminSwaggerSpec = {
       },
     },
 
+    // ── Houses ──
+    '/api/admin/houses': {
+      get: {
+        tags: ['Houses'],
+        summary: 'List all houses',
+        responses: { 200: { description: 'All house definitions keyed by ID' } },
+      },
+    },
+    '/api/admin/houses/{id}': {
+      put: {
+        tags: ['Houses'],
+        summary: 'Add or update a house',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/HouseDefinition' } } },
+        },
+        responses: {
+          200: { description: 'House saved, returns all houses' },
+          400: { description: 'Invalid house definition' },
+        },
+      },
+      delete: {
+        tags: ['Houses'],
+        summary: 'Delete a house',
+        description: 'Fails while any shop lists the house in houseIds.',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'House deleted, returns all houses' },
+          400: { description: 'House sold by a shop or not found' },
+        },
+      },
+    },
+
     // ── Skills ──
     '/api/admin/skills': {
       get: {
@@ -837,7 +893,7 @@ export const adminSwaggerSpec = {
         summary: 'Audit which content is missing artwork',
         description: 'Joins every asset folder against the content expected to have art in it. Accounts for the fallback chains the client actually walks, so an id with no art of its own can still report that it renders real art via another kind.',
         parameters: [
-          { name: 'kind', in: 'query', required: false, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] }, description: 'Restrict the report to one kind. Omit for all kinds.' },
+          { name: 'kind', in: 'query', required: false, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] }, description: 'Restrict the report to one kind. Omit for all kinds.' },
           { name: 'includeEntries', in: 'query', required: false, schema: { type: 'string', enum: ['true'] }, description: "Set to 'true' to include the per-id entries array on each kind" },
           { name: 'missingOnly', in: 'query', required: false, schema: { type: 'string', enum: ['true'] }, description: "With includeEntries, set to 'true' to list only ids that have no art of their own" },
           { name: 'limit', in: 'query', required: false, schema: { type: 'number' }, description: 'Cap on entries per kind. Defaults to 500.' },
@@ -858,7 +914,7 @@ export const adminSwaggerSpec = {
         summary: 'List every stored asset of one kind',
         description: 'Reads the kind\'s folder and returns full metadata per file, sorted by id. A kind with no folder yet simply returns an empty list.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
         ],
         responses: {
           200: {
@@ -883,7 +939,7 @@ export const adminSwaggerSpec = {
         tags: ['Assets'],
         summary: 'Metadata for one asset',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Format varies by kind — see idFormat on GET /api/admin/assets' },
         ],
         responses: {
@@ -905,7 +961,7 @@ export const adminSwaggerSpec = {
         summary: 'Upload or replace a PNG (or an OGG/MP3 for the sfx kind)',
         description: 'Multipart upload under the field name `artwork`. For image kinds the bytes must be a real PNG — the signature and IHDR chunk are verified and the dimensions read from the file itself, never from the client-declared mime type. Kinds with shape `square` reject non-square images. The `sfx` kind takes an OGG (`OggS` capture pattern) or MP3 (ID3 tag or MPEG frame header) instead, stored under the extension its bytes actually are and replacing any file stored for the id in the other format; WAV and anything else is rejected with a 400. Writes take effect on the live game immediately; artwork is not versioned content.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Letters, numbers, spaces, dots, dashes, and underscores only; no `..` runs' },
         ],
         requestBody: {
@@ -934,7 +990,7 @@ export const adminSwaggerSpec = {
         summary: 'Delete an asset',
         description: 'Idempotent — deleting art that is not there still succeeds, with `removed: false`.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         ],
         responses: {
@@ -961,7 +1017,7 @@ export const adminSwaggerSpec = {
         summary: 'Upload artwork (deprecated)',
         description: 'Deprecated alias kept so an older client build does not break mid-deploy. Use POST /api/admin/assets/{kind}/{id}, which returns the stored asset metadata and reports oversized uploads as a JSON 400.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         ],
         requestBody: {
@@ -984,7 +1040,7 @@ export const adminSwaggerSpec = {
         summary: 'Delete artwork (deprecated)',
         description: 'Deprecated alias. Use DELETE /api/admin/assets/{kind}/{id}, which also reports whether a file was actually removed.',
         parameters: [
-          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
+          { name: 'kind', in: 'path', required: true, schema: { type: 'string', enum: ['item', 'monster', 'zone', 'tile', 'tile-type', 'parchment', 'class', 'npc', 'henchman', 'house', 'house-interior', 'logo', 'combat-bg', 'room-bg', 'class-icon', 'slot-icon', 'nav-icon', 'skill', 'ui', 'sfx'] } },
           { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
         ],
         responses: {

@@ -40,7 +40,7 @@ let tmpDir: string;
 let originalCwd: string;
 
 const CONTENT_TYPES: DraftContentType[] = [
-  'monsters', 'items', 'sets', 'shops', 'henchmen', 'recipes', 'npcs',
+  'monsters', 'items', 'sets', 'shops', 'henchmen', 'houses', 'recipes', 'npcs',
   'quests', 'dungeons', 'zones', 'encounters', 'tileTypes',
   'skills', 'designNotes',
 ];
