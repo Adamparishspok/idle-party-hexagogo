@@ -1,87 +1,16 @@
 import type { GameClient } from '../network/GameClient';
-import type { ServerStateMessage, RecipeDefinition, ItemDefinition, ClientCraftingState } from '@idle-party-rpg/shared';
-import { canQueueRecipe, MAX_CRAFT_QUEUE } from '@idle-party-rpg/shared';
+import type {
+  ServerStateMessage,
+  RecipeDefinition,
+  ItemDefinition,
+  ClientCraftingState,
+  EnqueueError,
+} from '@idle-party-rpg/shared';
+import { canQueueRecipe, MAX_CRAFT_QUEUE, CRAFTING_UNLOCK_LEVEL } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
-
-function injectCraftingStyles(): void {
-  if (document.getElementById('crafting-screen-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'crafting-screen-styles';
-  style.textContent = `
-    .craft-screen { padding: 12px; display: flex; flex-direction: column; gap: 14px; }
-    .craft-skill-header {
-      display: flex; flex-direction: column; gap: 4px;
-      padding: 10px 12px;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
-      background: rgba(0,0,0,0.25);
-    }
-    .craft-skill-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-    .craft-skill-name { font-size: 0.95em; font-weight: 600; letter-spacing: 1px; }
-    .craft-skill-level { font-size: 0.8em; opacity: 0.85; }
-    .craft-skill-xpbar {
-      height: 8px; border-radius: 4px; overflow: hidden;
-      background: rgba(255,255,255,0.08);
-    }
-    .craft-skill-xpfill {
-      height: 100%; background: linear-gradient(90deg, #c9a64f, #f0d574);
-      transition: width 0.3s ease-out;
-    }
-    .craft-skill-xptext { font-size: 0.7em; opacity: 0.7; text-align: right; }
-    .craft-locked {
-      padding: 24px; text-align: center;
-      border: 1px solid var(--panel-border, rgba(255,255,255,0.15));
-      border-radius: 8px; background: rgba(0,0,0,0.2);
-    }
-    .craft-locked h3 { margin: 0 0 8px; }
-    .craft-section {
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
-      padding: 10px; background: rgba(0,0,0,0.2);
-    }
-    .craft-section h3 { margin: 0 0 8px; font-size: 0.85em; letter-spacing: 1px; opacity: 0.85; }
-    .craft-queue-empty { opacity: 0.6; font-size: 0.85em; }
-    .craft-queue-list { display: flex; flex-direction: column; gap: 6px; }
-    .craft-queue-row {
-      display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
-      padding: 6px 8px; background: rgba(255,255,255,0.04); border-radius: 4px;
-    }
-    .craft-queue-name { font-size: 0.85em; }
-    .craft-queue-status { font-size: 0.7em; opacity: 0.7; }
-    .craft-progress {
-      grid-column: 1 / -1;
-      height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;
-    }
-    .craft-progress-fill { height: 100%; background: linear-gradient(90deg, #5a8, #7c8); transition: width 0.5s linear; }
-    .craft-cancel-btn {
-      font-size: 0.7em; padding: 3px 8px;
-      background: rgba(180,80,80,0.4); border: 1px solid rgba(220,120,120,0.5);
-      color: #fff; border-radius: 3px; cursor: pointer;
-    }
-    .craft-cancel-btn:hover { background: rgba(200,100,100,0.6); }
-    .craft-recipe-list { display: flex; flex-direction: column; gap: 8px; }
-    .craft-recipe-card {
-      padding: 10px; background: rgba(255,255,255,0.04); border-radius: 4px;
-      display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
-    }
-    .craft-recipe-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-    .craft-recipe-name { font-size: 0.85em; }
-    .craft-recipe-meta { font-size: 0.7em; opacity: 0.75; }
-    .craft-recipe-ings { font-size: 0.7em; opacity: 0.85; }
-    .craft-recipe-ing-missing { color: #f88; }
-    .craft-recipe-result { font-size: 0.7em; opacity: 0.85; }
-    .craft-queue-btn {
-      font-size: 0.75em; padding: 5px 10px;
-      background: rgba(80,140,180,0.45); border: 1px solid rgba(120,180,220,0.6);
-      color: #fff; border-radius: 3px; cursor: pointer;
-    }
-    .craft-queue-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .craft-queue-btn:not(:disabled):hover { background: rgba(100,160,200,0.6); }
-    .craft-class-tag {
-      font-size: 0.65em; padding: 1px 5px; margin-left: 6px;
-      background: rgba(180,140,80,0.3); border-radius: 3px;
-    }
-  `;
-  document.head.appendChild(style);
-}
+import { artworkUrl } from '../ui/assets';
+import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
+import '../styles/screens/craft.css';
 
 function fmtSeconds(seconds: number): string {
   if (seconds < 60) return `${Math.ceil(seconds)}s`;
@@ -94,6 +23,80 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }
 
+function initials(name: string): string {
+  const words = name.split(/[\s_-]+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].substring(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+/** Item ids whose art 404'd — skipped on later renders so we don't refetch every tick. */
+const failedArt = new Set<string>();
+
+interface FrameOpts {
+  size?: 'sm' | 'lg';
+  count?: string;
+  countClass?: string;
+}
+
+/**
+ * Rarity item frame (.gc-item) for an item id. Art loads from
+ * /item-artwork/{id}.png; when it fails the img is dropped and the item's
+ * initials show inside the frame instead (wired in `wireItemArt`).
+ */
+function itemFrame(itemId: string, def: ItemDefinition | undefined, opts: FrameOpts = {}): string {
+  const name = def?.name ?? itemId;
+  const sizeCls = opts.size ? ` gc-item--${opts.size}` : '';
+  const noArt = failedArt.has(itemId);
+  const img = noArt
+    ? ''
+    : `<img class="gc-item__img" data-art="${escapeHtml(itemId)}" src="${escapeHtml(artworkUrl('item', itemId))}" alt="" loading="lazy" decoding="async" />`;
+  const count = opts.count
+    ? `<span class="gc-item__count${opts.countClass ? ` ${opts.countClass}` : ''}">${escapeHtml(opts.count)}</span>`
+    : '';
+  return `<span class="gc-item${sizeCls} cr-item${noArt ? ' is-noart' : ''}" data-rarity="${escapeHtml(def?.rarity ?? 'common')}">`
+    + `<span class="cr-item__initials" aria-hidden="true">${escapeHtml(initials(name))}</span>${img}${count}</span>`;
+}
+
+/** Drop failed item art so the frame's initials show instead of a broken image. */
+function wireItemArt(root: ParentNode): void {
+  root.querySelectorAll<HTMLImageElement>('img[data-art]').forEach(img => {
+    if (img.dataset.wired) return;
+    img.dataset.wired = '1';
+    const fail = () => {
+      failedArt.add(img.dataset.art ?? '');
+      img.parentElement?.classList.add('is-noart');
+      img.remove();
+    };
+    if (img.complete && img.naturalWidth === 0 && img.src) fail();
+    else img.addEventListener('error', fail, { once: true });
+  });
+}
+
+/** Replace `el`'s markup only when it changed, so stable regions keep their DOM (and loaded art). */
+function setHtml(el: HTMLElement, html: string): boolean {
+  if (el.dataset.html === html) return false;
+  el.dataset.html = html;
+  el.innerHTML = html;
+  wireItemArt(el);
+  return true;
+}
+
+/**
+ * Craft screen — WorldQuest-style workshop.
+ *
+ * A fixed header shows the class's craft skill (big outlined level + teal XP
+ * bar). Below it, one scroll region holds the crafting queue (active job with
+ * a live progress bar, then waiting jobs) and the recipe list. Tapping a
+ * recipe opens a parchment detail modal with the result, ingredient frames
+ * (have/need), and the single gold Craft button — which says why when it
+ * can't craft. The modal stays open after crafting so a recipe can be queued
+ * several times in a row.
+ *
+ * Regions re-render by string diff, so a state push that changes nothing
+ * visible leaves the DOM (and scroll position) alone. The active progress bar
+ * and timers tick on requestAnimationFrame between server updates.
+ */
 export class CraftingScreen implements Screen {
   private container: HTMLElement;
   private gameClient: GameClient;
@@ -107,12 +110,26 @@ export class CraftingScreen implements Screen {
   private lastClassName: string | null = null;
   private lastLevel = 0;
 
+  // Persistent skeleton (built once in the constructor).
+  private headerEl!: HTMLElement;
+  private bodyEl!: HTMLElement;
+  private queueEl!: HTMLElement;
+  private recipesEl!: HTMLElement;
+  private messageEl!: HTMLElement;
+
+  // Recipe detail modal.
+  private modal: HTMLElement | null = null;
+  private modalRecipeId: string | null = null;
+  private onModalKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') this.closeRecipe();
+  };
+
   constructor(containerId: string, gameClient: GameClient) {
     const el = document.getElementById(containerId);
     if (!el) throw new Error(`Screen container #${containerId} not found`);
     this.container = el;
     this.gameClient = gameClient;
-    injectCraftingStyles();
+    this.buildSkeleton();
   }
 
   onActivate(): void {
@@ -122,6 +139,7 @@ export class CraftingScreen implements Screen {
     });
     const state = this.gameClient.lastState;
     if (state) this.updateFromState(state);
+    else this.render();
     this.startProgressLoop();
   }
 
@@ -133,7 +151,10 @@ export class CraftingScreen implements Screen {
       cancelAnimationFrame(this.rafHandle);
       this.rafHandle = undefined;
     }
+    this.closeRecipe();
   }
+
+  // ── State ────────────────────────────────────────────────
 
   private updateFromState(state: ServerStateMessage): void {
     this.lastState = state.crafting ?? null;
@@ -144,7 +165,261 @@ export class CraftingScreen implements Screen {
     this.render();
   }
 
+  private lookupItem(id: string): ItemDefinition | undefined {
+    // Recipe-referenced item defs come from the server's craft state — covers items the
+    // player doesn't own yet. Fall back to owned itemDefinitions for safety.
+    return this.lastState?.itemDefs[id] ?? this.lastItemDefs[id];
+  }
+
+  private itemName(id: string): string {
+    return this.lookupItem(id)?.name ?? id;
+  }
+
+  private recipeById(id: string): RecipeDefinition | undefined {
+    return this.lastState?.recipes.find(r => r.id === id);
+  }
+
+  // ── Skeleton ─────────────────────────────────────────────
+
+  private buildSkeleton(): void {
+    this.container.innerHTML = `
+      <div class="cr-screen">
+        <div class="cr-message" hidden></div>
+        <div class="cr-body">
+          <header class="cr-header"></header>
+          <div class="cr-scroll screen-scroll">
+            <section class="cr-section cr-queue" aria-label="Crafting queue"></section>
+            <section class="cr-section cr-recipes" aria-label="Recipes"></section>
+          </div>
+        </div>
+      </div>
+    `;
+    const q = <T extends HTMLElement>(sel: string) => this.container.querySelector(sel) as T;
+    this.messageEl = q('.cr-message');
+    this.bodyEl = q('.cr-body');
+    this.headerEl = q('.cr-header');
+    this.queueEl = q('.cr-queue');
+    this.recipesEl = q('.cr-recipes');
+
+    // Delegated handlers: the regions re-render, the listeners don't.
+    this.queueEl.addEventListener('click', e => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-cancel-index]');
+      if (!btn) return;
+      const idx = Number(btn.dataset.cancelIndex);
+      if (Number.isFinite(idx)) this.gameClient.sendCraftCancel(idx);
+    });
+    this.recipesEl.addEventListener('click', e => {
+      const row = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-recipe-id]');
+      const id = row?.dataset.recipeId;
+      if (id) this.openRecipe(id);
+    });
+  }
+
+  // ── Render ───────────────────────────────────────────────
+
+  private render(): void {
+    const c = this.lastState;
+    if (!c) {
+      this.showMessage(`
+        <div class="gc-parchment cr-empty-card">
+          <h2>No Character</h2>
+          <p>Pick a class first, then come back to the workbench.</p>
+        </div>
+      `);
+      this.closeRecipe();
+      return;
+    }
+    if (!c.unlocked) {
+      this.showMessage(`
+        <div class="gc-parchment cr-empty-card">
+          <h2>Workshop Locked</h2>
+          <p>Reach level <strong>${c.unlockLevel}</strong> to start crafting.</p>
+          <div class="cr-empty-card__level">
+            <div class="gc-bar gc-bar--xp gc-bar--lg">
+              <div class="gc-bar__fill" style="width:${Math.min(100, Math.max(0, (this.lastLevel / Math.max(1, c.unlockLevel)) * 100))}%"></div>
+              <div class="gc-bar__text">Level ${this.lastLevel} / ${c.unlockLevel}</div>
+            </div>
+          </div>
+        </div>
+      `);
+      this.closeRecipe();
+      return;
+    }
+
+    this.messageEl.hidden = true;
+    this.bodyEl.hidden = false;
+    setHtml(this.headerEl, this.renderSkillHeader(c));
+    setHtml(this.queueEl, this.renderQueue(c));
+    setHtml(this.recipesEl, this.renderRecipes(c));
+    this.updateProgressBar();
+
+    if (this.modalRecipeId) this.renderModal();
+  }
+
+  private showMessage(html: string): void {
+    this.bodyEl.hidden = true;
+    this.messageEl.hidden = false;
+    setHtml(this.messageEl, html);
+  }
+
+  private renderSkillHeader(c: ClientCraftingState): string {
+    const maxed = c.skillXpForNext <= 0;
+    const xpPct = maxed ? 100 : Math.min(100, Math.max(0, (c.skillXp / c.skillXpForNext) * 100));
+    const xpText = maxed ? 'Max level' : `${c.skillXp} / ${c.skillXpForNext} XP`;
+    return `
+      <div class="cr-level" aria-label="${escapeHtml(c.skillName)} level ${c.skillLevel}">
+        <span class="cr-level__label">Lv</span>
+        <span class="cr-level__num">${c.skillLevel}</span>
+      </div>
+      <div class="cr-header__main">
+        <div class="cr-header__name">${escapeHtml(c.skillName)}</div>
+        <div class="gc-bar gc-bar--xp gc-bar--lg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(xpPct)}">
+          <div class="gc-bar__fill" style="width:${xpPct}%"></div>
+          <div class="gc-bar__text">${escapeHtml(xpText)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderQueue(c: ClientCraftingState): string {
+    const head = `
+      <div class="cr-section__head">
+        <h2 class="cr-section__title">Workbench</h2>
+        <span class="cr-pill${c.queue.jobs.length >= MAX_CRAFT_QUEUE ? ' is-full' : ''}">${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE}</span>
+        <span class="cr-section__aside" data-queue-total></span>
+      </div>
+    `;
+    if (c.queue.jobs.length === 0) {
+      return `${head}
+        <div class="cr-idle">
+          <div class="cr-idle__slot gc-item gc-item--empty" aria-hidden="true"></div>
+          <div>
+            <div class="cr-idle__title">Your workbench is idle</div>
+            <div class="cr-idle__sub">Pick a recipe below to start crafting. It keeps going while you're away.</div>
+          </div>
+        </div>
+      `;
+    }
+
+    const rows = c.queue.jobs.map((job, idx) => {
+      const recipe = this.recipeById(job.recipeId);
+      const name = recipe ? recipe.name : job.recipeId;
+      const resultId = recipe?.result.itemId ?? job.recipeId;
+      const qty = recipe && recipe.result.quantity > 1 ? `×${recipe.result.quantity}` : undefined;
+      const cancel = `<button type="button" class="gc-btn gc-btn--red gc-btn--icon cr-cancel" data-cancel-index="${idx}" aria-label="Cancel ${escapeHtml(name)} (refunds ingredients)"><span class="cr-cancel__x" aria-hidden="true"></span></button>`;
+      const isActive = idx === 0 && !!c.activeProgress;
+      if (isActive) {
+        // Width and time are filled in by updateProgressBar so this markup stays stable.
+        return `
+          <div class="cr-job cr-job--active">
+            ${itemFrame(resultId, this.lookupItem(resultId), { count: qty })}
+            <div class="cr-job__main">
+              <div class="cr-job__name">${escapeHtml(name)}</div>
+              <div class="gc-bar gc-bar--lg cr-job__bar">
+                <div class="gc-bar__fill" data-active-fill style="width:0%"></div>
+                <div class="gc-bar__text" data-active-time>&nbsp;</div>
+              </div>
+            </div>
+            ${cancel}
+          </div>
+        `;
+      }
+      const status = recipe ? `Waiting · ${fmtSeconds(recipe.durationSeconds)}` : 'Waiting';
+      return `
+        <div class="cr-job">
+          ${itemFrame(resultId, this.lookupItem(resultId), { size: 'sm', count: qty })}
+          <div class="cr-job__main">
+            <div class="cr-job__name">${escapeHtml(name)}</div>
+            <div class="cr-job__status">${escapeHtml(status)}</div>
+          </div>
+          ${cancel}
+        </div>
+      `;
+    }).join('');
+    return `${head}<div class="cr-jobs">${rows}</div>`;
+  }
+
+  private renderRecipes(c: ClientCraftingState): string {
+    const head = `<div class="cr-section__head"><h2 class="cr-section__title">Recipes</h2></div>`;
+    if (c.recipes.length === 0) {
+      return `${head}
+        <div class="cr-idle">
+          <div class="cr-idle__slot gc-item gc-item--empty" aria-hidden="true"></div>
+          <div>
+            <div class="cr-idle__title">No recipes yet</div>
+            <div class="cr-idle__sub">New recipes appear here as the world opens up. Keep adventuring!</div>
+          </div>
+        </div>
+      `;
+    }
+    const rows = c.recipes.map(recipe => {
+      const chips = recipe.ingredients.map(ing => {
+        const have = this.lastInventory[ing.itemId] ?? 0;
+        const ok = have >= ing.quantity;
+        return `<span class="cr-chip ${ok ? 'is-ok' : 'is-short'}"><span class="cr-chip__name">${escapeHtml(this.itemName(ing.itemId))}</span> <span class="cr-chip__count">${have}/${ing.quantity}</span></span>`;
+      }).join('');
+      const resultDef = this.lookupItem(recipe.result.itemId);
+      const qty = recipe.result.quantity > 1 ? `×${recipe.result.quantity}` : undefined;
+      const check = canQueueRecipe(recipe, this.lastInventory, c.queue, this.lastClassName, this.lastLevel);
+      const badge = check.ok
+        ? `<span class="cr-status is-ready">Ready</span>`
+        : `<span class="cr-status">${escapeHtml(this.shortReason(check.reason, recipe))}</span>`;
+      return `
+        <button type="button" class="cr-recipe${check.ok ? ' is-ready' : ''}" data-recipe-id="${escapeHtml(recipe.id)}">
+          ${itemFrame(recipe.result.itemId, resultDef, { size: 'sm', count: qty })}
+          <span class="cr-recipe__main">
+            <span class="cr-recipe__top">
+              <span class="cr-recipe__name">${escapeHtml(recipe.name)}</span>
+              ${badge}
+            </span>
+            <span class="cr-recipe__meta">${this.metaText(recipe)}</span>
+            <span class="cr-chips">${chips}</span>
+          </span>
+        </button>
+      `;
+    }).join('');
+    return `${head}<div class="cr-recipe-list">${rows}</div>`;
+  }
+
+  /** "1m 30s · 10 XP · Mage" — escaped HTML. */
+  private metaText(recipe: RecipeDefinition): string {
+    const parts = [fmtSeconds(recipe.durationSeconds)];
+    if (recipe.xpReward && recipe.xpReward > 0) parts.push(`${recipe.xpReward} XP`);
+    if (recipe.classRestriction && recipe.classRestriction.length > 0) parts.push(recipe.classRestriction.join('/'));
+    return escapeHtml(parts.join(' · '));
+  }
+
+  private shortReason(reason: EnqueueError, recipe: RecipeDefinition): string {
+    switch (reason) {
+      case 'queue_full': return 'Queue full';
+      case 'level_too_low': return `Lv ${recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL}`;
+      case 'class_restricted': return 'Wrong class';
+      case 'missing_ingredients': return 'Need items';
+      default: return 'Unavailable';
+    }
+  }
+
+  /** Full sentence for the detail modal: tells the player exactly what's missing. */
+  private longReason(reason: EnqueueError, recipe: RecipeDefinition): string {
+    switch (reason) {
+      case 'queue_full': return `Your queue is full (${MAX_CRAFT_QUEUE}/${MAX_CRAFT_QUEUE}). Wait for a craft to finish or cancel one.`;
+      case 'level_too_low': return `Requires character level ${recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL} — you're level ${this.lastLevel}.`;
+      case 'class_restricted': return `Only ${(recipe.classRestriction ?? []).join(' / ')} can craft this.`;
+      case 'missing_ingredients': {
+        const missing = recipe.ingredients
+          .map(ing => ({ ing, short: ing.quantity - (this.lastInventory[ing.itemId] ?? 0) }))
+          .filter(m => m.short > 0)
+          .map(m => `${m.short} ${this.itemName(m.ing.itemId)}`);
+        return `Still need ${missing.join(', ')}.`;
+      }
+      default: return 'You can\'t craft this right now.';
+    }
+  }
+
+  // ── Live progress ────────────────────────────────────────
+
   private startProgressLoop(): void {
+    if (this.rafHandle !== undefined) cancelAnimationFrame(this.rafHandle);
     const tick = () => {
       if (!this.isActive) return;
       this.updateProgressBar();
@@ -154,169 +429,159 @@ export class CraftingScreen implements Screen {
   }
 
   private updateProgressBar(): void {
-    if (!this.lastState?.activeProgress) return;
-    const fill = this.container.querySelector<HTMLElement>('.craft-progress-fill[data-active="1"]');
-    const status = this.container.querySelector<HTMLElement>('.craft-queue-status[data-active="1"]');
-    if (!fill || !status) return;
-    const ap = this.lastState.activeProgress;
-    const elapsed = Math.min(ap.durationMs, Date.now() - ap.startedAtMs);
-    const pct = (elapsed / ap.durationMs) * 100;
-    fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-    const remaining = Math.max(0, ap.durationMs - elapsed) / 1000;
-    status.textContent = `${fmtSeconds(remaining)} remaining`;
-  }
-
-  private render(): void {
     const c = this.lastState;
-    if (!c) {
-      this.container.innerHTML = `<div class="craft-screen"><div class="craft-locked"><h3>No character</h3><p>Pick a class first.</p></div></div>`;
-      return;
+    const ap = c?.activeProgress;
+    if (!c || !ap) return;
+    const elapsed = Math.min(ap.durationMs, Date.now() - ap.startedAtMs);
+    const remainingMs = Math.max(0, ap.durationMs - elapsed);
+
+    const fill = this.queueEl.querySelector<HTMLElement>('[data-active-fill]');
+    if (fill) {
+      const pct = ap.durationMs > 0 ? (elapsed / ap.durationMs) * 100 : 100;
+      fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
     }
-    if (!c.unlocked) {
-      this.container.innerHTML = `
-        <div class="craft-screen">
-          <div class="craft-locked">
-            <h3>Crafting locked</h3>
-            <p>Reach level ${c.unlockLevel} to begin crafting.</p>
-            <p style="opacity:0.7;font-size:0.85em">Current Level: ${this.lastLevel}</p>
-          </div>
-        </div>
-      `;
-      return;
-    }
+    const time = this.queueEl.querySelector<HTMLElement>('[data-active-time]');
+    const timeText = remainingMs > 0 ? `${fmtSeconds(remainingMs / 1000)} left` : 'Finishing…';
+    if (time && time.textContent !== timeText) time.textContent = timeText;
 
-    this.container.innerHTML = `
-      <div class="craft-screen">
-        ${this.renderSkillHeader(c)}
-        <section class="craft-section">
-          <h3>Queue (${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE})</h3>
-          ${this.renderQueue(c)}
-        </section>
-        <section class="craft-section">
-          <h3>Recipes</h3>
-          ${this.renderRecipes(c)}
-        </section>
-      </div>
-    `;
-
-    this.container.querySelectorAll<HTMLButtonElement>('.craft-queue-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.recipeId;
-        if (id) this.gameClient.sendCraftQueue(id);
-      });
-    });
-    this.container.querySelectorAll<HTMLButtonElement>('.craft-cancel-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const idx = Number(btn.dataset.index);
-        if (Number.isFinite(idx)) this.gameClient.sendCraftCancel(idx);
-      });
-    });
-  }
-
-  private renderSkillHeader(c: ClientCraftingState): string {
-    const xpPct = c.skillXpForNext > 0
-      ? Math.min(100, Math.max(0, (c.skillXp / c.skillXpForNext) * 100))
-      : 0;
-    return `
-      <div class="craft-skill-header">
-        <div class="craft-skill-row">
-          <div class="craft-skill-name">${escapeHtml(c.skillName)}</div>
-          <div class="craft-skill-level">Level ${c.skillLevel}</div>
-        </div>
-        <div class="craft-skill-xpbar"><div class="craft-skill-xpfill" style="width:${xpPct}%"></div></div>
-        <div class="craft-skill-xptext">${c.skillXp} / ${c.skillXpForNext} XP</div>
-      </div>
-    `;
-  }
-
-  private renderQueue(c: ClientCraftingState): string {
-    if (c.queue.jobs.length === 0) {
-      return `<div class="craft-queue-empty">Queue is empty. Pick a recipe below.</div>`;
-    }
-    const recipesById = new Map<string, RecipeDefinition>();
-    for (const r of c.recipes) recipesById.set(r.id, r);
-    const rows = c.queue.jobs.map((job, idx) => {
-      const recipe = recipesById.get(job.recipeId);
-      const name = recipe ? recipe.name : job.recipeId;
-      const isActive = idx === 0 && c.activeProgress;
-      let progressBlock = '';
-      let statusText = '';
-      if (isActive && c.activeProgress) {
-        const ap = c.activeProgress;
-        const pct = ap.durationMs > 0 ? Math.min(100, (ap.elapsedMs / ap.durationMs) * 100) : 0;
-        const remaining = Math.max(0, ap.remainingMs / 1000);
-        statusText = `${fmtSeconds(remaining)} remaining`;
-        progressBlock = `
-          <div class="craft-progress">
-            <div class="craft-progress-fill" data-active="1" style="width:${pct}%"></div>
-          </div>
-        `;
-      } else if (recipe) {
-        statusText = `Queued — ${fmtSeconds(recipe.durationSeconds)}`;
-      } else {
-        statusText = 'Queued';
+    // Whole-queue ETA: the active job's remainder plus every waiting job.
+    const total = this.queueEl.querySelector<HTMLElement>('[data-queue-total]');
+    if (total) {
+      let ms = remainingMs;
+      for (let i = 1; i < c.queue.jobs.length; i++) {
+        ms += (this.recipeById(c.queue.jobs[i].recipeId)?.durationSeconds ?? 0) * 1000;
       }
+      const totalText = c.queue.jobs.length > 1 ? `All done in ${fmtSeconds(ms / 1000)}` : '';
+      if (total.textContent !== totalText) total.textContent = totalText;
+    }
+  }
+
+  // ── Recipe detail modal ──────────────────────────────────
+
+  private openRecipe(recipeId: string): void {
+    if (!this.recipeById(recipeId)) return;
+    this.closeRecipe();
+    this.modalRecipeId = recipeId;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'gc-modal cr-modal';
+    overlay.innerHTML = `
+      <div class="gc-modal__panel gc-parchment" role="dialog" aria-modal="true" aria-labelledby="cr-modal-title">
+        <div class="gc-title-tab gc-modal__title" id="cr-modal-title"></div>
+        <button type="button" class="gc-close gc-modal__close" aria-label="Close"></button>
+        <div class="gc-modal__body cr-modal__body"></div>
+        <div class="cr-modal__toast" aria-live="polite"></div>
+        <div class="gc-modal__actions">
+          <button type="button" class="gc-btn gc-btn--gold gc-btn--lg cr-modal__craft">Craft</button>
+        </div>
+      </div>
+    `;
+    overlay.addEventListener('click', e => {
+      const t = e.target as HTMLElement;
+      if (t === overlay || t.closest('.gc-modal__close')) {
+        this.closeRecipe();
+        return;
+      }
+      const craft = t.closest<HTMLButtonElement>('.cr-modal__craft');
+      if (craft && !craft.disabled && this.modalRecipeId) {
+        this.gameClient.sendCraftQueue(this.modalRecipeId);
+        // Brief "Queued!" confirmation; the real state (counts, queue) follows from the server.
+        craft.classList.remove('is-queued');
+        void craft.offsetWidth;
+        craft.classList.add('is-queued');
+        this.flashQueued(overlay);
+      }
+    });
+    this.modal = overlay;
+    document.body.appendChild(overlay);
+    bringToFront(overlay);
+    wireFocusOnInteract(overlay);
+    document.addEventListener('keydown', this.onModalKey);
+    this.renderModal();
+    (overlay.querySelector('.gc-modal__close') as HTMLElement).focus();
+  }
+
+  private flashQueued(overlay: HTMLElement): void {
+    const note = overlay.querySelector<HTMLElement>('.cr-modal__toast');
+    if (!note) return;
+    note.textContent = 'Added to your workbench!';
+    note.classList.remove('is-shown');
+    void note.offsetWidth;
+    note.classList.add('is-shown');
+  }
+
+  private closeRecipe(): void {
+    if (!this.modal) return;
+    document.removeEventListener('keydown', this.onModalKey);
+    release(this.modal);
+    this.modal.remove();
+    this.modal = null;
+    this.modalRecipeId = null;
+  }
+
+  private renderModal(): void {
+    const overlay = this.modal;
+    const c = this.lastState;
+    const recipe = this.modalRecipeId ? this.recipeById(this.modalRecipeId) : undefined;
+    if (!overlay || !c || !recipe) {
+      this.closeRecipe();
+      return;
+    }
+
+    const title = overlay.querySelector<HTMLElement>('.gc-modal__title')!;
+    if (title.textContent !== recipe.name) title.textContent = recipe.name;
+
+    const resultDef = this.lookupItem(recipe.result.itemId);
+    const qty = recipe.result.quantity > 1 ? `×${recipe.result.quantity}` : undefined;
+    const check = canQueueRecipe(recipe, this.lastInventory, c.queue, this.lastClassName, this.lastLevel);
+
+    const ings = recipe.ingredients.map(ing => {
+      const have = this.lastInventory[ing.itemId] ?? 0;
+      const ok = have >= ing.quantity;
       return `
-        <div class="craft-queue-row">
-          <div>
-            <div class="craft-queue-name">${escapeHtml(name)}</div>
-            <div class="craft-queue-status" ${isActive ? 'data-active="1"' : ''}>${escapeHtml(statusText)}</div>
-          </div>
-          <button class="craft-cancel-btn" data-index="${idx}">Cancel</button>
-          ${progressBlock}
+        <div class="cr-ing ${ok ? 'is-ok' : 'is-short'}">
+          ${itemFrame(ing.itemId, this.lookupItem(ing.itemId), { size: 'sm' })}
+          <span class="cr-ing__count">${have}/${ing.quantity}</span>
+          <span class="cr-ing__name">${escapeHtml(this.itemName(ing.itemId))}</span>
         </div>
       `;
     }).join('');
-    return `<div class="craft-queue-list">${rows}</div>`;
-  }
 
-  private renderRecipes(c: ClientCraftingState): string {
-    if (c.recipes.length === 0) {
-      return `<div class="craft-queue-empty">No recipes available.</div>`;
+    const facts: string[] = [
+      `<span class="cr-fact"><span class="cr-fact__k">Time</span><span class="cr-fact__v">${fmtSeconds(recipe.durationSeconds)}</span></span>`,
+    ];
+    if (recipe.xpReward && recipe.xpReward > 0) {
+      facts.push(`<span class="cr-fact"><span class="cr-fact__k">Craft XP</span><span class="cr-fact__v">+${recipe.xpReward}</span></span>`);
     }
-    // Recipe-referenced item defs come from the server's craft state — covers items the
-    // player doesn't own yet. Fall back to owned itemDefinitions for safety.
-    const lookupItem = (id: string) => c.itemDefs[id] ?? this.lastItemDefs[id];
-    const cards = c.recipes.map(recipe => {
-      const ings = recipe.ingredients.map(ing => {
-        const def = lookupItem(ing.itemId);
-        const name = def?.name ?? ing.itemId;
-        const have = this.lastInventory[ing.itemId] ?? 0;
-        const enough = have >= ing.quantity;
-        const cls = enough ? '' : 'craft-recipe-ing-missing';
-        return `<span class="${cls}">${escapeHtml(name)} ${have}/${ing.quantity}</span>`;
-      }).join(', ');
-      const resultDef = lookupItem(recipe.result.itemId);
-      const resultName = resultDef?.name ?? recipe.result.itemId;
-      const resultStr = recipe.result.quantity > 1 ? `${resultName} ×${recipe.result.quantity}` : resultName;
-      const classTag = recipe.classRestriction && recipe.classRestriction.length > 0
-        ? `<span class="craft-class-tag">${escapeHtml(recipe.classRestriction.join('/'))}</span>` : '';
-      const xpStr = recipe.xpReward && recipe.xpReward > 0 ? ` · ${recipe.xpReward} XP` : '';
-      const check = canQueueRecipe(recipe, this.lastInventory, c.queue, this.lastClassName, this.lastLevel);
-      const disabled = !check.ok;
-      const reason = !check.ok ? this.reasonText(check.reason) : '';
-      return `
-        <div class="craft-recipe-card">
-          <div class="craft-recipe-info">
-            <div class="craft-recipe-name">${escapeHtml(recipe.name)}${classTag}</div>
-            <div class="craft-recipe-meta">Crafting Time: ${fmtSeconds(recipe.durationSeconds)}${xpStr}</div>
-            <div class="craft-recipe-ings">Cost: ${ings}</div>
-            <div class="craft-recipe-result">Produces: ${escapeHtml(resultStr)}</div>
-          </div>
-          <button class="craft-queue-btn" data-recipe-id="${escapeHtml(recipe.id)}" ${disabled ? 'disabled' : ''} title="${escapeHtml(reason)}">Queue</button>
+    const reqLevel = recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL;
+    facts.push(`<span class="cr-fact${this.lastLevel < reqLevel ? ' is-short' : ''}"><span class="cr-fact__k">Level</span><span class="cr-fact__v">${reqLevel}</span></span>`);
+    if (recipe.classRestriction && recipe.classRestriction.length > 0) {
+      const ok = !!this.lastClassName && recipe.classRestriction.includes(this.lastClassName);
+      facts.push(`<span class="cr-fact${ok ? '' : ' is-short'}"><span class="cr-fact__k">Class</span><span class="cr-fact__v">${escapeHtml(recipe.classRestriction.join(' / '))}</span></span>`);
+    }
+
+    const why = check.ok
+      ? `<p class="cr-modal__why is-ok">Queue ${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE}</p>`
+      : `<p class="cr-modal__why" role="status">${escapeHtml(this.longReason(check.reason, recipe))}</p>`;
+
+    const html = `
+      <div class="cr-modal__hero">
+        ${itemFrame(recipe.result.itemId, resultDef, { size: 'lg', count: qty })}
+        <div class="cr-modal__result">
+          <div class="cr-modal__result-label">Makes</div>
+          <div class="cr-modal__result-name" data-rarity="${escapeHtml(resultDef?.rarity ?? 'common')}">${escapeHtml(resultDef?.name ?? recipe.result.itemId)}${qty ? ` ${qty}` : ''}</div>
         </div>
-      `;
-    }).join('');
-    return `<div class="craft-recipe-list">${cards}</div>`;
-  }
+      </div>
+      ${recipe.description ? `<p class="cr-modal__desc">${escapeHtml(recipe.description)}</p>` : ''}
+      <div class="cr-facts">${facts.join('')}</div>
+      <div class="gc-divider">Ingredients</div>
+      <div class="cr-ings">${ings}</div>
+      ${why}
+    `;
+    setHtml(overlay.querySelector<HTMLElement>('.cr-modal__body')!, html);
 
-  private reasonText(reason: string): string {
-    switch (reason) {
-      case 'queue_full': return 'Queue is full';
-      case 'level_too_low': return 'Level too low';
-      case 'class_restricted': return 'Wrong class';
-      case 'missing_ingredients': return 'Missing ingredients';
-      default: return '';
-    }
+    const craft = overlay.querySelector<HTMLButtonElement>('.cr-modal__craft')!;
+    craft.disabled = !check.ok;
+    craft.setAttribute('aria-label', check.ok ? `Craft ${recipe.name}` : `Can't craft: ${this.longReason(check.reason, recipe)}`);
   }
 }
