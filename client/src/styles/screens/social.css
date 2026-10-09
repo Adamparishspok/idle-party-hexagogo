@@ -345,6 +345,38 @@
   box-shadow: 0 0 12px rgba(224, 70, 58, 0.6);
 }
 
+/* Hired henchmen: teal frame, so a hire never reads as a player seat. */
+.soc-cell.is-henchman {
+  border-color: var(--teal-500);
+  background: linear-gradient(180deg, #24474a 0%, #142628 100%);
+}
+.soc-cell.is-movable {
+  cursor: grab;
+  touch-action: none;
+}
+.soc-cell.is-picked {
+  border-color: var(--gold-300);
+  box-shadow: 0 0 0 2px var(--gold-500), 0 0 14px rgba(245, 200, 66, 0.55);
+  transform: translateY(-3px);
+}
+.soc-cell.is-picked:active {
+  transform: translateY(-1px) scale(0.98);
+}
+.soc-cell__role--hire {
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  color: var(--teal-300);
+}
+
+/* Henchman row: same layout as a player's "who" block, but not a button. */
+.soc-who--static {
+  cursor: default;
+}
+.soc-who--static:active {
+  transform: none;
+  filter: none;
+}
+
 .soc-drag-ghost {
   position: fixed;
   z-index: 9999;
@@ -603,6 +635,9 @@
 .soc-status--wait {
   color: var(--parch-ink-soft);
   font-style: italic;
+}
+.soc-trade-notice {
+  margin: 0 0 var(--s-2);
 }
 .soc-trade-sides {
   display: grid;
@@ -898,6 +933,10 @@
   .soc-cell,
   .soc-pick {
     transition: none;
+  }
+  .soc-cell.is-picked,
+  .soc-cell.is-picked:active {
+    transform: none;
   }
   .soc-drag-ghost {
     transform: none;

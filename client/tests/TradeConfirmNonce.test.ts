@@ -87,9 +87,9 @@ function setup() {
     for (const l of errorListeners) l(message, code);
   };
 
-  const modal = () => document.querySelector('.trade-modal');
-  const confirmBtn = () => document.querySelector('.trade-modal-confirm-btn') as HTMLButtonElement | null;
-  const reviewBtn = () => document.querySelector('.trade-modal-review-btn') as HTMLButtonElement | null;
+  const modal = () => document.querySelector('.soc-modal--trade');
+  const confirmBtn = () => document.querySelector('[data-action="trade-confirm"]') as HTMLButtonElement | null;
+  const reviewBtn = () => document.querySelector('[data-action="trade-review"]') as HTMLButtonElement | null;
 
   return {
     screen, push, pushError, sendConfirmTrade, modal, confirmBtn, reviewBtn,
@@ -208,8 +208,8 @@ describe('trade confirm nonce (client)', () => {
 
     // Alice tries to counter instead. The server rejects it (untagged error, no
     // state push) or the socket was closed — either way nothing repaints.
-    (document.querySelector('.trade-qty-inc') as HTMLButtonElement).click();
-    (document.querySelector('.trade-send-btn') as HTMLButtonElement).click();
+    (document.querySelector('[data-action="trade-inc"]') as HTMLButtonElement).click();
+    (document.querySelector('[data-action="trade-send"]') as HTMLButtonElement).click();
 
     // The next routine state tick must NOT turn Review back into a live Confirm.
     t.push(swapped);

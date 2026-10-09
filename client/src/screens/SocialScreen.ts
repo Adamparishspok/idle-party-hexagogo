@@ -1,7 +1,7 @@
 import type { GameClient } from '../network/GameClient';
 import type { ChatLocalStore } from '../network/ChatLocalStore';
-import type { ServerStateMessage, ClientSocialState, PlayerListEntry, GamePartyMember } from '@idle-party-rpg/shared';
-import { MAX_PARTY_SIZE } from '@idle-party-rpg/shared';
+import type { ServerStateMessage, ClientSocialState, PlayerListEntry, GamePartyMember, HiredHenchman, OtherPlayerState } from '@idle-party-rpg/shared';
+import { MAX_PARTY_SIZE, henchmanDisplayNames } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import type { WorldCache } from '../network/WorldCache';
 import { esc, emptyStateHtml, portraitHtml, subtitle, tagHtml } from './social/socialHtml';
@@ -102,6 +102,10 @@ export class SocialScreen implements Screen {
   private gridDragGhost: HTMLElement | null = null;
   private gridDragHoverCell: HTMLElement | null = null;
   private gridAnimating = false;
+  private gridDragHenchmanId: string | null = null;
+  /** Henchman held for tap-to-move; the next empty-cell tap places it. */
+  private gridPickedUpHenchmanId: string | null = null;
+  private canManageHenchmen = false;
 
   // Structural change detection keys — only re-render when these change
   private lastRenderedUsersKey = '';
@@ -123,11 +127,6 @@ export class SocialScreen implements Screen {
     this.profile = new ProfileModal(gameClient, worldCache);
 
     this.buildDOM();
-
-    // Trade dialog tracks its trade on every tick, even while another screen is up.
-    this.gameClient.subscribe(() => {
-      if (this.trade.isOpen) this.trade.update();
-    });
 
     // On tab resume, trigger incremental chat sync (no clearing)
     this.gameClient.onResume(() => {
@@ -167,6 +166,7 @@ export class SocialScreen implements Screen {
     this.unsubSyncChat = undefined;
     this.dismissPopup();
     this.dismissTradeModal();
+    this.gridPickedUpHenchmanId = null;
   }
 
   /** Switch sub-view — called by the top tabs and the bottom-nav fly-out submenu. */
@@ -244,11 +244,9 @@ export class SocialScreen implements Screen {
     const guildMembers = new Set((social.guildMembers ?? []).map(m => m.username));
     const partyMembers = new Set((social.party?.members ?? []).map(m => m.username));
     const otherPlayers = this.lastState?.otherPlayers ?? [];
-    const myCol = this.lastState?.party.col;
-    const myRow = this.lastState?.party.row;
     const sameRoom = tileCol !== undefined && tileRow !== undefined
-      ? (myCol === tileCol && myRow === tileRow)
-      : otherPlayers.some(p => p.username === username && p.col === myCol && p.row === myRow);
+      ? (this.lastState?.party.col === tileCol && this.lastState?.party.row === tileRow)
+      : otherPlayers.some(p => p.username === username && this.isInMyRoom(p));
 
     const isFriend = friends.has(username);
     const isGuildMember = guildMembers.has(username);
@@ -287,14 +285,15 @@ export class SocialScreen implements Screen {
     if (!isPartyMember) {
       const selfMember = social.party?.members.find(m => m.username === selfUsername);
       const canInvite = selfMember?.role === 'owner' || selfMember?.role === 'leader';
-      const partyFull = (social.party?.members.length ?? 1) >= MAX_PARTY_SIZE;
+      const seatsUsed = this.partySeatsUsed(social.party);
+      const partyFull = seatsUsed >= MAX_PARTY_SIZE;
       const alreadyInvited = (social.outgoingPartyInvites ?? []).includes(username);
       if (!canInvite) {
         actions.push(off('Invite to Party'));
         reasons.push('Only the party owner or a leader can invite.');
       } else if (partyFull) {
         actions.push(off('Invite to Party'));
-        reasons.push(`Your party is full (${MAX_PARTY_SIZE}/${MAX_PARTY_SIZE}).`);
+        reasons.push(`Party is full (${seatsUsed}/${MAX_PARTY_SIZE}) — hired henchmen take a seat too.`);
       } else if (alreadyInvited) {
         actions.push(off('Invited to Party'));
       } else if (!sameRoom) {
@@ -451,7 +450,7 @@ export class SocialScreen implements Screen {
       // Formation cell
       const cell = target.closest<HTMLElement>('.soc-cell[data-pos]');
       if (cell) {
-        this.onCellTap(cell);
+        this.onCellTap(cell, (e as MouseEvent).detail === 0);
         return;
       }
 
@@ -474,6 +473,11 @@ export class SocialScreen implements Screen {
         case 'transfer': if (username) this.gameClient.sendTransferPartyOwnership(username); return;
         case 'kick': if (username) this.gameClient.sendKickPartyMember(username); return;
         case 'leave-party': this.gameClient.sendLeaveParty(); return;
+        case 'dismiss-henchman': {
+          const instanceId = btn.getAttribute('data-henchman-instance');
+          if (instanceId) this.gameClient.sendDismissHenchman(instanceId);
+          return;
+        }
         case 'accept-invite': if (partyId) this.gameClient.sendAcceptPartyInvite(partyId); return;
         case 'decline-invite': if (partyId) this.gameClient.sendDeclinePartyInvite(partyId); return;
         case 'nearby-invite':
@@ -631,6 +635,7 @@ export class SocialScreen implements Screen {
     const key = JSON.stringify({
       partyId: party?.id ?? null,
       members: (party?.members ?? []).map(m => `${m.username}:${m.role}:${m.gridPosition}`),
+      henchmen: (party?.henchmen ?? []).map(h => `${h.instanceId}:${h.name ?? ''}:${h.level ?? ''}:${h.artworkUrl ?? ''}:${h.gridPosition}`),
       pending: (social.pendingInvites ?? []).map(i => `${i.partyId}:${i.inviterUsername}`),
       outgoing: social.outgoingPartyInvites ?? [],
       sameTile: this.sameRoomPlayers(),
@@ -685,12 +690,36 @@ export class SocialScreen implements Screen {
     return new Map(all.map((p, i) => [p.username, i + 1]));
   }
 
-  private sameRoomPlayers(): string[] {
+  /** Same room means same map too; `mapId` is optional on the wire, so absent counts as ours. */
+  private isInMyRoom(p: OtherPlayerState): boolean {
     const s = this.lastState;
-    return (s?.otherPlayers ?? [])
-      .filter(p => p.col === s?.party.col && p.row === s?.party.row)
+    if (!s) return false;
+    return p.col === s.party.col && p.row === s.party.row && (!p.mapId || p.mapId === s.currentMapId);
+  }
+
+  private sameRoomPlayers(): string[] {
+    return (this.lastState?.otherPlayers ?? [])
+      .filter(p => this.isInMyRoom(p))
       .map(p => p.username)
       .sort();
+  }
+
+  /** Members plus henchmen — a henchman takes a seat against MAX_PARTY_SIZE. */
+  private partySeatsUsed(party: ClientSocialState['party']): number {
+    if (!party) return 0;
+    return party.members.length + (party.henchmen?.length ?? 0);
+  }
+
+  /** Combat names by instance id, so the party list matches the combat log. */
+  private henchmanNames(): Map<string, string> {
+    const party = this.lastSocial?.party;
+    const henchmen = party?.henchmen ?? [];
+    const names = henchmanDisplayNames(henchmen.map(h => h.name ?? 'Henchman'), (party?.members ?? []).map(m => m.username));
+    return new Map(henchmen.map((h, i) => [h.instanceId, names[i]]));
+  }
+
+  private henchmanPortrait(h: HiredHenchman, name: string, withLevel = true): string {
+    return portraitHtml({ name, size: 'sm', imageUrl: h.artworkUrl, glyph: h.emoji, level: withLevel ? h.level : undefined });
   }
 
   /** Name + subtitle block that opens the player card. */
@@ -717,10 +746,8 @@ export class SocialScreen implements Screen {
     const friends = new Set(social.friends ?? []);
     const guildMembers = new Set((social.guildMembers ?? []).map(m => m.username));
     const otherPlayers = this.lastState?.otherPlayers ?? [];
-    const myCol = this.lastState?.party.col;
-    const myRow = this.lastState?.party.row;
     const myZone = this.lastState?.zoneName ?? '';
-    const roomPlayers = new Set(otherPlayers.filter(p => p.col === myCol && p.row === myRow).map(p => p.username));
+    const roomPlayers = new Set(otherPlayers.filter(p => this.isInMyRoom(p)).map(p => p.username));
     const zonePlayers = new Set(otherPlayers.filter(p => p.zone === myZone).map(p => p.username));
 
     // Self stays in the list so the player can see where they stand.
@@ -963,6 +990,13 @@ export class SocialScreen implements Screen {
     const isSolo = party.members.length === 1;
     const onlineSet = new Set(social.onlinePlayers ?? []);
     const partyNames = new Set(party.members.map(m => m.username));
+    this.canManageHenchmen = isLeaderOrOwner;
+    const henchmen = party.henchmen ?? [];
+    const henchNames = this.henchmanNames();
+    const isAlone = isSolo && henchmen.length === 0;
+    if (this.gridPickedUpHenchmanId && (!isLeaderOrOwner || !henchmen.some(h => h.instanceId === this.gridPickedUpHenchmanId))) {
+      this.gridPickedUpHenchmanId = null;
+    }
 
     // Invites waiting on this player
     const pending = social.pendingInvites ?? [];
@@ -1000,7 +1034,7 @@ export class SocialScreen implements Screen {
           }).join('')}</div>`}
       </section>`;
 
-    const soloHtml = !isSolo ? '' : emptyStateHtml({
+    const soloHtml = !isAlone ? '' : emptyStateHtml({
       emblem: EMBLEM_SWORDS,
       title: "You're adventuring solo",
       body: 'Every class fights better together. Invite someone in your room to share battles and loot.',
@@ -1026,9 +1060,26 @@ export class SocialScreen implements Screen {
     const roleTag = (m: GamePartyMember) =>
       m.role === 'owner' ? tagHtml('Owner', 'gold') : m.role === 'leader' ? tagHtml('Leader', 'teal') : '';
 
+    const henchmenHtml = henchmen.map(h => {
+      const name = henchNames.get(h.instanceId) ?? 'Henchman';
+      return `<div class="gc-row soc-row soc-row--hench" data-henchman-instance="${esc(h.instanceId)}">
+        <div class="soc-who soc-who--static">
+          ${this.henchmanPortrait(h, name)}
+          <span class="gc-row__main">
+            <span class="gc-row__title">${esc(name)}</span>
+            <span class="gc-row__sub">${subtitle('Henchman', h.level !== undefined ? `Level ${h.level}` : '')}</span>
+          </span>
+        </div>
+        <span class="soc-row__tags">${tagHtml('Hired', 'teal')}</span>
+        ${isLeaderOrOwner ? `<div class="soc-row__actions">
+          <button type="button" class="gc-btn gc-btn--red" data-action="dismiss-henchman" data-henchman-instance="${esc(h.instanceId)}" aria-label="Dismiss ${esc(name)}">Dismiss</button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+
     const membersHtml = `
       <section class="soc-section">
-        <h2 class="soc-section__title">Members <span class="soc-section__count">${party.members.length}/${MAX_PARTY_SIZE}</span></h2>
+        <h2 class="soc-section__title">Party <span class="soc-section__count">${this.partySeatsUsed(party)}/${MAX_PARTY_SIZE}</span></h2>
         <div class="soc-list">
           ${party.members.map(m => `
             <div class="gc-row soc-row${m.username === selfUsername ? ' is-self' : ''}" data-username="${esc(m.username)}">
@@ -1036,6 +1087,7 @@ export class SocialScreen implements Screen {
               <span class="soc-row__tags">${roleTag(m)}${m.username === selfUsername ? tagHtml('You', 'steel') : ''}</span>
               ${memberActions(m)}
             </div>`).join('')}
+          ${henchmenHtml}
         </div>
       </section>`;
 
@@ -1045,7 +1097,7 @@ export class SocialScreen implements Screen {
           ${invitesHtml}
           ${soloHtml}
           ${this.formationHtml()}
-          ${isSolo ? '' : membersHtml}
+          ${isAlone ? '' : membersHtml}
           ${nearbyHtml}
           ${isSolo ? '' : `<div class="soc-footer-actions">
             <button type="button" class="gc-btn gc-btn--red" data-action="leave-party">Leave Party</button>
@@ -1066,13 +1118,19 @@ export class SocialScreen implements Screen {
     const selfUsername = this.lastState?.username ?? '';
     const onlineSet = new Set(this.lastSocial?.onlinePlayers ?? []);
     const byPos = new Map<number, GamePartyMember>(party.members.map(m => [m.gridPosition as number, m]));
+    const henchByPos = new Map<number, HiredHenchman>((party.henchmen ?? []).map(h => [h.gridPosition as number, h]));
+    const henchNames = this.henchmanNames();
 
     let cells = '';
     for (let depth = 0; depth < 3; depth++) {
       cells += `<span class="soc-formation__depth" style="grid-row:${depth + 2}">${DEPTH_LABELS[depth]}</span>`;
       for (let lane = 0; lane < 3; lane++) {
         const pos = lane * 3 + (2 - depth);
-        cells += this.cellHtml(pos, byPos.get(pos), selfUsername, onlineSet, depth, lane);
+        const member = byPos.get(pos);
+        const hench = member ? undefined : henchByPos.get(pos);
+        cells += hench
+          ? this.henchCellHtml(pos, hench, henchNames.get(hench.instanceId) ?? 'Henchman', depth, lane)
+          : this.cellHtml(pos, member, selfUsername, onlineSet, depth, lane);
       }
     }
 
@@ -1080,7 +1138,7 @@ export class SocialScreen implements Screen {
       <section class="gc-card soc-formation">
         <div class="soc-formation__head">
           <h2 class="soc-section__title">Formation</h2>
-          <span class="soc-formation__hint">Tap or drag to a spot to move</span>
+          <span class="soc-formation__hint" aria-live="polite">${esc(this.formationHint())}</span>
         </div>
         <div class="soc-formation__grid">
           <span class="soc-formation__enemy" aria-hidden="true">▲ Enemies ▲</span>
@@ -1107,18 +1165,60 @@ export class SocialScreen implements Screen {
     </button>`;
   }
 
+  private henchCellHtml(pos: number, h: HiredHenchman, name: string, depth: number, lane: number): string {
+    const place = `grid-row:${depth + 2};grid-column:${lane + 2}`;
+    const where = `${DEPTH_LABELS[depth]} row, lane ${lane + 1}`;
+    const movable = this.canManageHenchmen;
+    const picked = movable && this.gridPickedUpHenchmanId === h.instanceId;
+    const cls = `soc-cell is-occupied is-henchman${movable ? ' is-movable' : ''}${picked ? ' is-picked' : ''}`;
+    return `<button type="button" class="${cls}" data-pos="${pos}" data-henchman-instance="${esc(h.instanceId)}" style="${place}" aria-label="${where}: ${esc(name)} (henchman)${movable ? ' — tap to pick up' : ''}"${movable ? ` aria-pressed="${picked}"` : ''}>
+      ${this.henchmanPortrait(h, name, false)}
+      <span class="soc-cell__name">${esc(name)}</span>
+      <span class="soc-cell__role soc-cell__role--hire" aria-hidden="true">H</span>
+    </button>`;
+  }
+
+  private formationHint(): string {
+    const id = this.gridPickedUpHenchmanId;
+    if (id) return `Tap an empty spot to move ${this.henchmanNames().get(id) ?? 'your henchman'}`;
+    if (this.canManageHenchmen && (this.lastSocial?.party?.henchmen?.length ?? 0) > 0) return 'Tap or drag to move you or a henchman';
+    return 'Tap or drag to a spot to move';
+  }
+
   // ── Formation repositioning ──────────────────────────────────
 
-  private onCellTap(cell: HTMLElement): void {
+  /** `keyboard`: a click with no pointer — pointer taps on a henchman are handled in onGridDragEnd. */
+  private onCellTap(cell: HTMLElement, keyboard: boolean): void {
     const pos = parseInt(cell.getAttribute('data-pos') ?? '', 10);
     if (isNaN(pos)) return;
     if (cell.classList.contains('is-occupied')) {
+      if (cell.classList.contains('is-movable')) {
+        if (keyboard) this.togglePickedUp(cell.getAttribute('data-henchman-instance'));
+        return;
+      }
       // Someone else's spot → shake no
       if (!cell.classList.contains('is-self')) this.flashGridCell(cell);
       return;
     }
-    this.animateGridMove(pos);
-    this.gameClient.sendSetPartyGridPosition(pos);
+    const henchId = this.canManageHenchmen ? this.gridPickedUpHenchmanId : null;
+    this.setGridPickedUp(null);
+    this.animateGridMove(pos, henchId);
+    this.gameClient.sendSetPartyGridPosition(pos, henchId ?? undefined);
+  }
+
+  private togglePickedUp(instanceId: string | null): void {
+    this.setGridPickedUp(instanceId && instanceId !== this.gridPickedUpHenchmanId ? instanceId : null);
+  }
+
+  private setGridPickedUp(instanceId: string | null): void {
+    this.gridPickedUpHenchmanId = instanceId;
+    for (const cell of this.panelContainer.querySelectorAll<HTMLElement>('.soc-cell.is-movable[data-henchman-instance]')) {
+      const held = cell.getAttribute('data-henchman-instance') === instanceId;
+      cell.classList.toggle('is-picked', held);
+      cell.setAttribute('aria-pressed', String(held));
+    }
+    const hint = this.panelContainer.querySelector('.soc-formation__hint');
+    if (hint) hint.textContent = this.formationHint();
   }
 
   private flashGridCell(cell: HTMLElement): void {
@@ -1128,16 +1228,17 @@ export class SocialScreen implements Screen {
     cell.addEventListener('animationend', () => cell.classList.remove('is-denied'), { once: true });
   }
 
-  /** Tilt-and-slide the player's own cell toward the target, then swap optimistically. */
-  private animateGridMove(targetPos: number): void {
+  /** Tilt-and-slide the player's own cell (or the named henchman's) toward the target, then swap optimistically. */
+  private animateGridMove(targetPos: number, henchmanInstanceId?: string | null): void {
     const party = this.lastSocial?.party;
-    const selfUsername = this.lastState?.username;
-    if (!party || !selfUsername) return;
-    const self = party.members.find(m => m.username === selfUsername);
-    if (!self || self.gridPosition === undefined) return;
+    if (!party) return;
+    const srcPos = henchmanInstanceId
+      ? (party.henchmen ?? []).find(h => h.instanceId === henchmanInstanceId)?.gridPosition
+      : party.members.find(m => m.username === this.lastState?.username)?.gridPosition;
+    if (srcPos === undefined) return;
 
     const grid = this.panelContainer.querySelector('.soc-formation__grid');
-    const src = grid?.querySelector<HTMLElement>(`.soc-cell[data-pos="${self.gridPosition}"]`);
+    const src = grid?.querySelector<HTMLElement>(`.soc-cell[data-pos="${srcPos}"]`);
     const dst = grid?.querySelector<HTMLElement>(`.soc-cell[data-pos="${targetPos}"]`);
     if (!src || !dst) return;
 
@@ -1168,8 +1269,8 @@ export class SocialScreen implements Screen {
       const html = src.innerHTML;
       src.innerHTML = dst.innerHTML;
       dst.innerHTML = html;
-      swap('data-username');
-      for (const c of ['is-occupied', 'is-self']) {
+      for (const attr of ['data-username', 'data-henchman-instance', 'aria-label', 'aria-pressed']) swap(attr);
+      for (const c of ['is-occupied', 'is-self', 'is-henchman', 'is-movable', 'is-picked']) {
         const had = src.classList.contains(c);
         src.classList.toggle(c, dst.classList.contains(c));
         dst.classList.toggle(c, had);
@@ -1179,18 +1280,27 @@ export class SocialScreen implements Screen {
   }
 
   private onGridDragStart(e: MouseEvent | TouchEvent): void {
-    const cell = (e.target as HTMLElement).closest<HTMLElement>('.soc-cell.is-self[data-pos]');
+    const cell = (e.target as HTMLElement).closest<HTMLElement>('.soc-cell.is-self[data-pos], .soc-cell.is-movable[data-pos]');
     if (!cell) return;
     const selfUsername = this.lastState?.username;
     if (!selfUsername) return;
+    const henchId = cell.getAttribute('data-henchman-instance');
+    const hench = henchId ? (this.lastSocial?.party?.henchmen ?? []).find(h => h.instanceId === henchId) : undefined;
+    if (henchId && (!hench || !this.canManageHenchmen)) return;
 
     e.preventDefault();
     this.gridDragging = true;
     this.gridDragSourcePos = parseInt(cell.getAttribute('data-pos')!, 10);
+    this.gridDragHenchmanId = hench?.instanceId ?? null;
 
     const ghost = document.createElement('div');
     ghost.className = 'soc-drag-ghost';
-    ghost.innerHTML = `${portraitHtml({ name: selfUsername, className: this.getPlayerClassName(selfUsername), size: 'sm', self: true })}<span>${esc(selfUsername)}</span>`;
+    if (hench) {
+      const name = this.henchmanNames().get(hench.instanceId) ?? 'Henchman';
+      ghost.innerHTML = `${this.henchmanPortrait(hench, name, false)}<span>${esc(name)}</span>`;
+    } else {
+      ghost.innerHTML = `${portraitHtml({ name: selfUsername, className: this.getPlayerClassName(selfUsername), size: 'sm', self: true })}<span>${esc(selfUsername)}</span>`;
+    }
     document.body.appendChild(ghost);
     this.gridDragGhost = ghost;
     const { clientX, clientY } = this.getPointerXY(e);
@@ -1221,6 +1331,8 @@ export class SocialScreen implements Screen {
   private onGridDragEnd(e: MouseEvent | TouchEvent): void {
     if (!this.gridDragging) return;
     this.gridDragging = false;
+    const henchId = this.gridDragHenchmanId;
+    this.gridDragHenchmanId = null;
     this.gridDragGhost?.remove();
     this.gridDragGhost = null;
     this.gridDragHoverCell?.classList.remove('is-drop-ok', 'is-drop-bad');
@@ -1232,12 +1344,18 @@ export class SocialScreen implements Screen {
     this.gridDragSourcePos = null;
     if (!cell) return;
     const pos = parseInt(cell.getAttribute('data-pos')!, 10);
-    if (isNaN(pos) || pos === source) return;
+    if (isNaN(pos)) return;
+    if (pos === source) {
+      // Tap lands here, not in the click handler: onGridDragStart's preventDefault eats the synthetic touch click.
+      this.togglePickedUp(henchId);
+      return;
+    }
     if (cell.classList.contains('is-occupied')) {
       this.flashGridCell(cell);
     } else {
-      this.animateGridMove(pos);
-      this.gameClient.sendSetPartyGridPosition(pos);
+      this.setGridPickedUp(null);
+      this.animateGridMove(pos, henchId);
+      this.gameClient.sendSetPartyGridPosition(pos, henchId ?? undefined);
     }
   }
 
