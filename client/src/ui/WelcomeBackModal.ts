@@ -117,7 +117,7 @@ export class WelcomeBackModal {
     }
     tiles.push(this.statTile('xp', 'XP earned', msg.xpGained, '+'));
     tiles.push(this.statTile('gold', 'Gold', msg.goldGained, '+', '<span class="gc-coin" aria-hidden="true"></span>'));
-    tiles.push(this.statTile('wins', 'Battles won', msg.battlesWon));
+    if (msg.battlesWon > 0) tiles.push(this.statTile('wins', 'Battles won', msg.battlesWon));
     return tiles.join('');
   }
 
