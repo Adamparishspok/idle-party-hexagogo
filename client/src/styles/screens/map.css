@@ -1378,6 +1378,7 @@
 }
 .shop-house__foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-3);
@@ -1394,8 +1395,9 @@
 }
 .shop-house__price.is-short { color: var(--red-300); }
 .shop-house-buy {
-  flex-shrink: 0;
-  padding: 0 var(--s-5);
+  flex: 1 0 auto;
+  min-width: 0;
+  padding: 0 var(--s-4);
 }
 .shop-house-why {
   margin: 0;

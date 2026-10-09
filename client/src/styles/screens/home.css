@@ -138,8 +138,8 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .home-place {
 }
 .home-shelf__plank {
   position: relative;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(var(--shelf-cols, 3), 56px);
   justify-content: center;
   gap: var(--s-2) var(--s-3);
   padding: var(--s-2) var(--s-3) 18px;
@@ -588,4 +588,10 @@ button.home-shelf__slot:focus-visible {
   .home-sheet__grid .gc-item {
     transition: none;
   }
+}
+
+.home-sit-btn {
+  align-self: center;
+  width: min(100%, 320px);
+  margin-top: calc(var(--s-2) * -1);
 }

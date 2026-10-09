@@ -247,21 +247,21 @@ export class HomeView {
       <button type="button" class="gc-close home-place__close" data-home-action="leave" aria-label="Leave home"></button>
       ${noticeHtml}
       <div class="home-place__scroll">
-        ${this.shelvesHtml(ctx)}
         <section class="home-hearth${sitting ? ' is-sitting' : ''}" aria-label="Campfire">
           ${this.fireHtml()}
           ${ring.map((o, i) => this.seatHtml(o, i, ring.length, state.username)).join('')}
         </section>
+        <button type="button" class="gc-btn ${sitting ? 'gc-btn--steel' : 'gc-btn--gold'} gc-btn--lg home-sit-btn" data-home-action="${sitting ? 'stand' : 'sit'}">${sitting ? 'Stand up' : 'Sit by the fire'}</button>
         <p class="home-hint">${escapeHtml(RESTED_HINT)}</p>
         ${restedLine}
         ${gathered.length ? `<section class="home-gathered" aria-label="Also here">
           <div class="home-section-title">Also here</div>
           <div class="home-gathered__row">${gathered.map(o => this.occupantHtml(o, state.username)).join('')}</div>
         </section>` : ''}
+        ${this.shelvesHtml(ctx)}
         ${isOwner ? this.chestHtml(ctx) : ''}
       </div>
       <div class="home-place__actions">
-        <button type="button" class="gc-btn ${sitting ? 'gc-btn--steel' : 'gc-btn--gold'} gc-btn--lg gc-btn--block home-sit-btn" data-home-action="${sitting ? 'stand' : 'sit'}">${sitting ? 'Stand up' : 'Sit by the fire'}</button>
         <div class="home-place__row">
           ${ownerRow}
           <button type="button" class="gc-btn gc-btn--steel gc-btn--lg home-btn home-leave-btn" data-home-action="leave">${ICON_LEAVE}<span>Leave</span></button>
@@ -295,7 +295,7 @@ export class HomeView {
     }).join('');
     return `<section class="home-shelf" aria-label="Trophy shelf">
       <div class="home-section-title">Trophy shelf</div>
-      <div class="home-shelf__plank">${slots}</div>
+      <div class="home-shelf__plank" style="--shelf-cols: ${shelfColumns(visit.displays.length)}">${slots}</div>
     </section>`;
   }
 
@@ -710,4 +710,10 @@ export class HomeView {
       this.closeSheet();
     });
   }
+}
+
+/** Even rows: up to 3 shelves in one row, 4–6 as two rows of 3, larger sets five per row. */
+function shelfColumns(count: number): number {
+  if (count <= 3) return Math.max(1, count);
+  return count <= 6 ? 3 : 5;
 }
