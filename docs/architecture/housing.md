@@ -71,8 +71,7 @@ time, storage chest, shelf contents) and `PlayerSaveData.wellRestedUntil?`.
 
 ## Invites
 
-`home_invite {username}` (owner only, target must be a friend or party member
-or simply any online player — v1: any player) sends a `home_invite`
+`home_invite {username}` (owner only; any player) sends a `home_invite`
 notification through the notification framework (new event type, in-app +
 optional push), whose action opens `enter_home {owner}`. A pending invite lets
 the target enter once within 30 minutes.
