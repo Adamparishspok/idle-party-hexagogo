@@ -15,6 +15,10 @@ export interface PortraitOpts {
   /** Gold frame edge for the viewing player. */
   self?: boolean;
   extraClass?: string;
+  /** Art to show instead of the class art (e.g. a henchman photo). */
+  imageUrl?: string;
+  /** Fallback glyph instead of the name's initial. */
+  glyph?: string;
 }
 
 function initialOf(name: string): string {
@@ -33,14 +37,15 @@ export function renderPortrait(o: PortraitOpts): string {
   if (o.size) classes.push(`gc-portrait--${o.size}`);
   if (o.self) classes.push('is-self');
   if (o.extraClass) classes.push(o.extraClass);
-  const img = o.className
-    ? `<img class="gc-portrait__img" src="${escapeHtml(artworkUrl('class', o.className.toLowerCase()))}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+  const src = o.imageUrl ?? (o.className ? artworkUrl('class', o.className.toLowerCase()) : null);
+  const img = src
+    ? `<img class="gc-portrait__img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
     : '';
   const online = o.online === undefined
     ? ''
     : `<span class="gc-portrait__online${o.online ? ' is-online' : ''}"></span>`;
   const level = o.level !== undefined ? `<span class="gc-portrait__level">${o.level}</span>` : '';
   return `<span class="${classes.join(' ')}" aria-hidden="true">`
-    + `<span class="gc-portrait__initial">${escapeHtml(initialOf(o.name))}</span>${img}${online}${level}`
+    + `<span class="gc-portrait__initial">${escapeHtml(o.glyph ?? initialOf(o.name))}</span>${img}${online}${level}`
     + '</span>';
 }

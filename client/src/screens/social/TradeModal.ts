@@ -32,6 +32,15 @@ export class TradeModal {
   private inventorySnapshot: Record<string, number> | null = null;
   /** Fingerprint of the last render — ticks skip the rewrite when unchanged. */
   private lastRenderKey = '';
+  /** Offer version the Confirm button is armed against. */
+  private confirmNonce: string | null = null;
+  /** True when the last paint put a live Confirm button on screen. */
+  private confirmArmed = false;
+  /** The offer moved while Confirm was armed — Confirm is withheld until acknowledged. */
+  private awaitingReview = false;
+  private notice: string | null = null;
+  /** The dialog outlives SocialScreen's own subscription (Items opens it without a screen switch). */
+  private unsubState?: () => void;
 
   constructor(
     gameClient: GameClient,
@@ -43,10 +52,12 @@ export class TradeModal {
     this.worldCache = worldCache;
     this.getState = getState;
     this.getClassName = getClassName;
-  }
 
-  get isOpen(): boolean {
-    return this.modal !== null;
+    this.gameClient.onServerError((_message, code) => {
+      if (code !== 'trade_nonce_mismatch' || !this.modal) return;
+      this.notice = 'That offer changed before your confirmation went through. Review the updated offer below, then confirm again.';
+      this.update();
+    });
   }
 
   /** Resume the trade with `targetUsername` if one exists, else start a proposal. */
@@ -87,6 +98,7 @@ export class TradeModal {
 
     const state = this.getState();
     const trade = this.getActiveTrade();
+    this.gateConfirm(trade, state?.username ?? '');
     const renderKey = this.computeRenderKey(trade);
     if (renderKey === this.lastRenderKey) return;
     this.lastRenderKey = renderKey;
@@ -141,8 +153,10 @@ export class TradeModal {
       theirs = theirOffer;
       status = `${p} updated their offer. Confirm to swap, or counter with new items.`;
       pickLabel = 'Counter with';
-      // Arm Confirm with the nonce of the offer on screen; the server rejects a stale one.
-      primary = `<button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-action="trade-confirm" data-nonce="${esc(trade.nonce)}">Confirm Trade</button>`;
+      // Confirm carries the nonce of the offer on screen; the server rejects a stale one.
+      primary = this.awaitingReview
+        ? '<button type="button" class="gc-btn gc-btn--steel gc-btn--lg gc-btn--block" data-action="trade-review">Review Updated Offer</button>'
+        : `<button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-action="trade-confirm" data-nonce="${esc(trade.nonce)}">Confirm Trade</button>`;
       secondary.push(send('Counter'), cancel('Cancel Trade'));
     } else if (trade.status === 'countered') {
       mine = myOffer;
@@ -182,7 +196,9 @@ export class TradeModal {
       <div class="gc-divider soc-divider">${esc(pickLabel)}</div>
       ${pickerHtml(tradeable, inventory, this.selected, ctx, 'trade', 'Nothing to trade — only unequipped items can be offered.')}
     `);
+    const noticeHtml = this.notice ? `<p class="gc-modal__why soc-trade-notice" role="alert">${esc(this.notice)}</p>` : '';
     modal.footer.innerHTML = `
+      ${noticeHtml}
       ${primary}
       ${secondary.length ? `<div class="gc-modal__footer-row">${secondary.join('')}</div>` : ''}
     `;
@@ -193,6 +209,12 @@ export class TradeModal {
     this.selected = new Map();
     this.inventorySnapshot = { ...(this.getState()?.character?.inventory ?? {}) };
     this.lastRenderKey = '';
+    this.confirmNonce = null;
+    this.confirmArmed = false;
+    this.awaitingReview = false;
+    this.notice = null;
+    this.unsubState?.();
+    this.unsubState = this.gameClient.subscribe(() => this.update());
 
     const modal = openSocModal({ title: 'Trade', variant: 'trade', onClose: () => this.reset(modal) });
     this.modal = modal;
@@ -204,6 +226,12 @@ export class TradeModal {
     // A newer dialog may already have replaced this one.
     if (this.modal !== closing) return;
     this.modal = null;
+    this.unsubState?.();
+    this.unsubState = undefined;
+    this.confirmNonce = null;
+    this.confirmArmed = false;
+    this.awaitingReview = false;
+    this.notice = null;
     this.selected = new Map();
     this.activeId = null;
     this.targetUsername = null;
@@ -222,10 +250,18 @@ export class TradeModal {
       this.dismiss();
       return;
     }
+    if (action === 'trade-review') {
+      this.awaitingReview = false;
+      this.notice = null;
+      this.update();
+      return;
+    }
     if (action === 'trade-confirm') {
       const trade = this.getActiveTrade();
       const nonce = btn.getAttribute('data-nonce');
-      if (trade && nonce) this.gameClient.sendConfirmTrade(trade.id, nonce);
+      if (!trade || !nonce) return;
+      this.notice = null;
+      this.gameClient.sendConfirmTrade(trade.id, nonce);
       return;
     }
     if (action === 'trade-send') {
@@ -234,13 +270,28 @@ export class TradeModal {
       const trade = this.getActiveTrade();
       if (trade) this.gameClient.sendCounterTrade(trade.id, items);
       else if (this.targetUsername) this.gameClient.sendProposeTrade(this.targetUsername, items);
-      // Server response repaints with the new state.
+      // Server response repaints. The review gate stays up: a rejected or dropped
+      // counter never repaints, and the next tick must not turn it into a live Confirm.
       this.selected = new Map();
       return;
     }
     if (applyStep(btn, 'trade', this.selected, this.inventorySnapshot ?? {})) {
       this.update();
     }
+  }
+
+  /** Re-arming Confirm on a moved offer would let the partner swap items mid-click; withhold it until acknowledged. */
+  private gateConfirm(trade: TradeState | null, self: string): void {
+    const confirmOnScreen = !!trade && trade.status === 'countered' && trade.lastUpdatedBy !== self;
+    if (!confirmOnScreen) {
+      this.awaitingReview = false;
+      this.notice = null;
+    } else if (trade && this.confirmArmed && this.confirmNonce !== null && trade.nonce !== this.confirmNonce) {
+      this.awaitingReview = true;
+      this.notice = 'Their offer changed while you were looking at it. Check the new offer, then confirm.';
+    }
+    this.confirmArmed = confirmOnScreen && !this.awaitingReview;
+    this.confirmNonce = trade?.nonce ?? null;
   }
 
   private getActiveTrade(): TradeState | null {
@@ -250,8 +301,9 @@ export class TradeModal {
 
   private computeRenderKey(trade: TradeState | null): string {
     const sel = Array.from(this.selected.entries()).map(([id, q]) => `${id}:${q}`).sort().join(',');
-    if (!trade) return `new|${this.targetUsername ?? ''}|${sel}`;
+    const gate = `${this.notice ?? ''}|${this.awaitingReview ? 'review' : ''}`;
+    if (!trade) return `new|${this.targetUsername ?? ''}|${sel}|${gate}`;
     const offer = (items: TradeOfferItem[]) => items.map(i => `${i.itemId}:${i.quantity}`).sort().join(',');
-    return [trade.id, trade.status, trade.lastUpdatedBy, offer(trade.initiator.items), offer(trade.target?.items ?? []), sel].join('|');
+    return [trade.id, trade.status, trade.lastUpdatedBy, trade.nonce, offer(trade.initiator.items), offer(trade.target?.items ?? []), sel, gate].join('|');
   }
 }
