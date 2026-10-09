@@ -112,7 +112,7 @@ Travelling from a remote-room preview until your party arrives at that tile play
 
 **Room popups.** `NpcTalkPopup`, `ShopPopup` and `DungeonEntryPopup` are `.gc-modal` parchment dialogs. They draw items with `renderKitItem()` (`ui/ItemIcon.ts` — the one `.gc-item` builder; `renderItemFrame()` wraps it), which falls back to an emoji or initials glyph when art is missing.
 - NpcTalkPopup follows the quest-dialog layout: round portrait, objective lines in the accent colour, a Rewards divider with item/XP/gold frames, and the action as the bottom-edge primary. It shows one quest in full and lists the NPC's other quests as rows that switch focus.
-- ShopPopup has Buy/Sell tabs and a grid of item frames with prices. The detail view has a −/+/Max stepper and an outlined total that turns red when you can't afford it.
+- ShopPopup has Buy/Sell tabs and a grid of item frames with prices. The detail view has a −/+/Max stepper and an outlined total that turns red when you can't afford it. A Hire tab appears while the room offers henchmen (`state.henchmanOffers`) and is the opening tab when the shop sells nothing: one `.gc-row` per offer (octagon portrait — artwork over the emoji, never the hidden `className` — name, level, HP, DMG, gold Hire button). With no room and henchmen hired, Hire becomes Replace and opens a "Make room for X?" view to pick who leaves; a party full of players gets a disabled button and a `.gc-modal__why` reason. Hire refusals arrive as server `error`s and show as a notice only while a hire is pending (`pendingHireId`; the next state tick clears it).
 
 ## Dungeons (client)
 
