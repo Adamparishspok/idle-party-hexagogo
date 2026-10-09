@@ -1,5 +1,6 @@
 import type { TileClickInfo } from './ThreeWorldMap';
-import type { NpcDefinition, DungeonDefinition } from '@idle-party-rpg/shared';
+import { actionLabel } from './RoomActions';
+import type { RoomAction } from './RoomActions';
 import { artworkUrl } from './assets';
 import { bringToFront, release } from './ModalStack';
 import { renderPortrait } from './Portrait';
@@ -9,7 +10,7 @@ type Member = { username: string; className?: string; level?: number };
 
 const ICON_KEY = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M11.5 11.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>';
 const ICON_DOOR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M2.5 21h19" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="15" cy="12.5" r="1.6" fill="currentColor"/></svg>';
-const ICON_TALK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H10l-5 4v-4H4z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/></svg>';
+const ICON_STOP = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>';
 
 /**
  * RoomView — what you see when you tap a room on the map.
@@ -32,18 +33,13 @@ export class RoomView {
   private modal: HTMLElement;
   private onMove: (col: number, row: number) => void;
   private onUserClick?: (username: string, anchor: HTMLElement, tileCol: number, tileRow: number) => void;
-  private onShopClick?: () => void;
-  private onNpcTalk?: (npc: NpcDefinition) => void;
-  private onEnterDungeon?: (dungeon: DungeonDefinition) => void;
-  private onEnterTransition?: (tileId: string) => void;
-  /** Whether the player's current tile has a shop. Set externally before showing. */
-  hasShop = false;
-  /** NPC on the player's current tile (if any). Set externally before showing. */
-  npc: NpcDefinition | null = null;
-  /** Dungeon linked to the player's current tile (if any). Set externally before showing. */
-  dungeon: DungeonDefinition | null = null;
-  /** Map transitions on the player's current tile. Set externally before showing. */
-  transitions: { tileId: string; name: string }[] = [];
+  private onAction?: (action: RoomAction) => void;
+  /** What the room offers. Set externally before showing; buttons on the current room, a list on a remote one. */
+  actions: RoomAction[] = [];
+  /** Whether the party is walking a route. Set externally before showing. */
+  isTraveling = false;
+  /** GUID of the room being shown — the per-room artwork override id. Set externally before showing. */
+  roomId: string | null = null;
   /** The viewing player, shown first in "Your party" (they aren't in `playersHere`). */
   self: Member | null = null;
   /** Last shown remote-room key — used to drive the arrival transition. */
@@ -55,17 +51,11 @@ export class RoomView {
     parent: HTMLElement,
     onMove: (col: number, row: number) => void,
     onUserClick?: (username: string, anchor: HTMLElement, tileCol: number, tileRow: number) => void,
-    onShopClick?: () => void,
-    onNpcTalk?: (npc: NpcDefinition) => void,
-    onEnterDungeon?: (dungeon: DungeonDefinition) => void,
-    onEnterTransition?: (tileId: string) => void,
+    onAction?: (action: RoomAction) => void,
   ) {
     this.onMove = onMove;
     this.onUserClick = onUserClick;
-    this.onShopClick = onShopClick;
-    this.onNpcTalk = onNpcTalk;
-    this.onEnterDungeon = onEnterDungeon;
-    this.onEnterTransition = onEnterTransition;
+    this.onAction = onAction;
 
     this.overlay = document.createElement('div');
     this.overlay.className = 'room-view-overlay';
@@ -145,26 +135,21 @@ export class RoomView {
       ? `<div class="rv-place__divider">Other parties here</div>${otherCards}`
       : '';
 
-    const actions: string[] = [];
-    if (this.npc) {
-      actions.push(this.actionButton('room-view-action-talk', this.npcIcon(this.npc), `Talk to ${this.npc.name}`));
-    }
-    if (this.hasShop) {
-      actions.push(this.actionButton('room-view-action-shop', this.shopIcon(info.zoneId), 'Shop'));
-    }
-    if (this.dungeon) {
-      actions.push(this.actionButton('room-view-action-dungeon', `<span class="rv-action__glyph">${ICON_KEY}</span>`, `Enter ${this.dungeon.name}`));
-    }
-    for (const t of this.transitions) {
-      actions.push(this.actionButton(
-        'room-view-action-transition',
-        `<span class="rv-action__glyph">${ICON_DOOR}</span>`,
-        `Enter ${t.name}`,
-        `data-transition-tile="${this.escapeHtml(t.tileId)}"`,
-      ));
-    }
+    const roomActions = this.actions;
+    const actions: string[] = roomActions.map((action, i) => this.actionButton(
+      `room-view-action-${action.kind}${action.questReady ? ' is-quest-ready' : ''}`,
+      this.actionIcon(action),
+      actionLabel(action),
+      `data-action-index="${i}"${action.detail ? ` title="${this.escapeHtml(action.detail)}"` : ''}`,
+    ));
     // One obvious primary action: the first button goes gold.
     if (actions.length > 0) actions[0] = actions[0].replace('class="gc-btn ', 'class="gc-btn gc-btn--gold ');
+    // Travelling through this room? Offer to stop here instead of walking on.
+    if (this.isTraveling) {
+      actions.unshift(`<button type="button" class="gc-btn gc-btn--steel gc-btn--lg gc-btn--block rv-action room-view-action-stop">
+        <span class="rv-action__glyph">${ICON_STOP}</span><span class="rv-action__label">Stop here</span>
+      </button>`);
+    }
 
     const actionsHtml = actions.length > 0
       ? `<div class="rv-place__actions" data-count="${actions.length}">${actions.join('')}</div>`
@@ -188,7 +173,9 @@ export class RoomView {
 
     const bg = this.modal.querySelector('.rv-place__bg') as HTMLElement;
     const zone = encodeURIComponent(info.zoneId);
+    // Room GUID → legacy zone+coords → zone default → zone art.
     bg.style.backgroundImage = [
+      ...(this.roomId ? [artworkUrl('room-bg', encodeURIComponent(this.roomId))] : []),
       artworkUrl('room-bg', `${zone}-${info.col}-${info.row}`),
       artworkUrl('room-bg', zone),
       artworkUrl('zone', zone),
@@ -196,28 +183,16 @@ export class RoomView {
 
     this.modal.querySelector('.room-view-close')!.addEventListener('click', () => this.hide());
 
-    this.modal.querySelector('.room-view-action-shop')?.addEventListener('click', () => {
+    this.modal.querySelector('.room-view-action-stop')?.addEventListener('click', () => {
+      this.onMove(info.col, info.row);
       this.hide();
-      this.onShopClick?.();
     });
 
-    this.modal.querySelector('.room-view-action-talk')?.addEventListener('click', () => {
-      const npc = this.npc;
-      this.hide();
-      if (npc) this.onNpcTalk?.(npc);
-    });
-
-    this.modal.querySelector('.room-view-action-dungeon')?.addEventListener('click', () => {
-      const dungeon = this.dungeon;
-      this.hide();
-      if (dungeon) this.onEnterDungeon?.(dungeon);
-    });
-
-    for (const el of this.modal.querySelectorAll('.room-view-action-transition')) {
+    for (const el of this.modal.querySelectorAll('[data-action-index]')) {
       el.addEventListener('click', () => {
-        const tileId = el.getAttribute('data-transition-tile');
+        const action = roomActions[Number(el.getAttribute('data-action-index'))];
         this.hide();
-        if (tileId) this.onEnterTransition?.(tileId);
+        if (action) this.onAction?.(action);
       });
     }
 
@@ -246,8 +221,12 @@ export class RoomView {
     if (unexplored) {
       facts.push(this.fact('rv-fact--dim', 'Unexplored. Travel here to learn more.'));
     }
-    if (this.hasShop) facts.push(this.fact('rv-fact--shop', 'A shop awaits you here.'));
-    if (info.dungeonId && !unexplored) facts.push(this.fact('rv-fact--dungeon', 'A dungeon entrance lies here.'));
+    if (info.isUnlocked) {
+      for (const action of this.actions) {
+        const detail = action.detail ? ` · ${action.detail}` : '';
+        facts.push(this.fact(`rv-fact--${action.kind}${action.questReady ? ' is-quest-ready' : ''}`, `${action.icon} ${action.name}${detail}`));
+      }
+    }
     const playerCount = info.playersHere.length;
     if (playerCount === 0 && !unexplored) facts.push(this.fact('rv-fact--dim', 'No other adventurers here right now.'));
 
@@ -302,22 +281,22 @@ export class RoomView {
     </button>`;
   }
 
-  /** NPC portrait chip: authored artworkUrl → /npc-artwork/{id}.png → emoji. */
-  private npcIcon(npc: NpcDefinition): string {
-    const urls = [npc.artworkUrl, artworkUrl('npc', encodeURIComponent(npc.id))].filter((u): u is string => !!u);
-    const chain = this.escapeHtml(JSON.stringify(urls.slice(1)));
-    return `<span class="rv-action__chip">
-      <span class="rv-action__emoji" aria-hidden="true">${npc.emoji ? this.escapeHtml(npc.emoji) : ICON_TALK}</span>
-      <img class="rv-action__img" src="${this.escapeHtml(urls[0])}" alt="" data-fallbacks="${chain}" onerror="${IMG_CHAIN_ONERROR}" />
-    </span>`;
-  }
-
-  /** Shop art (keyed by zone id, as uploaded today) over a painted coin. */
-  private shopIcon(zoneId: string): string {
-    return `<span class="rv-action__chip">
-      <span class="gc-coin rv-action__coin" aria-hidden="true"></span>
-      <img class="rv-action__img" src="${artworkUrl('shop', encodeURIComponent(zoneId))}" alt="" onerror="this.remove()" />
-    </span>`;
+  /** Icon chip for a room action: NPC portrait, shop art over a coin, or a drawn glyph. */
+  private actionIcon(action: RoomAction): string {
+    const id = encodeURIComponent(action.targetId);
+    if (action.kind === 'npc') {
+      return `<span class="rv-action__chip">
+        <span class="rv-action__emoji" aria-hidden="true">${this.escapeHtml(action.icon || '')}</span>
+        <img class="rv-action__img" src="${artworkUrl('npc', id)}" alt="" onerror="this.remove()" />
+      </span>`;
+    }
+    if (action.kind === 'shop') {
+      return `<span class="rv-action__chip">
+        <span class="gc-coin rv-action__coin" aria-hidden="true"></span>
+        <img class="rv-action__img" src="${artworkUrl('shop', id)}" alt="" onerror="this.remove()" />
+      </span>`;
+    }
+    return `<span class="rv-action__glyph">${action.kind === 'dungeon' ? ICON_KEY : ICON_DOOR}</span>`;
   }
 
   /**
@@ -397,9 +376,3 @@ export class RoomView {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 }
-
-/**
- * Inline onerror for an <img> with a `data-fallbacks` JSON list: try the next
- * URL, and remove the image once the list runs out so the chip's glyph shows.
- */
-const IMG_CHAIN_ONERROR = "var l=JSON.parse(this.dataset.fallbacks||'[]');if(l.length){this.dataset.fallbacks=JSON.stringify(l.slice(1));this.src=l[0];}else{this.remove();}";

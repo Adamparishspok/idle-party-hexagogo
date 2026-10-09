@@ -5,8 +5,9 @@ import type {
   CombatLogEntry,
   ClientCombatAction,
   ClientCombatState,
+  HiredHenchman,
 } from '@idle-party-rpg/shared';
-import { RUN_AVAILABLE_ROUNDS } from '@idle-party-rpg/shared';
+import { henchmanDisplayNames, RUN_AVAILABLE_ROUNDS } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import { artworkUrl } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
@@ -44,6 +45,11 @@ function setImageChain(img: HTMLImageElement, urls: string[]): void {
   const key = urls.join('|');
   if (img.dataset.chain === key) return;
   img.dataset.chain = key;
+  if (urls.length === 0) {
+    img.removeAttribute('src');
+    img.style.visibility = 'hidden';
+    return;
+  }
   let i = 0;
   img.style.visibility = '';
   img.onerror = () => {
@@ -65,6 +71,10 @@ interface UnitView {
   stunned: boolean;
   artUrls: string[];
   isSelf: boolean;
+  /** Hired NPC: no player popup, and its art/emoji come from the henchman, never its class. */
+  henchman: boolean;
+  /** Shown when art is missing (a henchman's emoji, else the name's initial). */
+  glyph?: string;
 }
 
 /**
@@ -115,6 +125,7 @@ export class CombatScreen implements Screen {
   private selfUsername = '';
   private partyUsernames = new Set<string>();
   private monsterNamesSeen = new Set<string>();
+  private henchmenByCombatName = new Map<string, HiredHenchman>();
 
   // Card DOM is rebuilt only when the set of combatants changes.
   private renderedKey = '';
@@ -270,6 +281,16 @@ export class CombatScreen implements Screen {
     this.partyUsernames = new Set(
       partyMembers.map(m => m.username).filter(u => u !== this.selfUsername),
     );
+
+    // Derive combat names exactly as the server does (roster order) so the two lists line up.
+    const henchmen = state.social?.party?.henchmen ?? [];
+    const henchmanNames = henchmanDisplayNames(henchmen.map(h => h.name ?? ''));
+    this.henchmenByCombatName.clear();
+    henchmen.forEach((h, i) => {
+      this.henchmenByCombatName.set(henchmanNames[i], h);
+      this.partyUsernames.add(henchmanNames[i]);
+    });
+
     for (const m of state.battle.combat?.monsters ?? []) {
       this.monsterNamesSeen.add(m.name);
     }
@@ -303,16 +324,22 @@ export class CombatScreen implements Screen {
   private collectUnits(state: ServerStateMessage): UnitView[] {
     const combat = state.battle.combat;
     if (!combat) return [];
-    const party: UnitView[] = combat.players.map(p => ({
-      side: 'party',
-      gridPosition: p.gridPosition,
-      name: p.username,
-      currentHp: p.currentHp,
-      maxHp: p.maxHp,
-      stunned: !!(p.stunTurns && p.stunTurns > 0),
-      artUrls: classArtUrls(p.className),
-      isSelf: p.username === state.username,
-    }));
+    const party: UnitView[] = combat.players.map(p => {
+      // A henchman's `className` is a hidden archetype — never drive art from it.
+      const hench = p.henchman ? this.henchmenByCombatName.get(p.username) : undefined;
+      return {
+        side: 'party' as const,
+        gridPosition: p.gridPosition,
+        name: p.username,
+        currentHp: p.currentHp,
+        maxHp: p.maxHp,
+        stunned: !!(p.stunTurns && p.stunTurns > 0),
+        artUrls: p.henchman ? (hench?.artworkUrl ? [hench.artworkUrl] : []) : classArtUrls(p.className),
+        isSelf: p.username === state.username,
+        henchman: !!p.henchman,
+        glyph: p.henchman ? (hench?.emoji ?? '❓') : undefined,
+      };
+    });
     const enemies: UnitView[] = combat.monsters.map(m => ({
       side: 'enemy',
       gridPosition: m.gridPosition,
@@ -322,6 +349,7 @@ export class CombatScreen implements Screen {
       stunned: !!(m.stunTurns && m.stunTurns > 0),
       artUrls: monsterArtUrls(m),
       isSelf: false,
+      henchman: false,
     }));
     return [...enemies, ...party];
   }
@@ -378,9 +406,10 @@ export class CombatScreen implements Screen {
       </span>
       <span class="cb-unit__floaters" aria-hidden="true"></span>
     `;
-    (el.querySelector('.cb-unit__initial') as HTMLElement).textContent = u.name.charAt(0).toUpperCase();
+    (el.querySelector('.cb-unit__initial') as HTMLElement).textContent = u.glyph ?? u.name.charAt(0).toUpperCase();
     el.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (u.henchman) return;
       if (u.side === 'party') {
         this.onUserClick?.(u.name, el);
       } else {
@@ -509,11 +538,13 @@ export class CombatScreen implements Screen {
   private updateBackground(state: ServerStateMessage): void {
     // The zone id is the current room's `zone` tag — admin art is keyed by it,
     // not by a slug of the display name. Layered, first found wins:
-    //   per-room combat bg → zone combat bg → zone artwork → CSS scene.
-    const tile = state.party ? this.worldCache.getTile(state.party.col, state.party.row) : null;
+    //   per-room bg (GUID) → per-room bg (legacy zone+coords) → zone bg
+    //   → zone artwork → CSS scene.
+    const tile = state.party ? this.worldCache.getTileOn(state.currentMapId, state.party.col, state.party.row) : null;
     const zoneId = tile?.zone ?? '';
     const enc = encodeURIComponent;
     const layers: string[] = [];
+    if (tile) layers.push(`/combat-bg-artwork/${enc(tile.id)}.png`);
     if (state.party && zoneId) layers.push(`/combat-bg-artwork/${enc(zoneId)}-${state.party.col}-${state.party.row}.png`);
     if (zoneId) layers.push(`/combat-bg-artwork/${enc(zoneId)}.png`);
     if (zoneId) layers.push(`/zone-artwork/${enc(zoneId)}.png`);

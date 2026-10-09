@@ -93,7 +93,13 @@ Everything in `data/` must be persisted behind a swappable store interface — n
 
 ### Content versioning
 
-When adding a new content type to the game, include it in `ContentSnapshot` (`server/src/game/VersionStore.ts`) and in `ContentStore.toSnapshot()` / `replaceAll()` so it ships in draft/publish/deploy snapshots.
+When adding a new content type to the game, include it in `ContentSnapshot` (`server/src/game/VersionStore.ts`) and in `ContentStore.toSnapshot()` / `replaceAll()` so it ships in draft/publish/deploy snapshots. It must also be readable with an API token — in the REST export routes and, where MCP can write it, an MCP read tool. When a content interface changes, update the MCP `get_content_schema` cheat sheet too. See `docs/architecture/mcp.md` → Data coverage.
+
+### Seed data is not live content
+
+The game is content-managed: `ContentStore.load()` seeds defaults **only** when no data files exist at all. After first boot, each server's content is whatever lives in its own `data/`, authored through the World Manager and MCP and shipped via draft → publish → deploy. Different live servers can hold entirely different content.
+
+So never infer what the game contains from the source tree. Grepping the repo tells you what a *fresh* world starts with and what this checkout happens to hold — it does not tell you what any running server has. Claims like "nothing references X, so no live content is affected" are unsupportable; say "the seed defaults don't reference X" and treat the real blast radius as unknown. This matters most when writing issues, PR descriptions, or anything where a severity or priority depends on what operators actually authored.
 
 ### UI terminology
 
@@ -109,3 +115,22 @@ In all user-facing text (UI labels, error messages, combat log), refer to hex ti
 - **Class layout**: properties → constructor → public methods → private methods.
 - **Error handling**: defensive checks with early returns.
 - **Tests**: aim for coverage on all non-rendering logic (systems, utils, pathfinding, server).
+- **Comments**: the code is the explanation. Comment only what the code cannot say itself.
+
+### Comments
+
+Default to **no comment**. A comment is a failure to make the code self-descriptive — reach for a clearer name, a smaller function, or a named constant first. Design rationale, feature descriptions and "why we chose this" belong in `docs/architecture/*.md`, not in the source.
+
+**Delete on sight:**
+- Anything restating what the next line does (`// Add to new party's battle`).
+- Design rationale, history, or the reasoning behind an approach.
+- Narrative explanation of how a feature works — that is what the topic docs are for.
+- Section banners and decorative dividers inside a function.
+- Multi-sentence paragraphs. If it takes a paragraph, it belongs in a doc.
+
+**Worth keeping**, and only as one terse line:
+- A landmine, where the obvious edit is the wrong one (`// keep-when-absent: an absent key means keep, not clear`).
+- A constraint imposed from outside the file that the reader cannot see (a protocol quirk, a browser bug, an ordering requirement).
+- `TODO`/`FIXME` with enough context to act on.
+
+JSDoc on an exported symbol is fine when it says something the signature does not — one or two lines, not an essay. If a reviewer needs the full story, link the doc: `See docs/architecture/social.md`.

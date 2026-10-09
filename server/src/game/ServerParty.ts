@@ -75,6 +75,11 @@ export class ServerParty {
     }
 
     const startTile = this.targetTile ?? this.currentTile;
+    if (destinationTile.key === startTile.key) {
+      this.movementQueue = [];
+      return true;
+    }
+
     const path = this.pathfinder.findPath(startTile.coord, destinationTile.coord);
 
     if (!path || path.length <= 1) {
@@ -87,6 +92,15 @@ export class ServerParty {
 
   clearDestination(): void {
     this.movementQueue = [];
+  }
+
+  /**
+   * Restore a previously snapshotted movement queue. Used to roll back a
+   * destination that turned out to be blocked, so a refused move leaves the
+   * party's in-flight path intact instead of stranding it.
+   */
+  restoreMovementQueue(queue: HexTile[]): void {
+    this.movementQueue = [...queue];
   }
 
   /**

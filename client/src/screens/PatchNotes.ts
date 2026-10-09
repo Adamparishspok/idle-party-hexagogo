@@ -1,6 +1,6 @@
 export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
-    version: '2026.10.08.1',
+    version: '2026.10.09.1',
     notes: [
       'A brand-new look for the whole game! Every screen has been redesigned with bigger, bolder text, chunky buttons that are easy to tap, and a storybook fantasy style.',
       'The bottom bar has big framed buttons, and the screen you\'re on rises up on a purple banner. The map sits in the middle, Chat has its own button just above the bar, and Settings moved to the gear at the top right.',
@@ -18,6 +18,73 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'A new title screen greets you when you sign in, and choosing your class now uses big swipeable cards showing each class\'s art, stats and passive.',
       'Settings, notification preferences and patch notes are redesigned, with big toggle switches that are easy to tap.',
       'The game now has sound effects for combat, buttons, rewards and more — adjust or mute them in Settings.',
+    ],
+  },
+  {
+    version: '2026.10.08.1',
+    notes: [
+      'Explored rooms now show what you can do there. Small icons on the map mark people to talk to, shops, dungeon entrances and passages to other places.',
+      'Hover over an explored room to see the people, shops, dungeons and passages there, and how many players are in it. Tapping a room you have explored lists them too.',
+      'A new room panel on the map shows what your current room offers. Tap an icon to talk, shop, enter a dungeon or travel without opening the room first.',
+      'People with a quest ready to hand in are marked on the map.',
+      'Your party marker no longer hides the room you are standing in, and the count of other players sharing your room is easier to read.',
+      'Tap your own room while traveling to stop there. If you have already moved on, your party heads back to it.',
+      'New Quest Log in Settings. It lists the quests you have taken on, puts the ones ready to hand in at the top, and tells you who to return to.',
+      'Completed quests are tucked away in the Quest Log until you choose to show them.',
+      'Weekly quests no longer show as available while they are still on cooldown.',
+      'Removed the "Quest hints" option, which did not do anything.',
+      'The Craft tab now scrolls, so you can reach every recipe.',
+    ],
+  },
+  {
+    version: '2026.09.30.3',
+    notes: [
+      'Your party can now hire more than one henchman, as long as each is someone different. They fill any seats your party has free.',
+      'Henchmen now take their share of a victory. Experience, gold and loot are split as if they were party members, but their share is lost, so friends are always the better company.',
+      'When your party has no room, the shop now asks which henchman should make way for the new one. Henchmen already with you show as "In party".',
+      'A henchman\'s own talents now count toward your party\'s experience bonus, so a bard you hire inspires the party just like a bard friend would.',
+    ],
+  },
+  {
+    version: '2026.09.30.2',
+    notes: [
+      'Crafting is now open from level 1. Head to the Craft tab as soon as you have the materials, instead of waiting for level 20.',
+      'Some recipes may still ask for a minimum level of their own, and the Craft tab shows when you are below it.',
+    ],
+  },
+  {
+    version: '2026.08.29.1',
+    notes: [
+      'Your party can now only have one henchman at a time. Hiring a second — including another copy of the same one — is turned down until you dismiss the one you have.',
+      'Hiring while you already have a henchman now offers to swap them instead. The shop asks first, and the newcomer takes the same spot in your formation.',
+      'If your party is genuinely full, the shop tells you that is why nobody was hired.',
+    ],
+  },
+  {
+    version: '2026.08.28.1',
+    notes: [
+      'Some shops now keep henchmen on hand — hired help who join your party and fight alongside you. Hiring is free.',
+      'A henchman takes a party seat like anyone else, so a party with one has room for one fewer player. Dismiss them to make space.',
+      'You can move henchmen around your party formation the same way you move yourself — drag them, or tap to pick one up and tap an empty square to set them down.',
+      'Henchmen stay with you only on the map where you hired them. Cross to another map and they part ways, and the combat log will say so.',
+      'Henchmen cannot come into dungeons. You will be asked to dismiss them at the entrance rather than being turned away without a reason.',
+    ],
+  },
+  {
+    version: '2026.08.18.2',
+    notes: [
+      'Some rooms can now ask more of your party than the right gear. A room may require everyone to have reached a certain level, or to have finished certain quests, before the party can set foot in it.',
+      'Passages between maps can be locked the same way. Taking one now checks your whole party first, instead of letting anyone straight through.',
+      'When a move is turned down, the message names exactly what is missing and which party members are short of it.',
+      'Asking to travel somewhere your party cannot go no longer cancels the trip you were already on.',
+      'If a game update ever leaves your party standing somewhere it no longer qualifies to be, you will be moved to the starting room and told why, instead of being stuck there.',
+    ],
+  },
+  {
+    version: '2026.08.18.1',
+    notes: [
+      'Confirming a trade now always trades exactly the offer you were shown. If your trading partner changes their items while you\'re looking at the trade, the Confirm button is held back and replaced with "Review Updated Offer" — so a last-second swap can\'t go through on items you never agreed to.',
+      'Trades opened from the Items screen now stay up to date while the window is open, instead of showing whatever the offer was the last time you visited the Social screen.',
     ],
   },
   {

@@ -1266,3 +1266,185 @@
     animation: none;
   }
 }
+
+/* ── Room-action markers (what an explored room offers) ─────── */
+
+.three-map-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* Counter-scaled like the portrait markers so icons stay readable at every zoom. */
+.three-map-marker {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 7px;
+  transform: translate(-50%, -50%) scale(var(--wm-marker-scale, 1));
+  border-radius: var(--r-pill);
+  border: 2px solid var(--gold-700);
+  background: linear-gradient(180deg, var(--slate-700), var(--slate-900));
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+  font-size: 16px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.three-map-marker-more {
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* Gold "!" on an action whose quest is ready to hand in. */
+.quest-ready-pip,
+.is-quest-ready .rv-action__chip,
+.is-quest-ready .rv-action__glyph {
+  position: relative;
+}
+.quest-ready-pip::after,
+.is-quest-ready .rv-action__chip::after,
+.is-quest-ready .rv-action__glyph::after {
+  content: '!';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 35% 30%, var(--gold-300), var(--gold-500) 60%, var(--gold-700));
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: var(--ink-900);
+  animation: wm-pip-bob 1.2s ease-in-out infinite;
+}
+.rv-fact.is-quest-ready {
+  color: var(--parch-accent);
+  font-weight: 600;
+}
+@keyframes wm-pip-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* ── Room status panel: tap-to-act chips for the current room ── */
+
+.room-status {
+  position: absolute;
+  left: var(--s-3);
+  bottom: calc(var(--perch-height) + var(--s-3));
+  z-index: 100;
+  max-width: calc(100% - 96px);
+}
+.room-status[data-empty="1"] {
+  display: none;
+}
+/* The top HUD already names the zone and room. */
+.room-status-header {
+  display: none;
+}
+.room-status-chips {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  gap: var(--s-2);
+}
+.room-status-chip {
+  position: relative;
+  isolation: isolate;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  border: none;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.55));
+  -webkit-tap-highlight-color: transparent;
+}
+.room-status-chip::before,
+.room-status-chip::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+}
+.room-status-chip::before {
+  inset: 0;
+  background: var(--gc-frame-edge-gold);
+}
+.room-status-chip::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+button.room-status-chip:active {
+  transform: translateY(2px);
+}
+.room-status-chip-static {
+  cursor: default;
+}
+.room-status-chip-static::before {
+  background: var(--gc-frame-edge);
+}
+.room-status-chip-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+.room-status-chip-label {
+  display: none;
+}
+.room-status-chip-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, var(--teal-300), var(--teal-500));
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+
+@media (min-width: 768px) {
+  /* Room for labels on desktop: chips become labelled pills. */
+  .room-status-chip {
+    width: auto;
+    padding: 0 var(--s-4) 0 var(--s-3);
+  }
+  .room-status-chip::before,
+  .room-status-chip::after {
+    clip-path: none;
+    border-radius: var(--r-md);
+  }
+  .room-status-chip-label {
+    display: inline;
+    font-family: var(--display-font);
+    font-size: var(--t-small);
+    text-shadow: var(--text-stroke-sm);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quest-ready-pip::after,
+  .is-quest-ready .rv-action__chip::after,
+  .is-quest-ready .rv-action__glyph::after {
+    animation: none;
+  }
+}

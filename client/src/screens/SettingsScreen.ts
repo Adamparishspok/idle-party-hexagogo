@@ -1,16 +1,17 @@
 import type { Screen } from './ScreenManager';
 import { logout } from '../network/AuthClient';
-import { getQuestHintsEnabled, setQuestHintsEnabled } from '../settings/UserSettings';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
 import type { GameClient } from '../network/GameClient';
+import type { WorldCache } from '../network/WorldCache';
 import { renderNotificationPreferences } from '../ui/NotificationPreferences';
 import { GAME_VERSION } from '@idle-party-rpg/shared';
 import { sound } from '../audio/SoundManager';
 import '../styles/screens/settings.css';
+import { QuestLog } from '../ui/QuestLog';
 
 /** Stroke icons for the settings rows — drawn inline so there's no art dependency. */
 const ROW_ICONS = {
-  options: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2.5" /><circle cx="10" cy="17" r="2.5" /></svg>',
+  questLog: '<svg viewBox="0 0 24 24"><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6" /><path d="M6 3a2 2 0 0 0-2 2v1h4V5a2 2 0 0 0-2-2zM6 21a2 2 0 0 1-2-2v-1h4v1a2 2 0 0 1-2 2zM10 9h6M10 13h6" /></svg>',
   sound: '<svg viewBox="0 0 24 24"><path d="M4 9.5h4l5-4v13l-5-4H4z" /><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11" /></svg>',
   notifications: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" /></svg>',
   patchNotes: '<svg viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7z" /><path d="M15 3v4h4M10 12h6M10 16h6" /></svg>',
@@ -70,26 +71,28 @@ function openSettingsModal(title: string, bodyHtml: string, extraPanelClass: str
 
 export class SettingsScreen implements Screen {
   private container: HTMLElement;
-  private closeOptions: (() => void) | null = null;
   private closeNotifPrefs: (() => void) | null = null;
   private closeSound: (() => void) | null = null;
+  private questLog: QuestLog;
 
   constructor(
     containerId: string,
     private gameClient: GameClient,
+    worldCache: WorldCache,
     /** Drill down to a pushed screen. Wired by App to ScreenManager.push. */
-    private onOpenScreen: (id: string) => void,
+    private onOpenScreen: (id: string) => void = () => {},
   ) {
     const el = document.getElementById(containerId);
     if (!el) throw new Error(`Screen container #${containerId} not found`);
     this.container = el;
+    this.questLog = new QuestLog(gameClient, worldCache);
 
     this.container.innerHTML = `
       <div class="st-screen">
         <div class="st-scroll screen-scroll">
           <h1 class="gc-screen-title st-title">Settings</h1>
           <div class="st-list">
-            ${rowHtml('btn-player-options', ROW_ICONS.options, 'Player Options', 'Map and gameplay preferences')}
+            ${rowHtml('btn-quest-log', ROW_ICONS.questLog, 'Quest Log', 'Your active and finished quests')}
             ${rowHtml('btn-sound', ROW_ICONS.sound, 'Sound', 'Sound effects and volume')}
             ${rowHtml('btn-notifications', ROW_ICONS.notifications, 'Notifications', 'Choose how you hear about events')}
             ${rowHtml('btn-patch-notes', ROW_ICONS.patchNotes, 'Patch Notes', 'What’s new in the game')}
@@ -102,11 +105,11 @@ export class SettingsScreen implements Screen {
       </div>
     `;
 
-    const btnPlayerOptions = this.container.querySelector('#btn-player-options') as HTMLButtonElement;
+    const btnQuestLog = this.container.querySelector('#btn-quest-log') as HTMLButtonElement;
     const btnNotifications = this.container.querySelector('#btn-notifications') as HTMLButtonElement;
     const btnPatchNotes = this.container.querySelector('#btn-patch-notes') as HTMLButtonElement;
 
-    btnPlayerOptions.addEventListener('click', () => this.openPlayerOptions());
+    btnQuestLog.addEventListener('click', () => this.questLog.open());
     const btnSound = this.container.querySelector('#btn-sound') as HTMLButtonElement;
     btnSound.addEventListener('click', () => this.openSoundOptions());
     btnNotifications.addEventListener('click', () => this.openNotificationPreferences());
@@ -123,39 +126,6 @@ export class SettingsScreen implements Screen {
       } finally {
         window.location.reload();
       }
-    });
-  }
-
-  /**
-   * Player Options popup. Keeps each per-toggle setting wired here so adding
-   * a new option is one HTML block + one change listener — no plumbing
-   * through to SettingsScreen state.
-   */
-  private openPlayerOptions(): void {
-    // Idempotent: re-clicking the button while open is a no-op.
-    if (this.closeOptions) return;
-
-    const { overlay, close } = openSettingsModal('Player Options', `
-      <ul class="st-options">
-        <li>
-          <label class="gc-switch-row">
-            <span class="gc-switch-row__text">
-              <span class="gc-switch-row__title">Quest hints</span>
-              <span class="gc-switch-row__desc">Highlight quest-giver rooms and visit objectives on the map.</span>
-            </span>
-            <span class="gc-switch">
-              <input type="checkbox" role="switch" class="gc-switch__input" id="po-quest-hints" ${getQuestHintsEnabled() ? 'checked' : ''}>
-              <span class="gc-switch__track" aria-hidden="true"><span class="gc-switch__thumb"></span></span>
-            </span>
-          </label>
-        </li>
-      </ul>
-    `, 'st-modal__panel--options', () => { this.closeOptions = null; });
-    this.closeOptions = close;
-
-    const questHintsToggle = overlay.querySelector('#po-quest-hints') as HTMLInputElement;
-    questHintsToggle.addEventListener('change', () => {
-      setQuestHintsEnabled(questHintsToggle.checked);
     });
   }
 
@@ -242,7 +212,7 @@ export class SettingsScreen implements Screen {
   onDeactivate(): void {
     // Close any open popup so it doesn't survive a tab switch.
     this.closeNotifPrefs?.();
-    this.closeOptions?.();
     this.closeSound?.();
+    this.questLog.close();
   }
 }

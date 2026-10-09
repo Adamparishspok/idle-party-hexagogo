@@ -50,6 +50,8 @@ import type { WorldCache } from '../network/WorldCache';
 import { artworkUrl } from './assets';
 import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
+import { ROOM_ICONS, getRoomActions, readyQuestIds } from './RoomActions';
+import type { RoomAction } from './RoomActions';
 
 export interface TileClickInfo {
   col: number;
@@ -94,6 +96,16 @@ const DRAG_THRESHOLD = 5;
 // Parchment plane is sized to a fixed quad and follows the camera at a
 // reduced rate so it reads as a deeper background layer (parallax).
 const PARCHMENT_PARALLAX = 0.3;
+
+const MAX_MARKER_ICONS = 3;
+const TOOLTIP_MARGIN = 4;
+
+interface TileOccupancy {
+  col: number;
+  row: number;
+  count: number;
+  inDungeon: boolean;
+}
 
 // ─── Image cache ──────────────────────────────────────────────
 
@@ -153,10 +165,12 @@ export class ThreeWorldMap {
   private partyEl: HTMLDivElement;
   private hoverEl: HTMLDivElement;
   private pathEl: HTMLDivElement;
+  private markersEl: HTMLDivElement;
   private flagsEl: HTMLDivElement;
   private tooltipEl: HTMLDivElement;
   private tooltipZoneEl: HTMLElement;
   private tooltipRoomEl: HTMLElement;
+  private tooltipActionsEl: HTMLElement;
   private partyBodyEl: HTMLElement;
   private partyNameEl: HTMLElement;
   private partyInitialEl: HTMLElement;
@@ -212,7 +226,15 @@ export class ThreeWorldMap {
   private currentZone = '';
   private partyMemberUsernames: string[] = [];
   private lastOtherPlayers: OtherPlayerState[] = [];
+  /** Players outside the viewer's party, per "col,row" in the current zone. */
+  private othersByTile = new Map<string, TileOccupancy>();
   private currentBattleVisual: BattleVisual = 'none';
+
+  // Room-action markers on explored rooms, keyed by "col,row".
+  private roomActions = new Map<string, RoomAction[]>();
+  private readyQuests: ReadonlySet<string> = new Set();
+  private readyQuestKey = '';
+  private markersDirty = true;
 
   // Party rendering. Movement is animated by a CSS transition on the
   // `.wm-marker--party` element (`left`/`top`); we just push the target.
@@ -299,6 +321,10 @@ export class ThreeWorldMap {
     this.pathEl.className = 'wm-path';
     this.overlay.appendChild(this.pathEl);
 
+    this.markersEl = document.createElement('div');
+    this.markersEl.className = 'three-map-markers';
+    this.overlay.appendChild(this.markersEl);
+
     this.flagsEl = document.createElement('div');
     this.flagsEl.className = 'wm-others';
     this.overlay.appendChild(this.flagsEl);
@@ -335,9 +361,10 @@ export class ThreeWorldMap {
 
     this.tooltipEl = document.createElement('div');
     this.tooltipEl.className = 'wm-tooltip';
-    this.tooltipEl.innerHTML = '<span class="wm-tooltip__zone"></span><span class="wm-tooltip__room"></span>';
+    this.tooltipEl.innerHTML = '<span class="wm-tooltip__zone"></span><span class="wm-tooltip__room"></span><ul class="wm-tooltip__actions"></ul>';
     this.tooltipZoneEl = this.tooltipEl.querySelector('.wm-tooltip__zone') as HTMLElement;
     this.tooltipRoomEl = this.tooltipEl.querySelector('.wm-tooltip__room') as HTMLElement;
+    this.tooltipActionsEl = this.tooltipEl.querySelector('.wm-tooltip__actions') as HTMLElement;
     this.tooltipEl.style.display = 'none';
     this.container.appendChild(this.tooltipEl);
 
@@ -450,7 +477,16 @@ export class ThreeWorldMap {
     this.partyMemberUsernames = (state.social?.party?.members ?? []).map(m => m.username);
     // Only show players on the same map as us.
     this.lastOtherPlayers = state.otherPlayers.filter(p => !p.mapId || p.mapId === state.currentMapId);
+    this.othersByTile = this.groupOtherPlayers();
     this.serverPath = state.party.path ?? [];
+
+    const ready = readyQuestIds(state.activeQuests);
+    const readyKey = [...ready].sort().join(',');
+    if (readyKey !== this.readyQuestKey) {
+      this.readyQuestKey = readyKey;
+      this.readyQuests = ready;
+      this.markersDirty = true;
+    }
 
     if (shouldSnap || mapChanged || !this.hasInitializedView) {
       this.centerOnParty();
@@ -463,8 +499,10 @@ export class ThreeWorldMap {
     this.updatePartyOverlay();
     this.updatePartyIdentity(state);
     this.updatePathOverlay();
+    if (this.markersDirty) this.updateMarkersOverlay();
     this.updateFlagsOverlay();
     this.updateBattleVisualClass();
+    if (this.tooltipEl.style.display !== 'none') this.updateHover();
     this.requestRender();
   }
 
@@ -482,6 +520,42 @@ export class ThreeWorldMap {
     // World content changed (admin deploy): drop every baked chunk.
     this.syncTerrain(true);
     this.requestRender();
+  }
+
+  /** What a click on this room would report; null for rooms that can't be entered. */
+  getTileInfo(col: number, row: number): TileClickInfo | null {
+    const tile = this.grid.getTile(offsetToCube({ col, row }));
+    if (!tile?.isTraversable) return null;
+
+    const def = this.worldTileDefs.get(`${col},${row}`);
+    const isUnlocked = this.worldCache.isUnlocked(col, row);
+    const isSameZone = tile.zone === this.currentZone;
+    const playersHere = isSameZone
+      ? this.lastOtherPlayers
+        .filter(p => p.col === col && p.row === row)
+        .map(p => ({ username: p.username, className: p.className, partyId: p.partyId, dungeonName: p.dungeonName }))
+      : [];
+
+    return {
+      col,
+      row,
+      tileType: this.worldCache.getTileTypeDef(tile.type)?.name ?? tile.type,
+      zoneName: def?.zoneName ?? def?.zone ?? tile.zone,
+      roomName: isUnlocked ? def?.name ?? '' : 'Unexplored Room',
+      zoneId: tile.zone,
+      isTraversable: tile.isTraversable,
+      isUnlocked,
+      isSameZone,
+      isCurrentTile: col === this.playerCol && row === this.playerRow,
+      playersHere,
+      partyMemberUsernames: this.partyMemberUsernames,
+      dungeonId: def?.dungeonId,
+    };
+  }
+
+  /** Players outside the viewer's party in this room, by the same rules as the map flags. */
+  countOthersAt(col: number, row: number): number {
+    return this.othersByTile.get(`${col},${row}`)?.count ?? 0;
   }
 
   destroy(): void {
@@ -529,10 +603,11 @@ export class ThreeWorldMap {
     for (const tileDef of this.worldCache.getTiles()) {
       const coord = offsetToCube({ col: tileDef.col, row: tileDef.row });
       const tileTypeDef = this.worldCache.getTileTypeDef(tileDef.type);
-      const tile = new HexTile(coord, tileDef.type, tileDef.zone, tileDef.id, tileDef.requiredItemId, tileTypeDef);
+      const tile = new HexTile(coord, tileDef.type, tileDef.zone, tileDef.id, tileDef.requiredItemId, tileTypeDef, tileDef.entryRequirements);
       grid.addTile(tile);
       this.worldTileDefs.set(`${tileDef.col},${tileDef.row}`, tileDef);
     }
+    this.markersDirty = true;
 
     return grid;
   }
@@ -903,9 +978,35 @@ export class ThreeWorldMap {
     this.tooltipZoneEl.textContent = zoneName;
     this.tooltipRoomEl.textContent = roomName;
     this.tooltipEl.classList.toggle('is-unexplored', !(isUnlocked && def?.name));
-    this.tooltipEl.style.left = `${this.mousePixelX + 16}px`;
-    this.tooltipEl.style.top = `${this.mousePixelY - 8}px`;
+    // What the room offers and how many others stand there — counts only, never names.
+    const lines: string[] = [];
+    if (isUnlocked) {
+      for (const action of this.roomActions.get(`${off.col},${off.row}`) ?? []) {
+        lines.push(`${action.icon} ${action.name}${action.detail ? ` · ${action.detail}` : ''}`);
+      }
+      const others = this.countOthersAt(off.col, off.row);
+      if (others > 0) lines.push(`${ROOM_ICONS.players} ${others} ${others === 1 ? 'player' : 'players'} here`);
+    }
+    this.tooltipActionsEl.replaceChildren(...lines.map(text => {
+      const li = document.createElement('li');
+      li.textContent = text;
+      return li;
+    }));
     this.tooltipEl.style.display = 'flex';
+    this.positionTooltip();
+  }
+
+  /** Keep the tooltip beside the cursor but inside the canvas. */
+  private positionTooltip(): void {
+    const w = this.tooltipEl.offsetWidth;
+    const h = this.tooltipEl.offsetHeight;
+    const right = this.mousePixelX + 16;
+    const left = right + w + TOOLTIP_MARGIN > this.canvasCssWidth() ? this.mousePixelX - 16 - w : right;
+    const above = this.mousePixelY - 8 - h;
+    const top = above < TOOLTIP_MARGIN ? this.mousePixelY + 20 : above;
+    const maxTop = this.canvasCssHeight() - h - TOOLTIP_MARGIN;
+    this.tooltipEl.style.left = `${Math.max(TOOLTIP_MARGIN, left)}px`;
+    this.tooltipEl.style.top = `${Math.max(TOOLTIP_MARGIN, Math.min(top, maxTop))}px`;
   }
 
   private hideTooltip(): void {
@@ -950,38 +1051,11 @@ export class ThreeWorldMap {
     if (!tile.isTraversable) return;
 
     const offset = cubeToOffset(tile.coord);
-    const def = this.worldTileDefs.get(`${offset.col},${offset.row}`);
-    const isUnlocked = this.worldCache.isUnlocked(offset.col, offset.row);
-    const isSameZone = tile.zone === this.currentZone;
-    const isCurrentTile = offset.col === this.playerCol && offset.row === this.playerRow;
-
-    const zoneName = def?.zoneName ?? def?.zone ?? tile.zone;
-    const roomName = isUnlocked && def?.name
-      ? def.name
-      : (!isUnlocked && tile.isTraversable) ? 'Unexplored Room' : '';
-
-    const playersHere = isSameZone
-      ? this.lastOtherPlayers
-        .filter(p => p.col === offset.col && p.row === offset.row)
-        .map(p => ({ username: p.username, className: p.className, partyId: p.partyId, dungeonName: p.dungeonName }))
-      : [];
+    const info = this.getTileInfo(offset.col, offset.row);
+    if (!info) return;
 
     if (this.onTileClickFn) {
-      this.onTileClickFn({
-        col: offset.col,
-        row: offset.row,
-        tileType: this.worldCache.getTileTypeDef(tile.type)?.name ?? tile.type,
-        zoneName,
-        roomName,
-        zoneId: tile.zone,
-        isTraversable: tile.isTraversable,
-        isUnlocked,
-        isSameZone,
-        isCurrentTile,
-        playersHere,
-        partyMemberUsernames: this.partyMemberUsernames,
-        dungeonId: def?.dungeonId,
-      });
+      this.onTileClickFn(info);
     } else {
       this.sendMoveFn?.(offset.col, offset.row);
     }
@@ -1299,6 +1373,26 @@ export class ThreeWorldMap {
     this.pathEl.innerHTML = html.join('');
   }
 
+  /** Players outside the viewer's party, grouped per room in the current zone. */
+  private groupOtherPlayers(): Map<string, TileOccupancy> {
+    const groups = new Map<string, TileOccupancy>();
+    if (!this.currentZone) return groups;
+    const partySet = new Set(this.partyMemberUsernames);
+    for (const other of this.lastOtherPlayers) {
+      if (other.zone !== this.currentZone) continue;
+      if (partySet.has(other.username)) continue;
+      const key = `${other.col},${other.row}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.count++;
+        if (other.inDungeon) existing.inDungeon = true;
+      } else {
+        groups.set(key, { col: other.col, row: other.row, count: 1, inDungeon: !!other.inDungeon });
+      }
+    }
+    return groups;
+  }
+
   /**
    * Other parties: one marker per occupied room in the current zone — the
    * first player's class portrait in a steel frame, tinted by a per-room hue
@@ -1369,6 +1463,44 @@ export class ThreeWorldMap {
       this.lastOthersHtml = next;
       this.flagsEl.innerHTML = next;
     }
+  }
+
+  private updateMarkersOverlay(): void {
+    this.markersDirty = false;
+    this.roomActions.clear();
+    const markers = document.createDocumentFragment();
+    for (const [key, def] of this.worldTileDefs) {
+      if (!this.worldCache.isUnlocked(def.col, def.row)) continue;
+      const actions = getRoomActions(def, this.worldCache, this.readyQuests);
+      if (actions.length === 0) continue;
+      this.roomActions.set(key, actions);
+      markers.appendChild(this.buildMarker(def.col, def.row, actions));
+    }
+    this.markersEl.replaceChildren(markers);
+  }
+
+  private buildMarker(col: number, row: number, actions: RoomAction[]): HTMLElement {
+    const p = cubeToPixel(offsetToCube({ col, row }));
+    const marker = document.createElement('div');
+    marker.className = 'three-map-marker';
+    marker.style.left = `${p.x}px`;
+    marker.style.top = `${p.y + HEX_SIZE * 0.55}px`;
+
+    const firstExit = actions.find(a => a.kind === 'travel');
+    const icons = [...actions.filter(a => a.kind !== 'travel'), ...(firstExit ? [firstExit] : [])];
+    for (const action of icons.slice(0, MAX_MARKER_ICONS)) {
+      const icon = document.createElement('span');
+      icon.className = action.questReady ? 'three-map-marker-icon quest-ready-pip' : 'three-map-marker-icon';
+      icon.textContent = action.icon;
+      marker.appendChild(icon);
+    }
+    if (icons.length > MAX_MARKER_ICONS) {
+      const more = document.createElement('span');
+      more.className = 'three-map-marker-more';
+      more.textContent = `+${icons.length - MAX_MARKER_ICONS}`;
+      marker.appendChild(more);
+    }
+    return marker;
   }
 
   // ─── Misc helpers ─────────────────────────────────────────

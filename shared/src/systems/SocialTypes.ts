@@ -1,6 +1,8 @@
 // ── Social System Types ─────────────────────────────────────
 
 import type { NotificationEntry, NotificationPreferences } from './NotificationTypes.js';
+// Must stay `import type`: erases the HenchmanTypes <-> SocialTypes cycle at compile time.
+import type { HiredHenchman } from './HenchmanTypes.js';
 
 // --- Friend System ---
 export interface FriendRequest {
@@ -32,6 +34,8 @@ export interface GuildMemberEntry {
 export type PartyRole = 'owner' | 'leader' | 'member';
 export type PartyGridPosition = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export const MAX_PARTY_SIZE = 5;
+/** Henchmen one party may hold at once, each a different henchman. Henchmen also count toward MAX_PARTY_SIZE. */
+export const MAX_HENCHMEN_PER_PARTY = MAX_PARTY_SIZE - 1;
 
 export interface GamePartyMember {
   username: string;
@@ -42,6 +46,8 @@ export interface GamePartyMember {
 export interface GamePartyInfo {
   id: string;
   members: GamePartyMember[];
+  /** Never merge into `members` — member call sites all resolve an account. Grid slots are shared. */
+  henchmen?: HiredHenchman[];
 }
 
 export interface PartyInvite {
@@ -78,6 +84,13 @@ export interface TradeState {
   timestamp: number;
   /** Username of the player who last took action on this trade (proposed/countered). */
   lastUpdatedBy: string;
+  /**
+   * Confirmation token, rotated on every offer change. A `confirm_trade` must echo
+   * the nonce of the exact offer the player saw, so a captured confirm frame
+   * cannot be replayed and an offer cannot be swapped out from under a
+   * confirmation already in flight.
+   */
+  nonce: string;
   cancelReason?: string;
 }
 
@@ -214,6 +227,20 @@ export interface ClientKickPartyMemberMessage {
 export interface ClientSetPartyGridPositionMessage {
   type: 'set_party_grid_position';
   position: PartyGridPosition;
+  /** Move this henchman rather than the sender; authorized on party role, not identity. */
+  henchmanInstanceId?: string;
+}
+
+export interface ClientHireHenchmanMessage {
+  type: 'hire_henchman';
+  henchmanId: string;
+  /** Hired henchman (its `instanceId`) to swap out for this one. */
+  replaceInstanceId?: string;
+}
+
+export interface ClientDismissHenchmanMessage {
+  type: 'dismiss_henchman';
+  instanceId: string;
 }
 
 export interface ClientPromotePartyLeaderMessage {
@@ -285,6 +312,8 @@ export interface ClientCounterTradeMessage {
 export interface ClientConfirmTradeMessage {
   type: 'confirm_trade';
   tradeId: string;
+  /** Must match the current `TradeState.nonce` — see TradeState.nonce. */
+  nonce: string;
 }
 
 export interface ClientCancelTradeMessage {
@@ -324,6 +353,8 @@ export type ClientSocialMessage =
   | ClientLeavePartyMessage
   | ClientKickPartyMemberMessage
   | ClientSetPartyGridPositionMessage
+  | ClientHireHenchmanMessage
+  | ClientDismissHenchmanMessage
   | ClientPromotePartyLeaderMessage
   | ClientDemotePartyMemberMessage
   | ClientTransferPartyOwnershipMessage

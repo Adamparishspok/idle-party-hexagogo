@@ -28,12 +28,27 @@ export { HexGrid } from './hex/HexGrid.js';
 export { HexPathfinder } from './hex/HexPathfinder.js';
 
 // Map
-export { WORLD_MAP, DEFAULT_MAP_ID, migrateWorldData } from './hex/MapSchema.js';
-export type { MapSchema, TileDefinition, WorldTileDefinition, WorldData, WorldMapMeta } from './hex/MapSchema.js';
+export { WORLD_MAP, DEFAULT_MAP_ID, migrateWorldData, zoneMapConflict, findZonesSpanningMaps } from './hex/MapSchema.js';
+export type { MapSchema, TileDefinition, WorldTileDefinition, WorldData, WorldMapMeta, MapTransitionLink } from './hex/MapSchema.js';
 export { generateWorldMap, getStartingPosition } from './hex/MapData.js';
 
 // Systems
 export { UnlockSystem } from './systems/UnlockSystem.js';
+
+// Room entry requirements
+export {
+  isRoomGateEmpty,
+  toRoomRequirements,
+  mergeRoomRequirements,
+  validateRoomEntry,
+} from './systems/RoomRequirements.js';
+export type {
+  RoomEntryRequirements,
+  RoomEntryMemberInfo,
+  RoomEntryLabels,
+  RoomEntryFailureKind,
+  RoomEntryFailure,
+} from './systems/RoomRequirements.js';
 
 // Character stats
 export {
@@ -242,6 +257,7 @@ export type {
   ClientDestroyItemsMessage,
   ClientEquipItemForceDestroyMessage,
   ServerEquipBlockedMessage,
+  ServerMoveBlockedMessage,
   ClientSetClassMessage,
   ClientResetXpRateMessage,
   ClientEquipSkillMessage,
@@ -256,6 +272,7 @@ export type {
   ClientTurnInQuestMessage,
   PlayerProfileMessage,
   ServerMessage,
+  ServerErrorCode,
   ClientMessage,
 } from './systems/BattleTypes.js';
 export {
@@ -290,11 +307,23 @@ export type {
 export type {
   ShopItem,
   ShopDefinition,
+  ShopSummary,
 } from './systems/ShopTypes.js';
+export { toShopSummary } from './systems/ShopTypes.js';
+
+export type {
+  HenchmanDefinition,
+  HiredHenchman,
+  HenchmanOffer,
+} from './systems/HenchmanTypes.js';
+export {
+  SEED_HENCHMEN,
+  henchmanDisplayNames,
+  buildHenchmanCombatant,
+} from './systems/HenchmanTypes.js';
 
 // Crafting types
 export {
-  CRAFTING_UNLOCK_LEVEL,
   MAX_CRAFT_QUEUE,
   SEED_RECIPES,
   emptyCraftQueue,
@@ -367,7 +396,7 @@ export type {
 } from './systems/DungeonTypes.js';
 
 // Social types
-export { MAX_PARTY_SIZE } from './systems/SocialTypes.js';
+export { MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from './systems/SocialTypes.js';
 export type {
   PlayerListEntry,
   FriendEntry,
@@ -397,6 +426,8 @@ export type {
   ClientLeavePartyMessage,
   ClientKickPartyMemberMessage,
   ClientSetPartyGridPositionMessage,
+  ClientHireHenchmanMessage,
+  ClientDismissHenchmanMessage,
   ClientPromotePartyLeaderMessage,
   ClientDemotePartyMemberMessage,
   ClientTransferPartyOwnershipMessage,

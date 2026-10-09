@@ -141,7 +141,8 @@ export class TradeModal {
       theirs = theirOffer;
       status = `${p} updated their offer. Confirm to swap, or counter with new items.`;
       pickLabel = 'Counter with';
-      primary = '<button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-action="trade-confirm">Confirm Trade</button>';
+      // Arm Confirm with the nonce of the offer on screen; the server rejects a stale one.
+      primary = `<button type="button" class="gc-btn gc-btn--gold gc-btn--lg gc-btn--block" data-action="trade-confirm" data-nonce="${esc(trade.nonce)}">Confirm Trade</button>`;
       secondary.push(send('Counter'), cancel('Cancel Trade'));
     } else if (trade.status === 'countered') {
       mine = myOffer;
@@ -223,7 +224,8 @@ export class TradeModal {
     }
     if (action === 'trade-confirm') {
       const trade = this.getActiveTrade();
-      if (trade) this.gameClient.sendConfirmTrade(trade.id);
+      const nonce = btn.getAttribute('data-nonce');
+      if (trade && nonce) this.gameClient.sendConfirmTrade(trade.id, nonce);
       return;
     }
     if (action === 'trade-send') {

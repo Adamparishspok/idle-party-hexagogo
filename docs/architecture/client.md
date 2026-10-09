@@ -84,17 +84,26 @@ The **tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element, w
 
 **Render-on-demand.** There's no always-on RAF loop. `requestRender()` schedules one render on the next animation frame, coalescing multiple state pushes. The chunk layer schedules its own time-sliced bake frames and calls back to re-render as chunks land. An animation loop runs only while the spring-back is active. Party movement and the party pulse live in CSS. An idle map costs effectively zero.
 
-## RoomView
+## Room actions
+
+`client/src/ui/RoomActions.ts` is the single vocabulary for what a room offers, shared by the map markers, the tooltip, both RoomView states and the room status panel. `getRoomActions(room, lookups, readyQuestIds)` returns, in order: the NPC (its own emoji; detail "Quest ready to turn in" plus a gold `?` pip when one of its `questIds` is an active quest with status `ready`), the shop (🪙 if it sells items, 🤝 if it only hires henchmen, detail "Henchmen for hire" when it does both), the dungeon entrance (🗝️), and one travel point per map transition (🌀, named after the destination room, else its map, else "a passage"). Ids that don't resolve are skipped. Lookups come from `WorldCache` (`getNpc`, `getShop` → `ShopSummary` from `/api/world`, `getDungeon`, `getTileByGuid`, `getMaps`), so remote rooms need nothing beyond the login payload.
+
+**Explored rooms only**: markers, tooltip lines and the remote popup's list appear only on rooms `worldCache.isUnlocked` (the same rule that reveals a room's name). The map draws one marker per explored room with at least one action — up to three icons on a dark pill, then `+N`; several exits collapse into a single 🌀. `ThreeWorldMap.updateMarkersOverlay` rebuilds markers only when the grid is rebuilt (unlocks, map switch, content reload) or the ready-quest set changes, not every tick.
+
+## Room status panel
+
+`client/src/ui/RoomStatusPanel.ts`, owned by `MapScreen`, shows what the party's current room offers as chips that run the same handlers as the RoomView buttons (`MapScreen.runAction` → `talkTo` / `openShop` / `enterDungeon` / `enterTransition`, with the same in-dungeon and owner/leader checks). Extra chips: `👥 N` when players outside your party share the room (opens the current-room RoomView, where names are listed), and a non-interactive `🗝️ {dungeon} · Floor x/y` while delving. Desktop (≥768px) is a labelled card top-left with a `{zone} · {room}` header; mobile is icon-only round chips bottom-left, clear of the zoom controls, move toast and notification bell, and hidden when there is nothing to show. The DOM is replaced only when the content key changes, and taps are stopped (`pointerdown`/`mousedown`/`click`/`touchstart`) so they don't pan or click the map — `mouseup` is deliberately left alone so a map drag released over the card still ends.
+
 
 Clicking a tile opens `client/src/ui/RoomView.ts` (styles in `styles/screens/map.css`). It has three states:
 
 - **Current room** — a full-screen "place" view inside `#screen-map`.
   - It sits at z 400, deliberately outside `ModalStack`, so the nav, chat and perch stay on top. Its bottom padding clears `--perch-height`.
-  - Backdrop chain: `/room-bg-artwork/{zone}-{col}-{row}.png` → `/room-bg-artwork/{zone}.png` → `/zone-artwork/{zone}.png`, painted over a CSS dusk scene.
+  - Backdrop chain: `/room-bg-artwork/{roomGuid}.png` → `/room-bg-artwork/{zone}-{col}-{row}.png` → `/room-bg-artwork/{zone}.png` → `/zone-artwork/{zone}.png`, painted over a CSS dusk scene.
   - Shows the outlined room name, the zone, and a "You are here" pill.
   - Parties render as cards of portrait frames. Your party lists you first, passed in by MapScreen via `roomView.self` because you aren't in `otherPlayers`.
-  - Actions are kit buttons in the order Talk → Shop → Enter dungeon → Enter {destination}; the first is the gold primary.
-- **Remote room (discovered)** — a `.gc-modal` parchment preview. The room name sits on the title tab, with what's known about the room, small party cards, and a gold "Travel here" primary.
+  - One kit button per `RoomAction` (set by MapScreen from `RoomActions.getRoomActions`); the first is the gold primary, and tapping one runs `MapScreen.runAction`. A steel "Stop here" leads the list while the party is walking a route through the room.
+- **Remote room (discovered)** — a `.gc-modal` parchment preview. The room name sits on the title tab, with the room's actions listed (explored rooms only, informational), small party cards, and a gold "Travel here" primary.
 - **Undiscovered** — the same preview with an "unexplored" note.
 
 Grouping logic lives in `RoomView.groupPlayersByParty` and depends on `partyId` arriving on each `OtherPlayerState`.
@@ -111,7 +120,7 @@ When the current room is linked to a dungeon (`tileDef.dungeonId`, looked up via
 
 ## Multi-map travel (client)
 
-The client renders only the map the party is on. `ServerStateMessage.currentMapId` drives `WorldCache.setCurrentMap`; when it changes, `ThreeWorldMap` rebuilds its grid from the new map's tiles, recenters the camera, snaps the party sprite (no tween across the discontinuity), and filters the other-player flag overlay to that map (`OtherPlayerState.mapId`). When the current room has `transitions`, `RoomView` shows one "Enter {destination}" button per exit (destination names resolved via `WorldCache.getTileByGuid`); tapping one sends `enter_transition` with that target `tileId` (owner/leader-gated, blocked inside a dungeon). No confirm popup — transitions have no requirements. See `docs/architecture/content.md` → Multi-map for the server side. (A zoomed-out overworld/map-select for players is out of scope — issue #168.)
+The client renders only the map the party is on. `ServerStateMessage.currentMapId` drives `WorldCache.setCurrentMap`; when it changes, `ThreeWorldMap` rebuilds its grid from the new map's tiles, recenters the camera, snaps the party sprite (no tween across the discontinuity), and filters the other-player flag overlay to that map (`OtherPlayerState.mapId`). When the current room has `transitions`, `RoomView` shows one 🌀 "Travel to {destination}" button per exit (destination names resolved via `WorldCache.getTileByGuid`); tapping one sends `enter_transition` with that target `tileId` (owner/leader-gated, blocked inside a dungeon). No confirm popup: transitions may be gated (see `docs/architecture/content.md` → Room entry requirements), but the check is server-authoritative and a refusal comes back as a `move_blocked` message that surfaces in the same map toast as a blocked move. The client cannot preview gates — party members' levels, equipment, and completed quests are not in `GamePartyMember`, and gate items/quests the player has never encountered have no name in `itemDefinitions` — so transition buttons stay enabled, matching `DungeonEntryPopup`'s descriptive-only precedent. See `docs/architecture/content.md` → Multi-map for the server side. (A zoomed-out overworld/map-select for players is out of scope — issue #168.)
 
 ## Character screen (merged Char + Items)
 
@@ -172,6 +181,11 @@ Whenever the popout is open with `dm` selected as the send channel, it reports t
 - **Header:** a title and `.gc-close`, then "Mark all read" (steel) and a confirm-gated "Clear all" (red). Both are disabled when there's nothing to act on.
 - **Rows:** `.gc-row` entries, newest first, with an octagon category icon (`.gc-octicon`), title, body, relative time, and a gold unread dot. Tapping a row marks it read and navigates for party, friend-request and DM notifications. A 44px "×" dismisses it permanently.
 - **Rendering:** the list only rebuilds when its entries, read state, or the minute change. Escape closes the dropdown.
+Notification channel/category preferences are a modal opened from a new "Notifications" button on `SettingsScreen` (`client/src/ui/NotificationPreferences.ts`) — a category × channel checkbox grid in the same `.player-options-*` modal shell as the Quest Log.
+
+## Quest Log
+
+`client/src/ui/QuestLog.ts` is a modal opened from Settings → **Quest Log**. It reads only what every state push already carries — `activeQuests`, `completedQuests`, `weeklyCompletions`, `questDefinitions`, `questResolutions`, `unlocked` — plus `WorldCache.getAllNpcs()` / `getRoomsWithNpc()`. Active quests show by default, ordered by `QuestLogModel.sortActiveQuests`: ready to turn in first, then in progress, then accepted, oldest accepted first within each. Each card shows status and scope pills, description, objectives with progress, rewards, and "Turn in to: {npc} — {room}, {zone}" for every NPC that lists the quest (rooms only when explored; `turnInLocations`). Completed quests sit behind a "Completed (N)" toggle that starts collapsed every time the log opens; rows fold weekly repeats into one (`×N`) and show "Available again {date}" from the server's `weeklyCompletions` clock. A quest deleted from content shows as "Unknown quest". The log re-renders only when its HTML changes, keeping scroll position and the toggle. Quest text helpers (`objectiveText`, `rewardsText`, `statusLabel`, `scopeBadgeHtml`) live in `client/src/ui/QuestText.ts`, shared with `NpcTalkPopup`, and both use the shared `.quest-card` / `.quest-pill` styles.
 
 **Toasts.** Live pushes (`GameClient.onNotification`) spawn slide-in toast cards with a 6s draining lifetime bar. Tapping a toast marks it read and navigates; its "×" only hides the toast.
 
@@ -195,7 +209,7 @@ Rebuilt in the WorldQuest style (`CombatScreen.ts` + `styles/screens/combat.css`
 
 ## ModalStack
 
-`client/src/ui/ModalStack.ts` manages click-order z-index across overlays. `bringToFront(el)` is called when a modal opens (and on `mousedown` so click-to-focus works like native windows); `release(el)` on close. `wireFocusOnInteract(el)` attaches the focus-on-click handler in one call. Every overlay in the app (RoomView, ChatPopout, PlayerOptions, player popup, monster popup, the notification dropdown, etc.) routes through it.
+`client/src/ui/ModalStack.ts` manages click-order z-index across overlays. `bringToFront(el)` is called when a modal opens (and on `mousedown` so click-to-focus works like native windows); `release(el)` on close. `wireFocusOnInteract(el)` attaches the focus-on-click handler in one call. Every overlay in the app (RoomView, ChatPopout, the Quest Log and Notifications modals, player popup, monster popup, the notification dropdown, etc.) routes through it.
 
 Because every overlay routes through it, ModalStack also plays the `ui-open` sound the first time an element is tracked (not on refocus) and `ui-close` when a tracked element is released.
 
@@ -238,7 +252,7 @@ The kinds themselves live in `ASSET_KIND_INFO` (`shared/src/assets/AssetKinds.ts
 
 ## Browser tab resume
 
-On `visibilitychange` → visible, the client sends `request_state` for an immediate server response (no waiting for the next battle cycle). The party position snaps instantly; the camera pans smoothly (500ms).
+On `visibilitychange` → visible, the client sends `request_state` for an immediate server response (no waiting for the next battle cycle). The party position snaps instantly and the camera re-centres on it.
 
 ## Event-driven systems
 
@@ -270,9 +284,11 @@ The map overlay (`.wm-overlay`, styles in `styles/screens/map.css`) hosts WorldQ
 - `handleClick` resolves taps on a marker to that marker's room before falling back to the hex hit-test.
 - The other-party layer is rewritten only when its markup changes.
 
-**Controls.** MapScreen adds kit steel zoom in / zoom out / recentre buttons. A perch-row Room button calls `ThreeWorldMap.openCurrentRoom()` and turns gold when the current room has a shop, NPC, dungeon or transition.
+**Room-action markers.** Explored rooms show a small slate pill of action icons (`updateMarkersOverlay`, from `RoomActions`), counter-scaled like the portraits; a quest ready to hand in gets a gold "!" pip. The tooltip lists the room's actions and how many others stand there (counts only).
 
-The WebGL tile rendering (hex bake, parchment, tile art) is unchanged and due for its own painted-map design pass (`ideas/ui-revamp-worldquest.md`).
+**Controls.** MapScreen adds kit steel zoom in / zoom out / recentre buttons. The room status panel (above) sits bottom-left above the perch as framed icon buttons — labelled pills on desktop.
+
+The WebGL terrain is the painted, chunked renderer described in "World map" above.
 
 ## Title screen and out-of-game flow
 

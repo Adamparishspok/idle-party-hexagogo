@@ -1,0 +1,143 @@
+/* Quest Log (kit parchment modal) — quest cards, turn-in hints, history. */
+
+.quest-log-modal {
+  width: min(100%, 460px);
+}
+.quest-log-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.quest-log-empty {
+  padding: var(--s-4);
+  text-align: center;
+  color: var(--parch-ink-soft);
+}
+
+.quest-card {
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.35);
+}
+.quest-card-ready {
+  border-color: var(--gold-700);
+  background: rgba(255, 231, 160, 0.5);
+  box-shadow: 0 0 0 2px rgba(245, 200, 66, 0.35);
+}
+.quest-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.quest-card-name {
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1.1;
+  color: var(--parch-ink);
+}
+.quest-log-pills {
+  display: flex;
+  gap: var(--s-1);
+  flex-shrink: 0;
+}
+.quest-pill,
+.quest-scope-solo,
+.quest-scope-party {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-700);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  background: var(--slate-500);
+}
+.quest-status-ready { background: var(--gold-500); }
+.quest-status-in_progress { background: var(--teal-500); }
+.quest-status-accepted { background: var(--slate-500); }
+.quest-scope-party { background: var(--arcane-600); }
+.quest-scope-solo { background: var(--wood-500); }
+
+.quest-card-desc {
+  margin-top: var(--s-2);
+  font-size: var(--t-small);
+  color: var(--parch-ink);
+}
+.quest-card-objectives {
+  margin-top: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.quest-objective {
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--parch-accent);
+}
+.quest-objective-done {
+  color: var(--green-700);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.quest-card-rewards {
+  margin-top: var(--s-2);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.quest-log-turnin {
+  margin-top: var(--s-2);
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.quest-log-turnin-ready {
+  font-family: var(--display-font);
+  color: var(--gold-700);
+}
+
+.quest-log-completed-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--tap-min);
+  padding: 0 var(--s-2);
+  border: none;
+  background: none;
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--parch-ink);
+  cursor: pointer;
+}
+.quest-log-chevron {
+  width: 18px;
+}
+.quest-log-completed-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.quest-log-completed-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.25);
+}
+.quest-log-completed-name {
+  font-weight: 600;
+  color: var(--parch-ink);
+}
+.quest-log-completed-meta,
+.quest-log-repeat {
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.quest-log-available {
+  color: var(--green-700);
+  font-weight: 600;
+}

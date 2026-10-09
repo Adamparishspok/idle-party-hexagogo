@@ -358,7 +358,7 @@ export class App {
     const charItemsScreen = new CharItemsScreen('screen-items', this.gameClient, this.worldCache);
     const socialScreen = new SocialScreen('screen-social', this.gameClient, this.chatStore, this.worldCache);
     const craftingScreen = new CraftingScreen('screen-craft', this.gameClient);
-    const settingsScreen = new SettingsScreen('screen-settings', this.gameClient, (id) =>
+    const settingsScreen = new SettingsScreen('screen-settings', this.gameClient, this.worldCache, (id) =>
       this.screenManager.push(id),
     );
     const patchNotesScreen = new PatchNotesScreen('screen-patch-notes');

@@ -8,6 +8,7 @@ import type {
   QuestReward,
 } from '@idle-party-rpg/shared';
 import { canAcceptQuest, getObjectiveTarget } from '@idle-party-rpg/shared';
+import { objectiveText } from './QuestText';
 import { artworkUrl } from './assets';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import { renderKitItem } from './ItemIcon';
@@ -117,15 +118,8 @@ export class NpcTalkPopup {
     }
   }
 
-  private resolveMonster(id: string): string {
-    return this.lastResolutions?.monsters[id] ?? id;
-  }
   private resolveItem(id: string): string {
     return this.lastResolutions?.items[id] ?? id;
-  }
-  private resolveTile(id: string): string {
-    const t = this.lastResolutions?.tiles[id];
-    return t ? `${t.name} (${t.col},${t.row})` : 'a specific room';
   }
 
   private lastResolutions: ServerStateMessage['questResolutions'] | undefined;
@@ -176,7 +170,7 @@ export class NpcTalkPopup {
           playerLevel,
           activeQuestIds: new Set(activeMap.keys()),
           completedQuestIds: completedSet,
-          weeklyCompletions: {},
+          weeklyCompletions: state?.weeklyCompletions ?? {},
         });
         if (!reason) available.push({ def, kind: 'available' });
       }
@@ -303,16 +297,7 @@ export class NpcTalkPopup {
   }
 
   private objectiveText(obj: QuestObjective, progress: number): string {
-    const target = getObjectiveTarget(obj);
-    const cap = Math.min(progress, target);
-    if (obj.kind === 'kill') {
-      return `Kill ${this.escape(this.resolveMonster(obj.monsterId))} (${cap}/${target})`;
-    }
-    if (obj.kind === 'collect') {
-      return `Collect ${this.escape(this.resolveItem(obj.itemId))} (${cap}/${target})`;
-    }
-    const place = this.escape(this.resolveTile(obj.tileId));
-    return cap >= 1 ? `Visit ${place} — done` : `Visit ${place}`;
+    return objectiveText(obj, progress, this.lastResolutions);
   }
 
   private statusChip(q: QuestEntry): string {

@@ -2,7 +2,13 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import type { QuestDefinition } from '@idle-party-rpg/shared';
+import { TileType, DEFAULT_MAP_ID } from '@idle-party-rpg/shared';
+import type {
+  ItemDefinition,
+  MapTransitionLink,
+  QuestDefinition,
+  RoomEntryRequirements,
+} from '@idle-party-rpg/shared';
 
 // ContentStore/VersionStore (and, transitively, the MCP tool modules that import
 // DraftEditor) resolve their data dirs from process.cwd() at module load, so the
@@ -23,6 +29,10 @@ let AssetStore: AssetStoreCtor;
 let validateDraft: typeof import('../src/mcp/tools/validateTools.js').validateDraft;
 let getOverview: typeof import('../src/mcp/tools/readTools.js').getOverview;
 let getContentSchema: typeof import('../src/mcp/tools/readTools.js').getContentSchema;
+let getWorld: typeof import('../src/mcp/tools/readTools.js').getWorld;
+let getSkillSlots: typeof import('../src/mcp/tools/readTools.js').getSkillSlots;
+let upsertContent: typeof import('../src/mcp/tools/writeTools.js').upsertContent;
+let upsertTiles: typeof import('../src/mcp/tools/writeTools.js').upsertTiles;
 let createDraft: typeof import('../src/mcp/tools/notesTools.js').createDraft;
 let saveNote: typeof import('../src/mcp/tools/notesTools.js').saveNote;
 
@@ -30,7 +40,7 @@ let tmpDir: string;
 let originalCwd: string;
 
 const CONTENT_TYPES: DraftContentType[] = [
-  'monsters', 'items', 'sets', 'shops', 'recipes', 'npcs',
+  'monsters', 'items', 'sets', 'shops', 'henchmen', 'recipes', 'npcs',
   'quests', 'dungeons', 'zones', 'encounters', 'tileTypes',
   'skills', 'designNotes',
 ];
@@ -44,7 +54,8 @@ beforeAll(async () => {
   ({ DraftEditor } = await import('../src/game/DraftEditor.js'));
   ({ AssetStore } = await import('../src/game/AssetStore.js'));
   ({ validateDraft } = await import('../src/mcp/tools/validateTools.js'));
-  ({ getOverview, getContentSchema } = await import('../src/mcp/tools/readTools.js'));
+  ({ getOverview, getContentSchema, getSkillSlots, getWorld } = await import('../src/mcp/tools/readTools.js'));
+  ({ upsertContent, upsertTiles } = await import('../src/mcp/tools/writeTools.js'));
   ({ createDraft, saveNote } = await import('../src/mcp/tools/notesTools.js'));
 });
 
@@ -83,6 +94,41 @@ function makeQuest(id: string, overrides: Partial<QuestDefinition> = {}): QuestD
     rewards: [],
     ...overrides,
   };
+}
+
+function makeItem(id: string, overrides: Partial<ItemDefinition> = {}): ItemDefinition {
+  return {
+    id,
+    name: `Item ${id}`,
+    rarity: 'common',
+    value: 1,
+    ...overrides,
+  };
+}
+
+/** Create-or-update a room on the seeded overworld and return its stable GUID. */
+async function upsertRoom(
+  deps: McpToolDeps,
+  versionId: string,
+  input: {
+    col: number;
+    row: number;
+    name: string;
+    entryRequirements?: RoomEntryRequirements;
+    transitions?: MapTransitionLink[];
+  },
+): Promise<string> {
+  const result = await deps.draftEditor.upsertTile(versionId, {
+    mapId: DEFAULT_MAP_ID,
+    type: TileType.Plains,
+    zone: 'hatchetmill',
+    ...input,
+  });
+  expect(result.success).toBe(true);
+  if (!result.success) throw new Error('unreachable');
+  const tile = result.world.tiles.find(t => t.mapId === DEFAULT_MAP_ID && t.col === input.col && t.row === input.row);
+  expect(tile).toBeDefined();
+  return tile!.id;
 }
 
 describe('validateDraft', () => {
@@ -159,6 +205,139 @@ describe('validateDraft', () => {
     );
   });
 
+  it('reports a room whose entryRequirements.requiredItemId references an unknown item', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('bad room item gate draft', null, contentStore.toSnapshot());
+
+    const roomId = await upsertRoom(deps, version.id, {
+      col: 42,
+      row: 42,
+      name: 'Locked Room',
+      entryRequirements: { requiredItemId: 'nonexistent_item' },
+    });
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems).toContain(
+      `Room 'Locked Room' (${roomId}) entryRequirements.requiredItemId references unknown item 'nonexistent_item'.`,
+    );
+  });
+
+  it('reports a room entryRequirements quest reference by index, leaving the known quest alone', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('bad room quest gate draft', null, contentStore.toSnapshot());
+
+    const questResult = await deps.draftEditor.upsertQuest(version.id, makeQuest('known_gate_quest'));
+    expect(questResult.success).toBe(true);
+
+    const roomId = await upsertRoom(deps, version.id, {
+      col: 42,
+      row: 42,
+      name: 'Quest Room',
+      entryRequirements: { requiredQuestIds: ['known_gate_quest', 'nonexistent_quest'] },
+    });
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems).toContain(
+      `Room 'Quest Room' (${roomId}) entryRequirements.requiredQuestIds references unknown quest 'nonexistent_quest' (index 1).`,
+    );
+    expect(result.problems).not.toContain(
+      `Room 'Quest Room' (${roomId}) entryRequirements.requiredQuestIds references unknown quest 'known_gate_quest' (index 0).`,
+    );
+  });
+
+  it("reports a transition's entryRequirements quest reference under the transition label", async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('bad transition gate draft', null, contentStore.toSnapshot());
+
+    const landingId = await upsertRoom(deps, version.id, { col: 43, row: 42, name: 'Sewer Landing' });
+    const doorId = await upsertRoom(deps, version.id, {
+      col: 42,
+      row: 42,
+      name: 'Manhole',
+      transitions: [{
+        mapId: DEFAULT_MAP_ID,
+        tileId: landingId,
+        entryRequirements: { requiredQuestIds: ['nonexistent_quest'] },
+      }],
+    });
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems).toContain(
+      `Room 'Manhole' (${doorId}) transition 0 entryRequirements.requiredQuestIds references unknown quest 'nonexistent_quest' (index 0).`,
+    );
+    // The link itself resolves — only the gate is broken.
+    expect(result.problems).not.toContain(
+      `Room 'Manhole' (${doorId}) transition 0 targets unknown room '${landingId}' on map '${DEFAULT_MAP_ID}'.`,
+    );
+  });
+
+  it('reports a tile type whose entryRequirements references an unknown item', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('bad tile type gate draft', null, contentStore.toSnapshot());
+
+    const upsertResult = await deps.draftEditor.upsertTileType(version.id, {
+      id: 'gated_type',
+      name: 'Gated',
+      icon: '?',
+      color: '#000000',
+      traversable: true,
+      entryRequirements: { requiredItemId: 'nonexistent_item' },
+    });
+    expect(upsertResult.success).toBe(true);
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems).toContain(
+      "Tile type 'gated_type' entryRequirements.requiredItemId references unknown item 'nonexistent_item'.",
+    );
+  });
+
+  it('reports an entryRequirements.minLevel below 1', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('bad min level draft', null, contentStore.toSnapshot());
+
+    const roomId = await upsertRoom(deps, version.id, {
+      col: 42,
+      row: 42,
+      name: 'Level Zero Room',
+      entryRequirements: { minLevel: 0 },
+    });
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems).toContain(
+      `Room 'Level Zero Room' (${roomId}) entryRequirements.minLevel must be at least 1.`,
+    );
+  });
+
+  it('reports no problems for gates whose item, quest and minLevel all resolve', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('valid gate draft', null, contentStore.toSnapshot());
+
+    const itemResult = await deps.draftEditor.upsertItem(version.id, makeItem('gate_key'));
+    expect(itemResult.success).toBe(true);
+    const questResult = await deps.draftEditor.upsertQuest(version.id, makeQuest('gate_quest'));
+    expect(questResult.success).toBe(true);
+    const tileTypeResult = await deps.draftEditor.upsertTileType(version.id, {
+      id: 'vault_type',
+      name: 'Vault',
+      icon: '?',
+      color: '#000000',
+      traversable: true,
+      entryRequirements: { minLevel: 1, requiredItemId: 'gate_key', requiredQuestIds: ['gate_quest'] },
+    });
+    expect(tileTypeResult.success).toBe(true);
+
+    await upsertRoom(deps, version.id, {
+      col: 42,
+      row: 42,
+      name: 'Vault',
+      entryRequirements: { minLevel: 5, requiredItemId: 'gate_key', requiredQuestIds: ['gate_quest'] },
+    });
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.error).toBeUndefined();
+    expect(result.problems).toEqual([]);
+  });
+
   it('reports an error (not problems) for a non-existent version id', async () => {
     const { deps } = await setupDeps();
     const result = await validateDraft(deps, 'does-not-exist');
@@ -190,11 +369,137 @@ describe('getOverview', () => {
     expect(result.counts.designNotes).toBe(Object.keys(contentStore.getAllDesignNotes()).length);
     expect(result.versions.map(v => v.id)).toContain(version.id);
     expect(result.activeVersionId).toBe(version.id);
+    expect(result.restApi.fullLiveExport).toBe('GET /api/admin/content');
+  });
+});
+
+describe('getWorld', () => {
+  it('returns every tile as objects by default', async () => {
+    const { deps, contentStore } = await setupDeps();
+    const result = await getWorld(deps, {});
+    if ('error' in result || !('tiles' in result)) throw new Error('expected tiles');
+    expect(result.tiles).toEqual(contentStore.getWorld().tiles);
+    expect(result.tileCount).toBe(contentStore.getWorld().tiles.length);
+  });
+
+  it('filters by zone and inclusive area bounds', async () => {
+    const { deps, contentStore } = await setupDeps();
+    const sample = contentStore.getWorld().tiles[0];
+    const result = await getWorld(deps, { zone: sample.zone, area: { colMin: sample.col, colMax: sample.col, rowMin: sample.row, rowMax: sample.row } });
+    if ('error' in result || !('tiles' in result)) throw new Error('expected tiles');
+    expect(result.tiles).toEqual([sample]);
+  });
+
+  it('projects objects down to the requested fields', async () => {
+    const { deps } = await setupDeps();
+    const result = await getWorld(deps, { fields: ['col', 'row'] });
+    if ('error' in result || !('tiles' in result)) throw new Error('expected tiles');
+    for (const tile of result.tiles) expect(Object.keys(tile).sort()).toEqual(['col', 'row']);
+  });
+
+  it("table format lists each key once and uses null for absent fields", async () => {
+    const { deps, contentStore } = await setupDeps();
+    const tiles = contentStore.getWorld().tiles;
+    const result = await getWorld(deps, { format: 'table', fields: ['col', 'row', 'shopId'] });
+    if ('error' in result || !('rows' in result)) throw new Error('expected rows');
+    expect(result.columns).toEqual(['col', 'row', 'shopId']);
+    expect(result.rows).toEqual(tiles.map(t => [t.col, t.row, t.shopId ?? null]));
+  });
+
+  it('table format without fields uses only columns some tile actually has', async () => {
+    const { deps, contentStore } = await setupDeps();
+    const result = await getWorld(deps, { format: 'table' });
+    if ('error' in result || !('rows' in result)) throw new Error('expected rows');
+    expect(result.columns.slice(0, 4)).toEqual(['id', 'mapId', 'col', 'row']);
+    expect(result.rows).toHaveLength(contentStore.getWorld().tiles.length);
+    for (const column of result.columns) {
+      expect(result.rows.some(row => row[result.columns.indexOf(column)] !== null)).toBe(true);
+    }
+  });
+});
+
+describe('getSkillSlots', () => {
+  it('returns live schedules when no versionId is given', async () => {
+    const { deps, contentStore } = await setupDeps();
+    const result = await getSkillSlots(deps, {});
+    if ('error' in result) throw new Error(result.error);
+    expect(result.schedules).toEqual(contentStore.getAllSkillSlotSchedules());
+  });
+
+  it('returns the draft schedule after set_skill_slots writes it', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('slots', null, contentStore.toSnapshot());
+    const slots = [{ type: 'passive' as const, unlocksAtLevel: 1 }, { type: 'active' as const, unlocksAtLevel: 3 }];
+    const write = await deps.draftEditor.setSkillSlotSchedule(version.id, 'Knight', slots);
+    expect(write.success).toBe(true);
+
+    const result = await getSkillSlots(deps, { versionId: version.id });
+    if ('error' in result) throw new Error(result.error);
+    expect(result.schedules.Knight).toEqual(slots);
+  });
+
+  it('errors for a version that does not exist', async () => {
+    const { deps } = await setupDeps();
+    const result = await getSkillSlots(deps, { versionId: 'nope' });
+    expect('error' in result).toBe(true);
+  });
+});
+
+describe('upsertTiles (writeTools)', () => {
+  const room = { col: 40, row: 40, type: TileType.Plains, zone: 'hatchetmill', name: 'Test Room' };
+
+  it('returns only the touched rooms with their ids, not the whole world', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('tiles', null, contentStore.toSnapshot());
+    const result = await upsertTiles(deps, version.id, [room]);
+    if ('error' in result) throw new Error(result.error);
+    expect('world' in result).toBe(false);
+    expect('clearedFields' in result).toBe(false);
+    expect(result.rooms).toHaveLength(1);
+    expect(result.rooms[0]).toMatchObject({ mapId: DEFAULT_MAP_ID, col: 40, row: 40 });
+    expect(typeof result.rooms[0].id).toBe('string');
+  });
+
+  it('reports fields an overwrite dropped, with their old values', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('tiles', null, contentStore.toSnapshot());
+    const gate = { minLevel: 5 };
+    await upsertTiles(deps, version.id, [{ ...room, entryRequirements: gate, requiredItemId: 'key' }]);
+
+    const result = await upsertTiles(deps, version.id, [{ ...room, name: 'Renamed', requiredItemId: 'key' }]);
+    if ('error' in result) throw new Error(result.error);
+    if (!('clearedFields' in result)) throw new Error('expected clearedFields');
+    expect(result.clearedFields).toEqual([
+      { mapId: DEFAULT_MAP_ID, col: 40, row: 40, cleared: { entryRequirements: gate } },
+    ]);
+  });
+
+  it('reports nothing when the overwrite keeps every field', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('tiles', null, contentStore.toSnapshot());
+    await upsertTiles(deps, version.id, [{ ...room, requiredItemId: 'key' }]);
+    const result = await upsertTiles(deps, version.id, [{ ...room, name: 'Renamed', requiredItemId: 'key' }]);
+    if ('error' in result) throw new Error(result.error);
+    expect('clearedFields' in result).toBe(false);
+  });
+});
+
+describe('content write results (writeTools)', () => {
+  it('upsert_content returns the written ids and a count, not every entry of the type', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const version = await versionStore.createDraft('items', null, contentStore.toSnapshot());
+    const result = await upsertContent(deps, 'items', version.id, makeItem('probe_item') as unknown as Record<string, unknown>);
+    expect(result).toEqual({
+      success: true,
+      type: 'items',
+      upserted: ['probe_item'],
+      totalOfType: Object.keys(contentStore.getAllItems()).length + 1,
+    });
   });
 });
 
 describe('getContentSchema', () => {
-  it('returns a non-empty description string for all 13 content types', async () => {
+  it('returns a non-empty description string for all 14 content types', async () => {
     for (const type of CONTENT_TYPES) {
       const result = await getContentSchema({ type });
       expect('error' in result).toBe(false);
@@ -245,6 +550,7 @@ describe('saveNote (notesTools)', () => {
     expect(result.author).toBe('test-label');
     expect(result.title).toBe('Starter island plan');
     expect(result.createdAt).toBe(result.updatedAt);
+    expect('body' in result).toBe(false);
   });
 
   it('preserves createdAt and updates updatedAt when editing an existing note', async () => {

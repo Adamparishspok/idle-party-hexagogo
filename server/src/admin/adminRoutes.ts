@@ -7,7 +7,7 @@ import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
 import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
-import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType } from '@idle-party-rpg/shared';
+import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { AdminAuth } from './adminMiddleware.js';
 import type { ApiTokenStore, ApiTokenRecord } from '../auth/ApiTokenStore.js';
 import { isApiTokenExpired } from '../auth/ApiTokenStore.js';
@@ -16,6 +16,25 @@ import { DraftEditor, toRecord } from '../game/DraftEditor.js';
 import { AssetValidationError, MAX_ASSET_BYTES } from '../game/AssetStore.js';
 import type { AssetStore } from '../game/AssetStore.js';
 import { registerAssetRoutes, assetUploadErrorHandler } from './assetRoutes.js';
+
+/**
+ * Coerce an untrusted room/transition entry gate from a request body, dropping
+ * anything malformed. Returns undefined when nothing survives, so an empty
+ * gate is never persisted.
+ */
+function normalizeRoomRequirements(raw: unknown): RoomEntryRequirements | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as { minLevel?: unknown; requiredItemId?: unknown; requiredQuestIds?: unknown };
+  const out: RoomEntryRequirements = {};
+  const minLevel = Number(r.minLevel);
+  if (Number.isFinite(minLevel) && minLevel >= 1) out.minLevel = Math.floor(minLevel);
+  if (typeof r.requiredItemId === 'string' && r.requiredItemId) out.requiredItemId = r.requiredItemId;
+  const questIds = Array.isArray(r.requiredQuestIds)
+    ? r.requiredQuestIds.filter((q): q is string => typeof q === 'string' && !!q)
+    : [];
+  if (questIds.length > 0) out.requiredQuestIds = questIds;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 const artworkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ASSET_BYTES } });
 
@@ -288,6 +307,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       encounters: content.getAllEncounters(),
       sets: content.getAllSets(),
       shops: content.getAllShops(),
+      henchmen: content.getAllHenchmen(),
       tileTypes: content.getAllTileTypes(),
       recipes: content.getAllRecipes(),
       npcs: content.getAllNpcs(),
@@ -303,7 +323,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   /** Add or update a world tile. Supports ?versionId= for draft editing. */
   router.put('/world/tile', async (req, res) => {
     const versionId = req.query.versionId as string | undefined;
-    const { col, row, type, zone, name, encounterTable, shopId, npcId, dungeonId, requiredItemId, transitions } = req.body;
+    const { col, row, type, zone, name, encounterTable, shopId, npcId, dungeonId, requiredItemId, entryRequirements, transitions } = req.body;
     if (col == null || row == null || !type || !zone || !name) {
       res.status(400).json({ error: 'Missing required fields: col, row, type, zone, name' });
       return;
@@ -313,7 +333,11 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const tileTransitions = Array.isArray(transitions)
       ? transitions
           .filter((t: { mapId?: unknown; tileId?: unknown }) => t && t.mapId && t.tileId)
-          .map((t: { mapId: string; tileId: string }) => ({ mapId: t.mapId, tileId: t.tileId }))
+          .map((t: { mapId: string; tileId: string; entryRequirements?: unknown }) => ({
+            mapId: t.mapId,
+            tileId: t.tileId,
+            entryRequirements: normalizeRoomRequirements(t.entryRequirements),
+          }))
       : undefined;
     const tileTransitionsOrUndef = tileTransitions && tileTransitions.length > 0 ? tileTransitions : undefined;
 
@@ -331,7 +355,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const tileEncounterTable = Array.isArray(encounterTable) && encounterTable.length > 0 ? encounterTable : undefined;
     // Which map this tile belongs to. Clients that predate multi-map omit it → default map.
     const tileMapId = (req.body.mapId as string) || DEFAULT_MAP_ID;
-    const tileInput = { mapId: tileMapId, col, row, type, zone, name, encounterTable: tileEncounterTable, shopId: shopId || undefined, npcId: npcId || undefined, dungeonId: dungeonId || undefined, requiredItemId: requiredItemId || undefined, transitions: tileTransitionsOrUndef };
+    const tileInput = { mapId: tileMapId, col, row, type, zone, name, encounterTable: tileEncounterTable, shopId: shopId || undefined, npcId: npcId || undefined, dungeonId: dungeonId || undefined, requiredItemId: requiredItemId || undefined, entryRequirements: normalizeRoomRequirements(entryRequirements), transitions: tileTransitionsOrUndef };
 
     if (versionId) {
       const result = await draftEditor.upsertTile(versionId, tileInput);
@@ -339,7 +363,8 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       res.json({ success: true, world: result.world });
     } else {
       const content = getContentStore();
-      await content.addOrUpdateTile({ id: '', ...tileInput });
+      const result = await content.addOrUpdateTile({ id: '', ...tileInput });
+      if (!result.success) { res.status(400).json({ error: result.error }); return; }
       const relocated = rebuildGrid();
       res.json({ success: true, world: content.getWorld(), relocated });
     }
@@ -777,6 +802,61 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     }
   });
 
+  // ── Henchman endpoints ──────────────────────────────────
+
+  /** List all henchmen. */
+  router.get('/henchmen', (_req, res) => {
+    const content = getContentStore();
+    res.json({ henchmen: content.getAllHenchmen() });
+  });
+
+  /** Add or update a henchman. Supports ?versionId= for draft editing. */
+  router.put('/henchmen/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    const henchman = req.body;
+    if (!henchman.id || !henchman.name || !henchman.className || !henchman.emoji
+        || typeof henchman.level !== 'number' || typeof henchman.maxHp !== 'number'
+        || typeof henchman.baseDamage !== 'number') {
+      res.status(400).json({ error: 'Missing required fields: id, name, className, level, maxHp, baseDamage, emoji' });
+      return;
+    }
+    if (!ALL_CLASS_NAMES.includes(henchman.className as ClassName)) {
+      res.status(400).json({ error: `Invalid class. Valid classes: ${ALL_CLASS_NAMES.join(', ')}` });
+      return;
+    }
+    if (!Array.isArray(henchman.skillIds)) henchman.skillIds = [];
+
+    if (versionId) {
+      const result = await draftEditor.upsertHenchman(versionId, henchman);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, henchmen: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      await content.addOrUpdateHenchman(henchman);
+      res.json({ success: true, henchmen: content.getAllHenchmen() });
+    }
+  });
+
+  /** Delete a henchman. Supports ?versionId= for draft editing. */
+  router.delete('/henchmen/:id', async (req, res) => {
+    const henchmanId = req.params.id;
+    const versionId = req.query.versionId as string | undefined;
+
+    if (versionId) {
+      const result = await draftEditor.deleteHenchman(versionId, henchmanId);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, henchmen: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      const result = await content.deleteHenchman(henchmanId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, henchmen: content.getAllHenchmen() });
+    }
+  });
+
   // ── Recipe endpoints ──────────────────────────────────────
 
   /** List all recipes. */
@@ -1106,8 +1186,8 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   router.put('/tile-types/:id', async (req, res) => {
     const versionId = req.query.versionId as string | undefined;
     const tileTypeId = req.params.id;
-    const { name, icon, color, traversable, requiredItemId } = req.body as {
-      name?: string; icon?: string; color?: string; traversable?: boolean; requiredItemId?: string;
+    const { name, icon, color, traversable, requiredItemId, entryRequirements } = req.body as {
+      name?: string; icon?: string; color?: string; traversable?: boolean; requiredItemId?: string; entryRequirements?: unknown;
     };
 
     if (!name || typeof name !== 'string') {
@@ -1130,6 +1210,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       color,
       traversable,
       requiredItemId: requiredItemId || undefined,
+      entryRequirements: normalizeRoomRequirements(entryRequirements),
     };
 
     if (versionId) {
@@ -1352,7 +1433,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const encountersRecord = toRecord(snapshot.encounters ?? []);
     const setsRecord = toRecord(snapshot.sets ?? []);
     const shopsRecord = toRecord(snapshot.shops ?? []);
-    // Old snapshots predate tile types/recipes/skills/design notes — seed from live content so
+    // Old snapshots predate tile types/recipes/skills/design notes/henchmen — seed from live content so
     // admin shows what's actually in-game. A present-but-empty array means the draft genuinely has none.
     const tileTypesRecord = snapshot.tileTypes && snapshot.tileTypes.length > 0
       ? toRecord(snapshot.tileTypes)
@@ -1369,6 +1450,9 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const designNotesRecord = snapshot.designNotes !== undefined
       ? toRecord(snapshot.designNotes)
       : getContentStore().getAllDesignNotes();
+    const henchmenRecord = snapshot.henchmen !== undefined
+      ? toRecord(snapshot.henchmen)
+      : getContentStore().getAllHenchmen();
     const skillSlotSchedulesRecord: Record<string, SkillSlot[]> = {};
     if (snapshot.skillSlotSchedules !== undefined) {
       for (const entry of snapshot.skillSlotSchedules) skillSlotSchedulesRecord[entry.className] = entry.slots;
@@ -1377,7 +1461,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       const liveSchedules = getContentStore().getAllSkillSlotSchedules();
       for (const [cn, sl] of Object.entries(liveSchedules)) skillSlotSchedulesRecord[cn] = sl;
     }
-    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
+    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
   });
 
   /** Rename a draft version. */

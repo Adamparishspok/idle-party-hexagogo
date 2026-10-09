@@ -1,10 +1,15 @@
+import type { ServerStateMessage } from '@idle-party-rpg/shared';
+import { toShopSummary } from '@idle-party-rpg/shared';
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
-import type { ServerStateMessage } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import { RoomView } from '../ui/RoomView';
+import { RoomStatusPanel } from '../ui/RoomStatusPanel';
+import { getRoomActions, readyQuestIds } from '../ui/RoomActions';
+import type { RoomAction, RoomActionLookups } from '../ui/RoomActions';
 import { ShopPopup } from '../ui/ShopPopup';
 import { ThreeWorldMap } from '../ui/ThreeWorldMap';
+import type { TileClickInfo } from '../ui/ThreeWorldMap';
 import { NpcTalkPopup } from '../ui/NpcTalkPopup';
 import { DungeonEntryPopup } from '../ui/DungeonEntryPopup';
 import '../styles/screens/map.css';
@@ -12,14 +17,7 @@ import '../styles/screens/map.css';
 const ICON_PLUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
 const ICON_MINUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
 const ICON_LOCATE = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
-const ICON_ROOM = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11 12 3.5l8.5 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10v10h4.5v-6h3v6H18V10" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>';
 
-/**
- * Map screen chrome around the world map: kit zoom / recenter buttons on the
- * right, a "Room" button in the perch row that opens the current room (gold
- * when there's a shop, NPC, dungeon, or passage there), and the blocked-move
- * toast. The map itself is ThreeWorldMap; rooms open in RoomView.
- */
 export class MapScreen implements Screen {
   private container: HTMLElement;
   private gameContainer: HTMLElement;
@@ -28,8 +26,8 @@ export class MapScreen implements Screen {
   private map: ThreeWorldMap | null = null;
   private unsubscribeState?: () => void;
   private controls?: HTMLElement;
-  private roomBtn?: HTMLButtonElement;
   private roomView?: RoomView;
+  private roomStatus?: RoomStatusPanel;
   private shopPopup?: ShopPopup;
   private npcTalkPopup?: NpcTalkPopup;
   private dungeonEntryPopup?: DungeonEntryPopup;
@@ -50,7 +48,7 @@ export class MapScreen implements Screen {
 
     this.gameClient.onMoveBlocked((msg) => {
       const names = msg.missingPlayers.join(', ');
-      this.showMoveToast(`${msg.itemName} required! Missing: ${names}`);
+      this.showMoveToast(names ? `${msg.reason} Missing: ${names}` : msg.reason);
     });
   }
 
@@ -72,6 +70,27 @@ export class MapScreen implements Screen {
         this.map.applyServerState(this.gameClient.lastState, true);
       }
     }
+    this.updateRoomStatus(this.gameClient.lastState);
+  }
+
+  onActivate(): void {
+    if (!this.map) {
+      this.createMap();
+    } else {
+      this.map.resume();
+      if (this.gameClient.lastState) {
+        this.map.applyServerState(this.gameClient.lastState, true);
+      }
+      this.updateRoomStatus(this.gameClient.lastState);
+    }
+
+    this.subscribeToState();
+  }
+
+  onDeactivate(): void {
+    if (this.map) this.map.pause();
+    this.unsubscribeState?.();
+    this.unsubscribeState = undefined;
   }
 
   private canMove(): boolean {
@@ -80,14 +99,6 @@ export class MapScreen implements Screen {
     const me = state.social.party.members.find(m => m.username === state.username);
     if (!me) return true;
     return me.role === 'owner' || me.role === 'leader';
-  }
-
-  /** Display name for a transition's destination — the target room, or its map. */
-  private resolveTransitionName(link: { mapId: string; tileId: string }): string {
-    const dest = this.worldCache.getTileByGuid(link.tileId);
-    if (dest?.name) return dest.name;
-    const map = this.worldCache.getMaps().find(m => m.id === link.mapId);
-    return map?.name ?? 'the passage';
   }
 
   private tryMove(col: number, row: number): void {
@@ -119,26 +130,6 @@ export class MapScreen implements Screen {
     }, 2600);
   }
 
-  onActivate(): void {
-    if (!this.map) {
-      this.createMap();
-    } else {
-      this.map.resume();
-      if (this.gameClient.lastState) {
-        this.map.applyServerState(this.gameClient.lastState, true);
-        this.updateRoomButton(this.gameClient.lastState);
-      }
-    }
-
-    this.subscribeToState();
-  }
-
-  onDeactivate(): void {
-    if (this.map) this.map.pause();
-    this.unsubscribeState?.();
-    this.unsubscribeState = undefined;
-  }
-
   private async createMap(): Promise<void> {
     if (!this.worldCache.isLoaded) {
       await this.worldCache.loadWorld().catch(err => {
@@ -156,57 +147,120 @@ export class MapScreen implements Screen {
       this.container,
       (col, row) => { this.tryMove(col, row); },
       (username, anchor, tileCol, tileRow) => { this.onUserClickCallback?.(username, anchor, tileCol, tileRow); },
-      () => {
-        const state = this.gameClient.lastState;
-        if (state?.shopDefinition) this.shopPopup!.show(state);
-      },
-      (npc) => { this.npcTalkPopup!.show(npc); },
-      (dungeon) => {
-        const state = this.gameClient.lastState;
-        if (!state) return;
-        if (state.dungeon) { this.showMoveToast('Already in a dungeon'); return; }
-        if (!this.canMove()) { this.showMoveToast('Only the party owner or a leader can enter'); return; }
-        this.dungeonEntryPopup!.show(dungeon, state.party.col, state.party.row);
-      },
-      (tileId: string) => {
-        const state = this.gameClient.lastState;
-        if (!state) return;
-        if (state.dungeon) { this.showMoveToast('Already in a dungeon'); return; }
-        if (!this.canMove()) { this.showMoveToast('Only the party owner or a leader can travel'); return; }
-        this.gameClient.sendEnterTransition(tileId);
-      },
+      (action) => { this.runAction(action); },
     );
-    this.map.setOnTileClick((tileInfo) => {
-      const state = this.gameClient.lastState;
-      const playerOnTile = state && state.party.col === tileInfo.col && state.party.row === tileInfo.row;
-      this.roomView!.hasShop = !!(playerOnTile && state?.shopDefinition);
-      const tileDef = this.worldCache.getTile(tileInfo.col, tileInfo.row);
-      this.roomView!.npc = (playerOnTile && tileDef?.npcId)
-        ? (this.worldCache.getNpc(tileDef.npcId) ?? null)
-        : null;
-      // Only offer dungeon entry when standing on the entrance and not already inside one.
-      this.roomView!.dungeon = (playerOnTile && !state?.dungeon && tileDef?.dungeonId)
-        ? (this.worldCache.getDungeon(tileDef.dungeonId) ?? null)
-        : null;
-      // Offer map travel for each transition on the current room.
-      this.roomView!.transitions = (playerOnTile && !state?.dungeon && tileDef?.transitions)
-        ? tileDef.transitions.map(t => ({ tileId: t.tileId, name: this.resolveTransitionName(t) }))
-        : [];
-      // The player isn't in `otherPlayers`, so hand the room view their own
-      // portrait for the "Your party" card.
-      this.roomView!.self = state?.username
-        ? { username: state.username, className: state.character?.className, level: state.character?.level }
-        : null;
-      this.roomView!.show(tileInfo);
-    });
+    this.map.setOnTileClick((tileInfo) => { this.showRoom(tileInfo); });
+    this.roomStatus = new RoomStatusPanel(
+      this.container,
+      (action) => { this.runAction(action); },
+      () => { this.openCurrentRoom(); },
+    );
 
     if (this.gameClient.lastState) {
       this.map.applyServerState(this.gameClient.lastState, true);
     }
+    this.updateRoomStatus(this.gameClient.lastState);
 
     this.createControls();
-    if (this.gameClient.lastState) this.updateRoomButton(this.gameClient.lastState);
     this.subscribeToState();
+  }
+
+  private showRoom(info: TileClickInfo): void {
+    if (!this.roomView) return;
+    const state = this.gameClient.lastState;
+    const tileDef = this.worldCache.getTile(info.col, info.row);
+    this.roomView.roomId = tileDef?.id ?? null;
+    this.roomView.isTraveling = (state?.party.path?.length ?? 0) > 0;
+    // The player isn't in `otherPlayers`, so hand the room view their own
+    // portrait for the "Your party" card.
+    this.roomView.self = state?.username
+      ? { username: state.username, className: state.character?.className, level: state.character?.level }
+      : null;
+    if (info.isCurrentTile) {
+      this.roomView.actions = state ? this.currentRoomActions(state) : [];
+    } else {
+      this.roomView.actions = info.isUnlocked && tileDef
+        ? getRoomActions(tileDef, this.worldCache, readyQuestIds(state?.activeQuests))
+        : [];
+    }
+    this.roomView.show(info);
+  }
+
+  private openCurrentRoom(): void {
+    const state = this.gameClient.lastState;
+    const info = state ? this.map?.getTileInfo(state.party.col, state.party.row) : null;
+    if (info) this.showRoom(info);
+  }
+
+  /** Actions the party can take where it stands: the shop needs its live stock, and a dungeon run locks travel. */
+  private currentRoomActions(state: ServerStateMessage): RoomAction[] {
+    const tile = this.worldCache.getTileOn(state.currentMapId, state.party.col, state.party.row);
+    if (!tile) return [];
+    const shop = state.shopDefinition ? toShopSummary(state.shopDefinition) : undefined;
+    const lookups: RoomActionLookups = {
+      getNpc: id => this.worldCache.getNpc(id),
+      getShop: () => shop,
+      getDungeon: id => this.worldCache.getDungeon(id),
+      getTileByGuid: id => this.worldCache.getTileByGuid(id),
+      getMaps: () => this.worldCache.getMaps(),
+    };
+    const room = state.dungeon ? { npcId: tile.npcId, shopId: shop?.id } : { ...tile, shopId: shop?.id };
+    return getRoomActions(room, lookups, readyQuestIds(state.activeQuests));
+  }
+
+  private runAction(action: RoomAction): void {
+    switch (action.kind) {
+      case 'npc': this.talkTo(action.targetId); break;
+      case 'shop': this.openShop(); break;
+      case 'dungeon': this.enterDungeon(action.targetId); break;
+      case 'travel': this.enterTransition(action.targetId); break;
+    }
+  }
+
+  private talkTo(npcId: string): void {
+    const npc = this.worldCache.getNpc(npcId);
+    if (npc) this.npcTalkPopup?.show(npc);
+  }
+
+  private openShop(): void {
+    const state = this.gameClient.lastState;
+    if (state?.shopDefinition) this.shopPopup?.show(state);
+  }
+
+  private enterDungeon(dungeonId: string): void {
+    const state = this.gameClient.lastState;
+    const dungeon = this.worldCache.getDungeon(dungeonId);
+    if (!state || !dungeon) return;
+    if (state.dungeon) { this.showMoveToast('Already in a dungeon'); return; }
+    if (!this.canMove()) { this.showMoveToast('Only the party owner or a leader can enter'); return; }
+    this.dungeonEntryPopup?.show(dungeon, state.party.col, state.party.row);
+  }
+
+  private enterTransition(tileId: string): void {
+    const state = this.gameClient.lastState;
+    if (!state) return;
+    if (state.dungeon) { this.showMoveToast('Already in a dungeon'); return; }
+    if (!this.canMove()) { this.showMoveToast('Only the party owner or a leader can travel'); return; }
+    this.gameClient.sendEnterTransition(tileId);
+  }
+
+  private updateRoomStatus(state: ServerStateMessage | null): void {
+    if (!this.roomStatus) return;
+    const tile = state?.character
+      ? this.worldCache.getTileOn(state.currentMapId, state.party.col, state.party.row)
+      : undefined;
+    if (!state || !tile) {
+      this.roomStatus.update(null);
+      return;
+    }
+    const run = state.dungeon;
+    this.roomStatus.update({
+      zoneName: tile.zoneName ?? state.zoneName,
+      roomName: tile.name || 'Unnamed Room',
+      actions: this.currentRoomActions(state),
+      othersHere: this.map?.countOthersAt(state.party.col, state.party.row) ?? 0,
+      dungeonRun: run && { name: run.name, floor: run.floor, totalFloors: run.totalFloors },
+    });
   }
 
   private createControls(): void {
@@ -220,9 +274,6 @@ export class MapScreen implements Screen {
         <button type="button" class="gc-btn gc-btn--steel gc-btn--icon wm-zoom__btn wm-zoom-out" aria-label="Zoom out">${ICON_MINUS}</button>
         <button type="button" class="gc-btn gc-btn--steel gc-btn--icon wm-zoom__btn wm-locate" aria-label="Center on your party">${ICON_LOCATE}</button>
       </div>
-      <div class="wm-perch">
-        <button type="button" class="gc-btn gc-btn--steel wm-room-btn" aria-label="Open your current room">${ICON_ROOM}<span>Room</span></button>
-      </div>
     `;
     this.container.appendChild(this.controls);
 
@@ -235,20 +286,6 @@ export class MapScreen implements Screen {
     on('.wm-zoom-in', () => this.map?.adjustZoom(0.2));
     on('.wm-zoom-out', () => this.map?.adjustZoom(-0.2));
     on('.wm-locate', () => this.map?.recenterOnPlayer());
-    on('.wm-room-btn', () => this.map?.openCurrentRoom());
-    this.roomBtn = this.controls.querySelector('.wm-room-btn') as HTMLButtonElement;
-  }
-
-  /** Light the Room button gold when the current room has something to do. */
-  private updateRoomButton(state: ServerStateMessage): void {
-    if (!this.roomBtn) return;
-    const tileDef = this.worldCache.getTile(state.party.col, state.party.row);
-    const hasAction = !!state.shopDefinition
-      || !!tileDef?.npcId
-      || (!state.dungeon && (!!tileDef?.dungeonId || (tileDef?.transitions?.length ?? 0) > 0));
-    this.roomBtn.classList.toggle('gc-btn--gold', hasAction);
-    this.roomBtn.classList.toggle('gc-btn--steel', !hasAction);
-    this.roomBtn.classList.toggle('has-action', hasAction);
   }
 
   private subscribeToState(): void {
@@ -260,7 +297,7 @@ export class MapScreen implements Screen {
         const snap = this.gameClient.isInitialState;
         this.map.applyServerState(state, snap);
       }
-      this.updateRoomButton(state);
+      this.updateRoomStatus(state);
     });
   }
 }

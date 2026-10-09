@@ -6,7 +6,7 @@ import type {
   ClientCraftingState,
   EnqueueError,
 } from '@idle-party-rpg/shared';
-import { canQueueRecipe, MAX_CRAFT_QUEUE, CRAFTING_UNLOCK_LEVEL } from '@idle-party-rpg/shared';
+import { canQueueRecipe, MAX_CRAFT_QUEUE } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import { artworkUrl } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
@@ -233,23 +233,6 @@ export class CraftingScreen implements Screen {
       this.closeRecipe();
       return;
     }
-    if (!c.unlocked) {
-      this.showMessage(`
-        <div class="gc-parchment cr-empty-card">
-          <h2>Workshop Locked</h2>
-          <p>Reach level <strong>${c.unlockLevel}</strong> to start crafting.</p>
-          <div class="cr-empty-card__level">
-            <div class="gc-bar gc-bar--xp gc-bar--lg">
-              <div class="gc-bar__fill" style="width:${Math.min(100, Math.max(0, (this.lastLevel / Math.max(1, c.unlockLevel)) * 100))}%"></div>
-              <div class="gc-bar__text">Level ${this.lastLevel} / ${c.unlockLevel}</div>
-            </div>
-          </div>
-        </div>
-      `);
-      this.closeRecipe();
-      return;
-    }
-
     this.messageEl.hidden = true;
     this.bodyEl.hidden = false;
     setHtml(this.headerEl, this.renderSkillHeader(c));
@@ -394,7 +377,7 @@ export class CraftingScreen implements Screen {
   private shortReason(reason: EnqueueError, recipe: RecipeDefinition): string {
     switch (reason) {
       case 'queue_full': return 'Queue full';
-      case 'level_too_low': return `Lv ${recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL}`;
+      case 'level_too_low': return `Lv ${recipe.requiredLevel ?? 1}`;
       case 'class_restricted': return 'Wrong class';
       case 'missing_ingredients': return 'Need items';
       default: return 'Unavailable';
@@ -405,7 +388,7 @@ export class CraftingScreen implements Screen {
   private longReason(reason: EnqueueError, recipe: RecipeDefinition): string {
     switch (reason) {
       case 'queue_full': return `Your queue is full (${MAX_CRAFT_QUEUE}/${MAX_CRAFT_QUEUE}). Wait for a craft to finish or cancel one.`;
-      case 'level_too_low': return `Requires character level ${recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL} — you're level ${this.lastLevel}.`;
+      case 'level_too_low': return `Requires character level ${recipe.requiredLevel ?? 1} — you're level ${this.lastLevel}.`;
       case 'class_restricted': return `Only ${(recipe.classRestriction ?? []).join(' / ')} can craft this.`;
       case 'missing_ingredients': {
         const missing = recipe.ingredients
@@ -555,8 +538,10 @@ export class CraftingScreen implements Screen {
     if (recipe.xpReward && recipe.xpReward > 0) {
       facts.push(`<span class="gc-fact"><span class="gc-fact__label">Craft XP</span><span class="gc-fact__value">+${recipe.xpReward}</span></span>`);
     }
-    const reqLevel = recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL;
-    facts.push(`<span class="gc-fact${this.lastLevel < reqLevel ? ' is-short' : ''}"><span class="gc-fact__label">Level</span><span class="gc-fact__value">${reqLevel}</span></span>`);
+    if (recipe.requiredLevel) {
+      const reqLevel = recipe.requiredLevel;
+      facts.push(`<span class="gc-fact${this.lastLevel < reqLevel ? ' is-short' : ''}"><span class="gc-fact__label">Level</span><span class="gc-fact__value">${reqLevel}</span></span>`);
+    }
     if (recipe.classRestriction && recipe.classRestriction.length > 0) {
       const ok = !!this.lastClassName && recipe.classRestriction.includes(this.lastClassName);
       facts.push(`<span class="gc-fact${ok ? '' : ' is-short'}"><span class="gc-fact__label">Class</span><span class="gc-fact__value">${escapeHtml(recipe.classRestriction.join(' / '))}</span></span>`);
