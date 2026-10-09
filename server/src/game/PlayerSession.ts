@@ -54,6 +54,7 @@ import type {
   PlayerHouse,
   ClientHouseState,
   HomeView,
+  HomeLocation,
   ServerStateMessage,
   ServerBattleState,
   ServerPartyState,
@@ -170,6 +171,7 @@ export class PlayerSession {
 
   /** Callback to get the home this player is inside — set by PlayerManager. */
   getHomeVisit?: () => HomeView | undefined;
+  getHomeLocation?: (house: PlayerHouse) => HomeLocation | undefined;
 
   constructor(username: string, grids: WorldGrids, content: ContentStore, onQuestEvent?: (event: QuestEvent) => void) {
     this.username = username;
@@ -561,7 +563,11 @@ export class PlayerSession {
 
   private getHouseState(): ClientHouseState | undefined {
     if (!this.house) return undefined;
-    return { house: this.house, definition: houseDefinitionFor(this.house, id => this.content.getHouse(id)) };
+    return {
+      house: this.house,
+      definition: houseDefinitionFor(this.house, id => this.content.getHouse(id)),
+      location: this.getHomeLocation?.(this.house),
+    };
   }
 
   /** NPC definition for the player's current room, if any. */

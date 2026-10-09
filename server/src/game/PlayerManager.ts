@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { WebSocket } from 'ws';
 import { offsetToCube, cubeDistance, cubeToKey } from '@idle-party-rpg/shared';
-import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure } from '@idle-party-rpg/shared';
+import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition } from '@idle-party-rpg/shared';
 import { PlayerSession } from './PlayerSession.js';
 import type { WorldGrids } from './WorldGrids.js';
 import type { GameStateStore, PlayerSaveData } from './GameStateStore.js';
@@ -9,7 +9,7 @@ import { FriendsSystem } from './social/FriendsSystem.js';
 import { GuildSystem } from './social/GuildSystem.js';
 import type { GuildStore } from './social/GuildStore.js';
 import { ChatSystem } from './social/ChatSystem.js';
-import { PartySystem } from './social/PartySystem.js';
+import { PartySystem, canMove } from './social/PartySystem.js';
 import { TradeSystem } from './social/TradeSystem.js';
 import { MailboxSystem } from './social/MailboxSystem.js';
 import { NotificationSystem } from './social/NotificationSystem.js';
@@ -74,6 +74,7 @@ export class PlayerManager {
       (username) => this.sendStateToPlayer(username),
       (members) => {
         this.cancelInvitesOnMove(members);
+        this.housing.onMembersMoved(members);
       },
     );
     this.partyBattles.setHenchmenCallbacks(
@@ -83,6 +84,8 @@ export class PlayerManager {
     this.housing = new HousingService({
       content,
       getSession: (username) => this.sessions.get(username),
+      currentTileId: (username) => this.sessions.get(username)?.getCurrentTile?.()?.id,
+      moveParty: (username, tile) => this.moveToTile(username, tile),
       areFriends: (a, b) => this.friends.getFriends(a).includes(b),
       isBlocked: (a, b) => this.isTradeBlocked(a, b),
       pushState: (username) => this.sendStateToPlayer(username),
@@ -517,6 +520,7 @@ export class PlayerManager {
       return this.partyBattles.getDungeonRunInfo(partyId);
     };
     session.getHomeVisit = () => this.housing.getHomeView(session.username);
+    session.getHomeLocation = (house) => this.housing.homeLocation(house);
   }
 
   /** Ensure a player is in a party. Auto-creates a solo party if needed. */
@@ -1107,6 +1111,17 @@ export class PlayerManager {
   }
 
   /** Cancel any pending party invites involving party members that just moved. */
+  private moveToTile(username: string, tile: WorldTileDefinition): string | null {
+    const partyId = this.sessions.get(username)?.getPartyId();
+    if (!partyId) return 'You need a party to travel.';
+    const member = this.parties.getParty(partyId)?.members.find(m => m.username === username);
+    if (member && !canMove(member.role)) return 'Only your party leader can choose where the party travels.';
+    if (this.partyBattles.getMapId(partyId) !== tile.mapId) return 'That home is in another land. Travel there first.';
+    const result = this.partyBattles.handleMove(partyId, tile.col, tile.row);
+    if (!result.success) return result.blocked ? 'Something blocks the way to that home.' : "Your party can't travel there right now.";
+    return null;
+  }
+
   private cancelInvitesOnMove(members: ReadonlySet<string>): void {
     const affected = this.parties.cancelInvitesInvolving(members);
     for (const username of affected) {

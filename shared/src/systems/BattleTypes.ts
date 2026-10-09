@@ -313,6 +313,8 @@ export type ServerErrorCode =
   | 'home_item_missing'
   | 'home_bag_full'
   | 'home_invite_refused'
+  | 'home_too_far'
+  | 'home_cannot_travel'
   | 'home_invalid_request';
 
 export interface WelcomeBackItem {

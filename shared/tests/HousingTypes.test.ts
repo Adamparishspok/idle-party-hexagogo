@@ -3,6 +3,7 @@ import {
   accrueRested,
   applyRestedBonus,
   canStore,
+  describeHomeLocation,
   emptyHouse,
   houseSellPrice,
   isWellRested,
@@ -52,6 +53,19 @@ describe('housing rules', () => {
     expect(canStore(house, COTTAGE, 'a', 5)).toBe(true);
     expect(canStore(house, COTTAGE, 'c', 1)).toBe(false);
     expect(canStore(house, COTTAGE, 'a', 0)).toBe(false);
+  });
+});
+
+describe('home location', () => {
+  it('records the room a house was bought in', () => {
+    expect(emptyHouse(COTTAGE, 0, 'tile-1').tileId).toBe('tile-1');
+    expect('tileId' in emptyHouse(COTTAGE, 0)).toBe(false);
+  });
+
+  it('describes where a home stands', () => {
+    expect(describeHomeLocation({ roomName: 'Estate Agent', zoneName: 'Hatchetmill' })).toBe('Hatchetmill · Estate Agent');
+    expect(describeHomeLocation({ roomName: 'Estate Agent' })).toBe('Estate Agent');
+    expect(describeHomeLocation({ roomName: '' })).toBe('an unnamed room');
   });
 });
 

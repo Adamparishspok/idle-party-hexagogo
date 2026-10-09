@@ -4,6 +4,7 @@ import {
   RESTED_MS_PER_SIT_MS,
   WELL_RESTED_BONUS,
   canStore,
+  describeHomeLocation,
   houseSellPrice,
   isWellRested,
   listUnequippedEntries,
@@ -20,6 +21,7 @@ import '../styles/screens/home.css';
 const PENDING_WINDOW_MS = 5000;
 const LEAVE_GRACE_MS = 4000;
 const NOTICE_MS = 3500;
+const TRAVEL_OFFER_MS = 8000;
 const MAX_RING_SEATS = 8;
 
 const ICON_PLUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
@@ -64,6 +66,8 @@ export class HomeView {
   private notice: string | null = null;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   private invited = new Set<string>();
+  private requestedOwner: string | undefined;
+  private onTravel?: () => void;
   private toastEl: HTMLElement | null = null;
   private minuteTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -96,8 +100,21 @@ export class HomeView {
 
   /** Ask the server to open a home (yours when `owner` is omitted). A refusal is shown as a toast. */
   requestEnter(owner?: string): void {
+    this.requestedOwner = owner;
     this.markPending();
     this.gameClient.sendEnterHome(owner);
+  }
+
+  /** Walk the party to a home and go inside on arrival (straight in when already there). */
+  travelTo(owner?: string): void {
+    this.requestedOwner = owner;
+    this.markPending();
+    this.gameClient.sendTravelHome(owner);
+    this.onTravel?.();
+  }
+
+  setOnTravel(cb: () => void): void {
+    this.onTravel = cb;
   }
 
   isOpen(): boolean {
@@ -127,6 +144,9 @@ export class HomeView {
     this.pendingUntil = 0;
     if (this.isOpen()) {
       this.setNotice(message);
+    } else if (code === 'home_too_far') {
+      const owner = this.requestedOwner;
+      this.showToast(message, { label: 'Travel there', run: () => this.travelTo(owner) });
     } else {
       this.showToast(message);
     }
@@ -185,18 +205,32 @@ export class HomeView {
     if (this.sheet) this.renderSheet(true);
   }
 
-  private showToast(message: string): void {
+  private showToast(message: string, action?: { label: string; run: () => void }): void {
     this.toastEl?.remove();
     const toast = document.createElement('div');
     toast.className = 'home-toast';
     toast.setAttribute('role', 'status');
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    this.toastEl = toast;
-    setTimeout(() => {
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.appendChild(text);
+    const dismiss = () => {
       if (this.toastEl === toast) this.toastEl = null;
       toast.remove();
-    }, NOTICE_MS);
+    };
+    if (action) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'gc-btn gc-btn--gold home-toast__action';
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => {
+        dismiss();
+        action.run();
+      });
+      toast.appendChild(btn);
+    }
+    document.body.appendChild(toast);
+    this.toastEl = toast;
+    setTimeout(dismiss, action ? TRAVEL_OFFER_MS : NOTICE_MS);
   }
 
   // ── The place ───────────────────────────────────────────
@@ -243,6 +277,7 @@ export class HomeView {
       <header class="home-place__head">
         <span class="home-place__badge${isOwner ? '' : ' is-visit'}">${isOwner ? 'Home' : 'Visiting'}</span>
         <h2 class="home-place__name">${escapeHtml(title)}</h2>
+        ${visit.location ? `<p class="home-place__where">in ${escapeHtml(describeHomeLocation(visit.location))}</p>` : ''}
       </header>
       <button type="button" class="gc-close home-place__close" data-home-action="leave" aria-label="Leave home"></button>
       ${noticeHtml}

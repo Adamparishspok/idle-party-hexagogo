@@ -1,4 +1,5 @@
 import type {
+  ClientHouseState,
   DungeonDefinition,
   MapTransitionLink,
   NpcDefinition,
@@ -8,14 +9,14 @@ import type {
   WorldTileDefinition,
 } from '@idle-party-rpg/shared';
 
-export type RoomActionKind = 'npc' | 'shop' | 'dungeon' | 'travel';
+export type RoomActionKind = 'home' | 'npc' | 'shop' | 'dungeon' | 'travel';
 
 export interface RoomAction {
   kind: RoomActionKind;
   icon: string;
   name: string;
   detail?: string;
-  /** NPC, shop or dungeon id; for travel, the destination tile GUID. */
+  /** NPC, shop or dungeon id; for travel, the destination tile GUID; for home, the home's tile GUID. */
   targetId: string;
   questReady?: boolean;
 }
@@ -28,9 +29,16 @@ export interface RoomActionLookups {
   getMaps(): WorldMapMeta[];
 }
 
-export type RoomContents = Pick<WorldTileDefinition, 'npcId' | 'shopId' | 'dungeonId' | 'transitions'>;
+export type RoomContents = Pick<WorldTileDefinition, 'npcId' | 'shopId' | 'dungeonId' | 'transitions'> & { id?: string };
+
+/** The viewer's home, for the room it stands in. */
+export interface RoomHome {
+  tileId: string;
+  name: string;
+}
 
 export const ROOM_ICONS = {
+  home: '🏠',
   shop: '🪙',
   hire: '🤝',
   dungeon: '🗝️',
@@ -43,13 +51,18 @@ export const HIRE_DETAIL = 'Henchmen for hire';
 
 const NO_READY_QUESTS: ReadonlySet<string> = new Set();
 
-/** Everything a room offers, in display order: NPC, shop, dungeon, then one entry per exit. */
+/** Everything a room offers, in display order: your home, NPC, shop, dungeon, then one entry per exit. */
 export function getRoomActions(
   room: RoomContents,
   lookups: RoomActionLookups,
   readyQuestIds: ReadonlySet<string> = NO_READY_QUESTS,
+  home?: RoomHome,
 ): RoomAction[] {
   const actions: RoomAction[] = [];
+
+  if (home && room.id === home.tileId) {
+    actions.push({ kind: 'home', icon: ROOM_ICONS.home, name: home.name, targetId: home.tileId });
+  }
 
   const npc = room.npcId ? lookups.getNpc(room.npcId) : undefined;
   if (npc) {
@@ -81,6 +94,7 @@ export function getRoomActions(
 /** Button/chip text for acting on a room action. */
 export function actionLabel(action: RoomAction): string {
   switch (action.kind) {
+    case 'home': return `Enter ${action.name}`;
     case 'npc': return `Talk to ${action.name}`;
     case 'shop': return action.name;
     case 'dungeon': return `Enter ${action.name}`;
@@ -107,4 +121,9 @@ function transitionName(link: MapTransitionLink, lookups: RoomActionLookups): st
   const dest = lookups.getTileByGuid(link.tileId);
   if (dest?.name) return dest.name;
   return lookups.getMaps().find(m => m.id === link.mapId)?.name ?? 'a passage';
+}
+
+export function roomHome(house: ClientHouseState | undefined): RoomHome | undefined {
+  const tileId = house?.location?.tileId;
+  return tileId ? { tileId, name: `your ${house!.definition.name}` } : undefined;
 }

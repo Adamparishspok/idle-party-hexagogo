@@ -5,7 +5,7 @@ import type { WorldCache } from '../network/WorldCache';
 import type { Screen } from './ScreenManager';
 import { RoomView } from '../ui/RoomView';
 import { RoomStatusPanel } from '../ui/RoomStatusPanel';
-import { getRoomActions, readyQuestIds } from '../ui/RoomActions';
+import { getRoomActions, readyQuestIds, roomHome } from '../ui/RoomActions';
 import type { RoomAction, RoomActionLookups } from '../ui/RoomActions';
 import { ShopPopup } from '../ui/ShopPopup';
 import { ThreeWorldMap } from '../ui/ThreeWorldMap';
@@ -27,6 +27,7 @@ export class MapScreen implements Screen {
   private unsubscribeState?: () => void;
   private controls?: HTMLElement;
   private roomView?: RoomView;
+  private onEnterHome?: () => void;
   private roomStatus?: RoomStatusPanel;
   private shopPopup?: ShopPopup;
   private npcTalkPopup?: NpcTalkPopup;
@@ -50,6 +51,10 @@ export class MapScreen implements Screen {
       const names = msg.missingPlayers.join(', ');
       this.showMoveToast(names ? `${msg.reason} Missing: ${names}` : msg.reason);
     });
+  }
+
+  setOnEnterHome(cb: () => void): void {
+    this.onEnterHome = cb;
   }
 
   setOnUserClick(cb: (username: string, anchor: HTMLElement, tileCol?: number, tileRow?: number) => void): void {
@@ -180,7 +185,7 @@ export class MapScreen implements Screen {
       this.roomView.actions = state ? this.currentRoomActions(state) : [];
     } else {
       this.roomView.actions = info.isUnlocked && tileDef
-        ? getRoomActions(tileDef, this.worldCache, readyQuestIds(state?.activeQuests))
+        ? getRoomActions(tileDef, this.worldCache, readyQuestIds(state?.activeQuests), roomHome(state?.house))
         : [];
     }
     this.roomView.show(info);
@@ -205,11 +210,12 @@ export class MapScreen implements Screen {
       getMaps: () => this.worldCache.getMaps(),
     };
     const room = state.dungeon ? { npcId: tile.npcId, shopId: shop?.id } : { ...tile, shopId: shop?.id };
-    return getRoomActions(room, lookups, readyQuestIds(state.activeQuests));
+    return getRoomActions(room, lookups, readyQuestIds(state.activeQuests), roomHome(state.house));
   }
 
   private runAction(action: RoomAction): void {
     switch (action.kind) {
+      case 'home': this.onEnterHome?.(); break;
       case 'npc': this.talkTo(action.targetId); break;
       case 'shop': this.openShop(); break;
       case 'dungeon': this.enterDungeon(action.targetId); break;

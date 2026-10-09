@@ -550,6 +550,10 @@ button.home-shelf__slot:focus-visible {
 
 /* Refusal toast when a home can't be entered (no view open to hold the message). */
 .home-toast {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
   position: fixed;
   left: 50%;
   top: calc(var(--hud-height) + env(safe-area-inset-top, 0px) + var(--s-2));
@@ -565,6 +569,18 @@ button.home-shelf__slot:focus-visible {
   color: var(--gold-300);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
   animation: gc-fade-in var(--dur-med) var(--ease-out);
+}
+
+.home-toast__action {
+  pointer-events: auto;
+  min-width: 160px;
+}
+
+.home-place__where {
+  margin: 2px 0 0;
+  font-size: var(--t-small);
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke-sm);
 }
 
 @media (min-width: 768px) {

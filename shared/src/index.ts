@@ -536,6 +536,7 @@ export {
   applyRestedBonus,
   canStore,
   emptyHouse,
+  describeHomeLocation,
   validateHouseDefinition,
   SEED_HOUSES,
 } from './systems/HousingTypes.js';
@@ -556,5 +557,7 @@ export type {
   ClientCampfireSitMessage,
   ClientCampfireStandMessage,
   ClientHomeInviteMessage,
+  ClientTravelHomeMessage,
   ClientHousingMessage,
+  HomeLocation,
 } from './systems/HousingTypes.js';

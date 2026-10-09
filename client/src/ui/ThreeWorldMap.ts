@@ -50,8 +50,8 @@ import type { WorldCache } from '../network/WorldCache';
 import { artworkUrl } from './assets';
 import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
-import { ROOM_ICONS, getRoomActions, readyQuestIds } from './RoomActions';
-import type { RoomAction } from './RoomActions';
+import { ROOM_ICONS, getRoomActions, readyQuestIds, roomHome } from './RoomActions';
+import type { RoomAction, RoomHome } from './RoomActions';
 
 export interface TileClickInfo {
   col: number;
@@ -234,6 +234,7 @@ export class ThreeWorldMap {
   private roomActions = new Map<string, RoomAction[]>();
   private readyQuests: ReadonlySet<string> = new Set();
   private readyQuestKey = '';
+  private home: RoomHome | undefined;
   private markersDirty = true;
 
   // Party rendering. Movement is animated by a CSS transition on the
@@ -479,6 +480,12 @@ export class ThreeWorldMap {
     this.lastOtherPlayers = state.otherPlayers.filter(p => !p.mapId || p.mapId === state.currentMapId);
     this.othersByTile = this.groupOtherPlayers();
     this.serverPath = state.party.path ?? [];
+
+    const home = roomHome(state.house);
+    if (home?.tileId !== this.home?.tileId || home?.name !== this.home?.name) {
+      this.home = home;
+      this.markersDirty = true;
+    }
 
     const ready = readyQuestIds(state.activeQuests);
     const readyKey = [...ready].sort().join(',');
@@ -1471,7 +1478,7 @@ export class ThreeWorldMap {
     const markers = document.createDocumentFragment();
     for (const [key, def] of this.worldTileDefs) {
       if (!this.worldCache.isUnlocked(def.col, def.row)) continue;
-      const actions = getRoomActions(def, this.worldCache, this.readyQuests);
+      const actions = getRoomActions(def, this.worldCache, this.readyQuests, this.home);
       if (actions.length === 0) continue;
       this.roomActions.set(key, actions);
       markers.appendChild(this.buildMarker(def.col, def.row, actions));

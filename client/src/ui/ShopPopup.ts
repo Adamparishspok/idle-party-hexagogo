@@ -2,7 +2,7 @@ import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
 import type { ServerStateMessage } from '@idle-party-rpg/shared';
 import type { ShopDefinition, ItemDefinition, SetDefinition, HenchmanOffer, HiredHenchman, HouseOffer } from '@idle-party-rpg/shared';
-import { getUnequippedCount, listUnequippedEntries, MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from '@idle-party-rpg/shared';
+import { describeHomeLocation, getUnequippedCount, listUnequippedEntries, MAX_PARTY_SIZE, MAX_HENCHMEN_PER_PARTY } from '@idle-party-rpg/shared';
 import { escapeHtml, renderKitItem } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
 import { houseArtHtml } from './HouseArt';
@@ -390,17 +390,32 @@ export class ShopPopup {
 
   /** Why this house can't be bought right now, or null when it can. */
   private static houseBlocker(offer: HouseOffer, state: ServerStateMessage): string | null {
-    if (state.house) return 'You already own a home. Sell it before buying another.';
+    if (state.house) {
+      const where = state.house.location ? ` in ${describeHomeLocation(state.house.location)}` : '';
+      return `You already own your ${state.house.definition.name}${where}. Sell it before buying another.`;
+    }
     const gold = state.character?.gold ?? 0;
     if (gold < offer.price) return `You need ${(offer.price - gold).toLocaleString()} more gold.`;
     return null;
   }
 
+  private currentTile(state: ServerStateMessage) {
+    return this.worldCache.getTileOn(state.currentMapId, state.party.col, state.party.row);
+  }
+
+  private homeHereText(state: ServerStateMessage): string {
+    const tile = this.currentTile(state);
+    if (!tile) return '';
+    return `Your home will stand here in ${describeHomeLocation({ roomName: tile.name, zoneName: tile.zoneName })} — come back to go inside. `;
+  }
+
   private renderHouseList(offers: HouseOffer[], state: ServerStateMessage): string {
     const ownedId = state.house?.house.houseId;
+    const homeTileId = state.house?.location?.tileId;
+    const ownedHere = !homeTileId || homeTileId === this.currentTile(state)?.id;
     return offers.map(o => {
       const blocker = ShopPopup.houseBlocker(o, state);
-      const owned = ownedId === o.houseId;
+      const owned = ownedId === o.houseId && ownedHere;
       const short = !state.house && (state.character?.gold ?? 0) < o.price;
       const description = o.description?.trim();
       const action = owned
@@ -444,7 +459,7 @@ export class ShopPopup {
       <div class="gc-modal__body shop-house-confirm">
         ${houseArtHtml(offer, 'shop-house__art shop-house__art--lg')}
         <p class="shop-house-confirm__text">${escapeHtml(question)}</p>
-        <p class="shop-house-confirm__sub">Store up to ${offer.storageSlots} kinds of items, show off ${offer.displaySlots} trophies, and rest by your own fire.</p>
+        <p class="shop-house-confirm__sub">${escapeHtml(this.homeHereText(state))}Store up to ${offer.storageSlots} kinds of items, show off ${offer.displaySlots} trophies, and rest by your own fire.</p>
       </div>`;
     const actions = `
       <button type="button" class="gc-btn shop-house-cancel">Cancel</button>

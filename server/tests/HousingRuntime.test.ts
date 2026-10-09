@@ -141,7 +141,8 @@ describe('buying and selling', () => {
     expect(session('alice').getGold()).toBe(500);
     const state = lastState(sockets.alice);
     expect(state.house?.definition.id).toBe('cottage');
-    expect(state.house?.house).toEqual({ houseId: 'cottage', purchasedAt: 1234, storage: {}, displays: [null, null] });
+    expect(state.house?.house).toEqual({ houseId: 'cottage', purchasedAt: 1234, tileId: AGENT_TILE, storage: {}, displays: [null, null] });
+    expect(state.house?.location).toMatchObject({ tileId: AGENT_TILE, col: 0, row: 0, roomName: 'Estate Agent' });
   });
 
   it('refuses when broke, already owning, or away from a shop that sells it', async () => {
@@ -354,6 +355,99 @@ describe('visiting', () => {
   });
 });
 
+function standIn(ctx: { session: (name: string) => PlayerSession; grid: HexGrid }, name: string, col: number) {
+  const tile = ctx.grid.getTile(offsetToCube({ col, row: 0 })) ?? null;
+  ctx.session(name).getCurrentTile = () => tile;
+}
+
+describe('homes are places', () => {
+  it('only lets you in while your party stands in the home\'s room', async () => {
+    const ctx = await withHouse();
+    standIn(ctx, 'alice', 1);
+    const refusal = ctx.pm.housing.enter('alice', undefined);
+    expect(refusal?.code).toBe('home_too_far');
+    expect(refusal?.message).toContain('Estate Agent');
+    expect(ctx.pm.housing.homeOf('alice')).toBeUndefined();
+
+    standIn(ctx, 'alice', 0);
+    expect(ctx.pm.housing.enter('alice', undefined)).toBeNull();
+  });
+
+  it('keeps an invite when a guest is refused for being too far away', async () => {
+    const ctx = await withHouse();
+    ctx.pm.housing.invite('alice', 'dave');
+    standIn(ctx, 'dave', 1);
+    expect(ctx.pm.housing.enter('dave', 'alice')?.code).toBe('home_too_far');
+    standIn(ctx, 'dave', 0);
+    expect(ctx.pm.housing.enter('dave', 'alice')).toBeNull();
+  });
+
+  it('puts you out, settling rest, when your party walks away', async () => {
+    const ctx = await withHouse();
+    ctx.pm.housing.enter('alice', undefined, 0);
+    ctx.pm.housing.sit('alice', 0);
+    standIn(ctx, 'alice', 1);
+    ctx.pm.housing.onMembersMoved(['alice'], 10 * MIN);
+    expect(ctx.pm.housing.homeOf('alice')).toBeUndefined();
+    expect(ctx.session('alice').getWellRestedUntil()).toBe(10 * MIN + 10 * MIN * RESTED_MS_PER_SIT_MS);
+  });
+
+  it('also puts out anyone moved away by other means on the rest tick', async () => {
+    const ctx = await withHouse();
+    ctx.pm.housing.enter('alice', undefined);
+    standIn(ctx, 'alice', 1);
+    ctx.pm.housing.tickResting();
+    expect(ctx.pm.housing.homeOf('alice')).toBeUndefined();
+  });
+
+  it('walks the party home and lets you in on arrival', async () => {
+    const ctx = await withHouse();
+    standIn(ctx, 'alice', 1);
+    const move = vi.spyOn(ctx.pm.partyBattles, 'handleMove').mockReturnValue({ success: true });
+    expect(ctx.pm.housing.travel('alice', undefined)).toBeNull();
+    expect(move).toHaveBeenCalledWith(ctx.session('alice').getPartyId(), 0, 0);
+
+    ctx.pm.housing.onMembersMoved(['alice']);
+    expect(ctx.pm.housing.homeOf('alice')).toBeUndefined();
+    standIn(ctx, 'alice', 0);
+    ctx.pm.housing.onMembersMoved(['alice']);
+    expect(ctx.pm.housing.homeOf('alice')).toBe('alice');
+  });
+
+  it('enters straight away when travelling to a home you are already at', async () => {
+    const ctx = await withHouse();
+    expect(ctx.pm.housing.travel('alice', undefined)).toBeNull();
+    expect(ctx.pm.housing.homeOf('alice')).toBe('alice');
+  });
+
+  it('refuses travel for strangers and explains a failed move', async () => {
+    const ctx = await withHouse();
+    standIn(ctx, 'dave', 1);
+    expect(ctx.pm.housing.travel('dave', 'alice')?.code).toBe('home_access_denied');
+
+    standIn(ctx, 'alice', 1);
+    vi.spyOn(ctx.pm.partyBattles, 'handleMove').mockReturnValue({ success: false });
+    expect(ctx.pm.housing.travel('alice', undefined)?.code).toBe('home_cannot_travel');
+  });
+
+  it('places a home bought before homes had a room at an estate agent that sells it', async () => {
+    const ctx = await withHouse();
+    delete ctx.session('alice').getHouse()!.tileId;
+    standIn(ctx, 'alice', 1);
+    expect(ctx.pm.housing.enter('alice', undefined)?.code).toBe('home_too_far');
+    expect(ctx.session('alice').getHouse()!.tileId).toBe(AGENT_TILE);
+  });
+
+  it('lets you in from anywhere when no room can be found for the home', async () => {
+    const ctx = await withHouse({ cottage: COTTAGE, manor: MANOR });
+    const house = ctx.session('alice').getHouse()!;
+    house.tileId = 'deleted-room';
+    house.houseId = 'unsold';
+    standIn(ctx, 'alice', 1);
+    expect(ctx.pm.housing.enter('alice', undefined)).toBeNull();
+  });
+});
+
 describe('Well Rested', () => {
   it('accrues on stand and on leave, and only while sitting inside a home', async () => {
     const { pm, session } = await withHouse();
@@ -414,7 +508,7 @@ describe('persistence', () => {
     const save = session('alice').toSaveData();
     const restored = PlayerSession.fromSaveData(JSON.parse(JSON.stringify(save)), wrapGrids(grid), content);
 
-    expect(restored.getHouse()).toEqual({ houseId: 'cottage', purchasedAt: expect.any(Number), storage: { ruby: 1 }, displays: [null, 'ruby'] });
+    expect(restored.getHouse()).toEqual({ houseId: 'cottage', purchasedAt: expect.any(Number), tileId: AGENT_TILE, storage: { ruby: 1 }, displays: [null, 'ruby'] });
     expect(restored.getWellRestedUntil()).toBe(save.wellRestedUntil);
   });
 });

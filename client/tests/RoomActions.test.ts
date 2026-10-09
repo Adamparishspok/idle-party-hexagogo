@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DungeonDefinition, NpcDefinition, ShopSummary, WorldMapMeta, WorldTileDefinition } from '@idle-party-rpg/shared';
+import type { ClientHouseState, DungeonDefinition, NpcDefinition, ShopSummary, WorldMapMeta, WorldTileDefinition } from '@idle-party-rpg/shared';
 import {
   HIRE_DETAIL,
   QUEST_READY_DETAIL,
@@ -7,6 +7,7 @@ import {
   actionLabel,
   getRoomActions,
   readyQuestIds,
+  roomHome,
 } from '../src/ui/RoomActions';
 import type { RoomActionLookups } from '../src/ui/RoomActions';
 
@@ -140,5 +141,26 @@ describe('readyQuestIds', () => {
 
   it('is empty when there are no active quests', () => {
     expect(readyQuestIds().size).toBe(0);
+  });
+});
+
+describe('home room action', () => {
+  const house = {
+    house: { houseId: 'cottage', purchasedAt: 0, storage: {}, displays: [] },
+    definition: { id: 'cottage', name: 'Cottage', tier: 1, price: 1, storageSlots: 1, displaySlots: 1, emoji: '🛖' },
+    location: { tileId: 'agent', mapId: 'm', col: 0, row: 0, roomName: 'Estate Agent' },
+  } as ClientHouseState;
+
+  it('leads with entering your home in the room it stands in', () => {
+    const actions = getRoomActions({ id: 'agent', shopId: 'store' }, lookups, undefined, roomHome(house));
+    expect(actions.map(a => a.kind)).toEqual(['home', 'shop']);
+    expect(actions[0].icon).toBe(ROOM_ICONS.home);
+    expect(actionLabel(actions[0])).toBe('Enter your Cottage');
+  });
+
+  it('offers nothing in other rooms, or without a placed home', () => {
+    expect(getRoomActions({ id: 'elsewhere' }, lookups, undefined, roomHome(house))).toEqual([]);
+    expect(roomHome({ ...house, location: undefined })).toBeUndefined();
+    expect(roomHome(undefined)).toBeUndefined();
   });
 });

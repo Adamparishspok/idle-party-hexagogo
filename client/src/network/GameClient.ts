@@ -567,6 +567,11 @@ export class GameClient {
     this.sendHousing(owner ? { type: 'enter_home', owner } : { type: 'enter_home' });
   }
 
+  /** Omit `owner` to head to your own home. */
+  sendTravelHome(owner?: string): void {
+    this.sendHousing(owner ? { type: 'travel_home', owner } : { type: 'travel_home' });
+  }
+
   sendLeaveHome(): void {
     this.sendHousing({ type: 'leave_home' });
   }

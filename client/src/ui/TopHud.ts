@@ -21,7 +21,7 @@ export class TopHud {
   private homeEl: HTMLButtonElement;
   private sceneKey = '';
 
-  constructor(gameClient: GameClient, worldCache: WorldCache, onSettings: () => void, onHome: () => void = () => gameClient.sendEnterHome()) {
+  constructor(gameClient: GameClient, worldCache: WorldCache, onSettings: () => void, onHome: () => void = () => gameClient.sendTravelHome()) {
     this.container = document.getElementById('top-hud')!;
     this.container.innerHTML = `
       <div class="hud-currency" aria-label="Gold">
@@ -33,7 +33,7 @@ export class TopHud {
         <div class="hud-room"></div>
       </div>
       <div class="hud-actions">
-        <button type="button" class="hud-home" aria-label="Go home" hidden>${ICON_HOUSE}</button>
+        <button type="button" class="hud-home" aria-label="Travel home" title="Travel home" hidden>${ICON_HOUSE}</button>
         <button type="button" class="hud-gear gc-frame" aria-label="Settings">
           <img class="hud-gear-img" src="/nav-icons/settings.png" alt="" />
         </button>

@@ -31,10 +31,22 @@ export interface HouseOffer {
   artworkUrl?: string;
 }
 
+/** Where a home stands: the estate agent's room it was bought in. */
+export interface HomeLocation {
+  tileId: string;
+  mapId: string;
+  col: number;
+  row: number;
+  roomName: string;
+  zoneName?: string;
+}
+
 /** What a player owns, as persisted. */
 export interface PlayerHouse {
   houseId: string;
   purchasedAt: number;
+  /** Room GUID the home stands in. Absent on homes bought before homes had a place. */
+  tileId?: string;
   /** itemId → count. At most `storageSlots` distinct ids. */
   storage: Record<string, number>;
   /** One itemId (or null) per shelf slot; length == displaySlots of the house when bought/upgraded. */
@@ -45,6 +57,7 @@ export interface PlayerHouse {
 export interface ClientHouseState {
   house: PlayerHouse;
   definition: HouseDefinition;
+  location?: HomeLocation;
 }
 
 export interface HomeOccupant {
@@ -58,6 +71,7 @@ export interface HomeOccupant {
 export interface HomeView {
   owner: string;
   definition: HouseDefinition;
+  location?: HomeLocation;
   displays: (string | null)[];
   /** Only for the owner — visitors never see the chest. */
   storage?: Record<string, number>;
@@ -80,6 +94,8 @@ export interface ClientHomeDisplayMessage { type: 'home_display'; slot: number; 
 export interface ClientCampfireSitMessage { type: 'campfire_sit' }
 export interface ClientCampfireStandMessage { type: 'campfire_stand' }
 export interface ClientHomeInviteMessage { type: 'home_invite'; username: string }
+/** Walk the party to a home's room; it is entered on arrival. `owner` omitted = your own home. */
+export interface ClientTravelHomeMessage { type: 'travel_home'; owner?: string }
 
 export type ClientHousingMessage =
   | ClientBuyHouseMessage
@@ -91,7 +107,8 @@ export type ClientHousingMessage =
   | ClientHomeDisplayMessage
   | ClientCampfireSitMessage
   | ClientCampfireStandMessage
-  | ClientHomeInviteMessage;
+  | ClientHomeInviteMessage
+  | ClientTravelHomeMessage;
 
 // ── Rules ────────────────────────────────────────────────────
 
@@ -132,8 +149,20 @@ export function canStore(house: PlayerHouse, def: Pick<HouseDefinition, 'storage
   return used < def.storageSlots;
 }
 
-export function emptyHouse(def: HouseDefinition, now: number): PlayerHouse {
-  return { houseId: def.id, purchasedAt: now, storage: {}, displays: Array.from({ length: def.displaySlots }, () => null) };
+export function emptyHouse(def: HouseDefinition, now: number, tileId?: string): PlayerHouse {
+  return {
+    houseId: def.id,
+    purchasedAt: now,
+    ...(tileId ? { tileId } : {}),
+    storage: {},
+    displays: Array.from({ length: def.displaySlots }, () => null),
+  };
+}
+
+/** "Hatchetmill · General Store", or just the room name when the zone is unknown. */
+export function describeHomeLocation(location: Pick<HomeLocation, 'roomName' | 'zoneName'>): string {
+  const room = location.roomName || 'an unnamed room';
+  return location.zoneName ? `${location.zoneName} · ${room}` : room;
 }
 
 const MAX_HOUSE_TIER = 5;

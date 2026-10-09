@@ -495,7 +495,9 @@ export class App {
     };
     const home = new HomeView(document.getElementById('screen-container')!, this.gameClient);
     socialScreen.setOnVisitHome((username) => home.requestEnter(username));
-    const hud = new TopHud(this.gameClient, this.worldCache, () => goToRoot('settings'), () => home.requestEnter());
+    home.setOnTravel(() => goToRoot('map'));
+    mapScreen.setOnEnterHome(() => home.requestEnter());
+    const hud = new TopHud(this.gameClient, this.worldCache, () => goToRoot('settings'), () => home.travelTo());
     hud.setSettingsActive(savedScreen === 'settings');
     new PersistentXpBar(this.gameClient, () => goToRoot('items'));
     new WellRestedChip(this.gameClient, this.xpBarEl);

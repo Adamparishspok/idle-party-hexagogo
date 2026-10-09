@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  ClientSocialState, GamePartyMember, HomeOccupant, HouseDefinition, HouseOffer, ServerStateMessage, ShopDefinition,
+  ClientSocialState, GamePartyMember, HomeLocation, HomeOccupant, HouseDefinition, HouseOffer, ServerStateMessage, ShopDefinition,
 } from '@idle-party-rpg/shared';
 import { houseSellPrice } from '@idle-party-rpg/shared';
 import { ShopPopup } from '../src/ui/ShopPopup';
@@ -31,6 +31,7 @@ function mockClient() {
     sendBuyHouse: vi.fn(),
     sendSellHouse: vi.fn(),
     sendEnterHome: vi.fn(),
+    sendTravelHome: vi.fn(),
     sendLeaveHome: vi.fn(),
     sendHomeStore: vi.fn(),
     sendHomeWithdraw: vi.fn(),
@@ -65,6 +66,8 @@ describe('ShopPopup Houses tab', () => {
   function shopState(opts: { gold?: number; owns?: boolean; inventory?: ShopDefinition['inventory'] } = {}): ServerStateMessage {
     return {
       shopDefinition: { id: 'agent', name: 'Estate Agent', inventory: opts.inventory ?? [] } as ShopDefinition,
+      party: { col: 0, row: 0 },
+      currentMapId: 'm',
       houseOffers: [COTTAGE_OFFER],
       house: opts.owns ? { house: { houseId: 'cottage', purchasedAt: 0, storage: {}, displays: [null, null, null] }, definition: COTTAGE } : undefined,
       character: { gold: opts.gold ?? 1000, inventory: {}, equipment: {}, className: 'Knight' },
@@ -78,7 +81,11 @@ describe('ShopPopup Houses tab', () => {
     document.body.innerHTML = '';
     const m = mockClient();
     m.setLast(state);
-    const popup = new ShopPopup(m.client, { getSkillContent: () => ({ skills: {} }) } as unknown as WorldCache);
+    const here = { id: 'tile-agent', name: 'Estate Agent', zoneName: 'Hatchetmill' };
+    const popup = new ShopPopup(m.client, {
+      getSkillContent: () => ({ skills: {} }),
+      getTileOn: () => here,
+    } as unknown as WorldCache);
     popup.show(state);
     return m;
   }
@@ -105,6 +112,7 @@ describe('ShopPopup Houses tab', () => {
     const m = open(shopState());
     $<HTMLButtonElement>('.shop-house-buy')!.click();
     expect($('.shop-house-confirm__text')?.textContent).toBe('Buy Cottage for 500 gold?');
+    expect($('.shop-house-confirm__sub')?.textContent).toContain('stand here in Hatchetmill · Estate Agent');
     $<HTMLButtonElement>('.shop-house-confirm-btn')!.click();
     expect(m.sends.sendBuyHouse).toHaveBeenCalledWith('cottage');
   });
@@ -121,7 +129,15 @@ describe('ShopPopup Houses tab', () => {
     expect($('.shop-house[data-house-id="cottage"] .shop-house-owned')?.textContent).toBe('Your home');
     const manorBuy = $<HTMLButtonElement>('.shop-house[data-house-id="manor"] .shop-house-buy')!;
     expect(manorBuy.disabled).toBe(true);
-    expect($('.shop-house[data-house-id="manor"] .shop-house-why')?.textContent).toContain('already own a home');
+    expect($('.shop-house[data-house-id="manor"] .shop-house-why')?.textContent).toContain('already own your Cottage');
+  });
+
+  it('only marks a house as yours at the estate agent where it stands', () => {
+    const owns = shopState({ owns: true });
+    const location = { tileId: 'tile-elsewhere', mapId: 'm', col: 9, row: 9, roomName: 'Harbour Lets', zoneName: 'Saltmere' };
+    open({ ...owns, house: { ...owns.house!, location } } as ServerStateMessage);
+    expect($('.shop-house-owned')).toBeNull();
+    expect($('.shop-house-why')?.textContent).toBe('You already own your Cottage in Saltmere · Harbour Lets. Sell it before buying another.');
   });
 
   it('shows a refusal from the server after buying', () => {
@@ -145,6 +161,7 @@ interface HomeParts {
   wellRestedUntil?: number;
   friends?: string[];
   members?: string[];
+  location?: HomeLocation;
 }
 
 function homeState(p: HomeParts = {}): ServerStateMessage {
@@ -165,6 +182,7 @@ function homeState(p: HomeParts = {}): ServerStateMessage {
     homeVisit: {
       owner,
       definition: COTTAGE,
+      location: p.location,
       displays,
       storage: isOwner ? storage : undefined,
       occupants: p.occupants ?? [{ username: me, className: 'Knight', level: 5, sitting: false }],
@@ -360,6 +378,27 @@ describe('HomeView', () => {
     expect($('.home-toast')?.textContent).toBe("You aren't invited to zed's home.");
   });
 
+  it('offers to travel to a home that is too far away, then heads there', () => {
+    document.body.innerHTML = '<div id="screen-container"></div>';
+    const m = mockClient();
+    const view = new HomeView(document.getElementById('screen-container')!, m.client);
+    const onTravel = vi.fn();
+    view.setOnTravel(onTravel);
+    view.requestEnter('zed');
+    m.serverError("zed's Cottage is in Hatchetmill · Estate Agent. Travel there to go inside.", 'home_too_far');
+    expect($('.home-toast')?.textContent).toContain('Hatchetmill · Estate Agent');
+    $<HTMLButtonElement>('.home-toast__action')!.click();
+    expect(m.sends.sendTravelHome).toHaveBeenCalledWith('zed');
+    expect(onTravel).toHaveBeenCalledTimes(1);
+    expect($('.home-toast')).toBeNull();
+  });
+
+  it('shows where the home stands', () => {
+    const h = openHome();
+    h.update({ location: { tileId: 't', mapId: 'm', col: 0, row: 0, roomName: 'Estate Agent', zoneName: 'Hatchetmill' } });
+    expect($('.home-place__where')?.textContent).toBe('in Hatchetmill · Estate Agent');
+  });
+
   it('ignores server errors nobody asked about', () => {
     const h = openHome();
     h.serverError('Something unrelated.');
@@ -384,7 +423,7 @@ describe('TopHud Home button', () => {
 
     m.push({ ...base, house: { house: { houseId: 'cottage' }, definition: COTTAGE } } as unknown as ServerStateMessage);
     expect(btn.hidden).toBe(false);
-    expect(btn.getAttribute('aria-label')).toBe('Go home');
+    expect(btn.getAttribute('aria-label')).toBe('Travel home');
     btn.click();
     expect(onHome).toHaveBeenCalledTimes(1);
   });

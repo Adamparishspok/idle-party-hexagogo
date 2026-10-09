@@ -67,6 +67,10 @@ export class HomeOccupancy {
     return sitStart;
   }
 
+  everyone(): string[] {
+    return Array.from(this.locations.keys());
+  }
+
   sitters(): HomeOccupantEntry[] {
     const result: HomeOccupantEntry[] = [];
     for (const home of this.homes.values()) {
