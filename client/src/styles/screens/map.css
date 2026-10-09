@@ -432,7 +432,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
-  padding: var(--s-4) var(--s-4) calc(var(--perch-height) + var(--s-3));
+  padding: calc(var(--hud-height) + env(safe-area-inset-top, 0px)) var(--s-4) calc(var(--perch-height) + var(--s-3));
   overflow: hidden;
   color: #fff;
   /* CSS scene until the room has painted art: dusk sky over rolling hills. */
@@ -509,7 +509,7 @@
 }
 .rv-place__close {
   position: absolute;
-  top: var(--s-3);
+  top: calc(var(--hud-height) + env(safe-area-inset-top, 0px) + var(--s-2));
   right: var(--s-3);
   z-index: 2;
 }

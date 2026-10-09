@@ -723,3 +723,19 @@
     animation: none;
   }
 }
+
+/* The current location's scene, blurred and dimmed behind the sheet (set by TopHud). */
+#screen-items {
+  isolation: isolate;
+}
+#screen-items::before {
+  content: '';
+  position: absolute;
+  inset: -24px;
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgba(10, 11, 16, 0.45) 0%, rgba(10, 11, 16, 0.25) 40%, rgba(10, 11, 16, 0.65) 100%),
+    var(--scene-backdrop, none) center / cover no-repeat,
+    radial-gradient(ellipse at 50% 30%, #3b4a2c 0%, #1c2216 70%);
+  filter: blur(6px) saturate(1.1) brightness(0.7);
+}

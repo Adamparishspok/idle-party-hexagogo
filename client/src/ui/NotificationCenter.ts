@@ -159,14 +159,15 @@ export class NotificationCenter {
 
     requestAnimationFrame(() => {
       const btnRect = this.bellButton.getBoundingClientRect();
-      const panelRect = panel.getBoundingClientRect();
+      // offsetWidth, not the bounding rect: the pop-in starts scaled down.
+      const width = panel.offsetWidth;
       const margin = 8;
-      let left = btnRect.right - panelRect.width;
-      left = Math.max(margin, Math.min(window.innerWidth - panelRect.width - margin, left));
+      let left = btnRect.right - width;
+      left = Math.max(margin, Math.min(window.innerWidth - width - margin, left));
       panel.style.left = `${left}px`;
       panel.style.top = `${btnRect.bottom + 6}px`;
       // Grow the panel out of the bell.
-      const originX = Math.max(0, Math.min(panelRect.width, btnRect.left + btnRect.width / 2 - left));
+      const originX = Math.max(0, Math.min(width, btnRect.left + btnRect.width / 2 - left));
       panel.style.transformOrigin = `${originX}px 0`;
       panel.classList.add('notif-dropdown-shown');
     });

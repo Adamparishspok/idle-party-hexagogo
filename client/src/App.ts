@@ -447,19 +447,7 @@ export class App {
         + ` onload="this.style.opacity='1';this.previousElementSibling?.remove()" onerror="this.remove()" />`;
     const nav = new BottomNav(
       [
-        // Social opens a fly-out submenu with the three sub-views; the
-        // pill bar inside the screen is gone in favor of this.
-        {
-          id: 'social',
-          label: 'Social',
-          icon: navImg('social', 'Soc'),
-          mode: 'submenu',
-          submenu: [
-            { id: 'party', label: 'Party', badge: 'party-invites' },
-            { id: 'guild', label: 'Guild' },
-            { id: 'users', label: 'Leaderboard', badge: 'friend-requests' },
-          ],
-        },
+        { id: 'social', label: 'Social', icon: navImg('social', 'Soc') },
         { id: 'items', label: 'Character', icon: navImg('items', 'Char') },
         { id: 'map', label: 'Map', icon: navImg('map', 'Map') },
         { id: 'combat', label: 'Combat', icon: navImg('combat', 'Fight') },

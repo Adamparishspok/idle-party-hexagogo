@@ -53,7 +53,7 @@
   flex-direction: column;
   justify-content: center;
   gap: clamp(20px, 6vh, 56px);
-  padding: var(--s-4) var(--s-3) var(--s-2);
+  padding: calc(var(--hud-height) + env(safe-area-inset-top, 0px)) var(--s-3) var(--s-2);
 }
 
 .cb-side {
@@ -286,7 +286,7 @@
 
 .cb-dungeon {
   align-self: center;
-  margin-top: var(--s-2);
+  margin-top: calc(var(--hud-height) + env(safe-area-inset-top, 0px));
   display: flex;
   align-items: center;
   gap: var(--s-3);
@@ -558,4 +558,8 @@ body[data-chat-open="1"][data-chat-layout="sheet"] .cb-feed {
     width: min(560px, 100% - 24px);
     align-self: center;
   }
+}
+
+.cb-dungeon:not([hidden]) ~ .cb-field {
+  padding-top: var(--s-4);
 }

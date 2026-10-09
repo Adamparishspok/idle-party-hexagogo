@@ -13,6 +13,14 @@
 
 /* Tokens (iron/steel, octagon, frame paints) live in tokens.css. */
 
+:root {
+  --hud-height: 56px;
+}
+
+#app {
+  position: relative;
+}
+
 /* ── Octagon frame ───────────────────────────────────────────
    The WorldQuest signature shape. The octagon is painted on the pseudo
    elements (edge on ::before, fill on ::after) instead of clipping the
@@ -45,16 +53,32 @@
 /* ── Top HUD ─────────────────────────────────────────────── */
 
 #top-hud {
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 8px;
-  min-height: 56px;
-  padding: env(safe-area-inset-top, 0px) 8px 0 0;
-  background: linear-gradient(180deg, var(--gc-iron-950) 0%, rgba(18, 19, 24, 0.94) 100%);
-  border-bottom: 1px solid rgba(183, 190, 201, 0.12);
+  min-height: var(--hud-height);
+  padding: env(safe-area-inset-top, 0px) 8px 18px 0;
+  /* An overlay, not a bar: dark behind the text, fading into the scene. */
+  background: linear-gradient(180deg, rgba(10, 11, 16, 0.86) 0%, rgba(10, 11, 16, 0.55) 55%, rgba(10, 11, 16, 0) 100%);
+  pointer-events: none;
   z-index: 900;
+}
+#top-hud > * {
+  pointer-events: auto;
+}
+
+/* Screens start below the HUD; combat and the map run full-bleed beneath it. */
+body[data-nav-depth="1"] .screen {
+  padding-top: calc(var(--hud-height) + env(safe-area-inset-top, 0px));
+}
+body[data-nav-depth="1"] #screen-combat,
+body[data-nav-depth="1"] #screen-map {
+  padding-top: 0;
 }
 
 /* A pushed screen's back header owns the top edge instead. */

@@ -15,6 +15,7 @@ export class TopHud {
   private zoneEl: HTMLElement;
   private roomEl: HTMLElement;
   private gearEl: HTMLElement;
+  private sceneKey = '';
 
   constructor(gameClient: GameClient, worldCache: WorldCache, onSettings: () => void) {
     this.container = document.getElementById('top-hud')!;
@@ -44,10 +45,31 @@ export class TopHud {
       const gold = state.character?.gold ?? 0;
       this.goldEl.textContent = gold.toLocaleString();
 
-      const tile = worldCache.getTile(state.party.col, state.party.row);
+      const tile = worldCache.getTileOn(state.currentMapId, state.party.col, state.party.row);
       this.zoneEl.textContent = tile?.zoneName ?? '';
       this.roomEl.textContent = tile?.name ?? '';
+      this.setSceneBackdrop(tile?.id, tile?.zone, state.party.col, state.party.row);
     });
+  }
+
+  /**
+   * Publish the current location's painted scene as `--scene-backdrop` so
+   * screens without art of their own (Character) can sit in the same place.
+   */
+  private setSceneBackdrop(roomId: string | undefined, zoneId: string | undefined, col: number, row: number): void {
+    const key = `${roomId}|${zoneId}|${col},${row}`;
+    if (key === this.sceneKey) return;
+    this.sceneKey = key;
+    const enc = encodeURIComponent;
+    const layers: string[] = [];
+    if (roomId) layers.push(`/room-bg-artwork/${enc(roomId)}.png`);
+    if (zoneId) {
+      layers.push(`/room-bg-artwork/${enc(zoneId)}-${col}-${row}.png`);
+      layers.push(`/room-bg-artwork/${enc(zoneId)}.png`);
+      layers.push(`/combat-bg-artwork/${enc(zoneId)}.png`);
+      layers.push(`/zone-artwork/${enc(zoneId)}.png`);
+    }
+    document.body.style.setProperty('--scene-backdrop', layers.length ? layers.map(u => `url('${u}')`).join(', ') : 'none');
   }
 
   /** Light the gear while Settings is the visible root — it stands in for a nav tab. */
