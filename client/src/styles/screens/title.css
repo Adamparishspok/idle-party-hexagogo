@@ -444,26 +444,6 @@ a.gc-btn {
   animation: ts-spin 0.9s linear infinite;
 }
 
-/* ── Busy button (kit candidate: .gc-btn--loading) ─────────── */
-
-.gc-btn--loading {
-  cursor: progress;
-}
-.gc-btn--loading:disabled {
-  /* Keep the face colorful — it's working, not unavailable. */
-  filter: saturate(0.75) brightness(0.95);
-}
-.gc-btn--loading::before {
-  content: '';
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  animation: ts-spin 0.8s linear infinite;
-}
-
 /* ── Motion ────────────────────────────────────────────────── */
 
 @keyframes ts-logo-in {
@@ -525,8 +505,7 @@ a.gc-btn {
     animation: none;
   }
   /* Spinners still need to say "working" — slow them instead of freezing. */
-  .ts-status__spinner,
-  .gc-btn--loading::before {
+  .ts-status__spinner {
     animation-duration: 2.4s;
   }
 }

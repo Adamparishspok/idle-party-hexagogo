@@ -1,6 +1,8 @@
 import type { ItemDefinition } from '@idle-party-rpg/shared';
 import { artworkUrl } from '../../ui/assets';
-import { getItemInitials } from '../../ui/ItemIcon';
+import { renderKitItem } from '../../ui/ItemIcon';
+import { renderPortrait, type PortraitOpts } from '../../ui/Portrait';
+import { renderEmptyState } from '../../ui/EmptyState';
 
 /**
  * Small HTML-string builders shared by the Social screen and its modals.
@@ -30,33 +32,11 @@ export function fallbackImg(src: string, className: string): string {
   return `<img class="${className}" src="${esc(src)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`;
 }
 
-export type PortraitSize = 'sm' | 'md' | 'lg' | 'xl';
+export type { PortraitSize, PortraitOpts } from '../../ui/Portrait';
 
-export interface PortraitOpts {
-  name: string;
-  className?: string;
-  size?: PortraitSize;
-  /** true/false draws the online dot; undefined draws none. */
-  online?: boolean;
-  /** Level badge on the frame's corner. */
-  level?: number;
-  /** Gold frame edge for the viewing player. */
-  self?: boolean;
-}
-
-/** Octagon class-portrait frame (`.gc-frame`) with initial fallback. */
+/** Kit octagon class portrait (`.gc-portrait`) with initial fallback; md by default. */
 export function portraitHtml(o: PortraitOpts): string {
-  const size = o.size ?? 'md';
-  const art = classArtUrl(o.className);
-  const dot = o.online === undefined
-    ? ''
-    : `<span class="soc-dot ${o.online ? 'is-online' : 'is-offline'}" aria-hidden="true"></span>`;
-  const level = o.level ? `<span class="gc-badge gc-badge--level soc-portrait__level">${o.level}</span>` : '';
-  return `<span class="soc-portrait soc-portrait--${size} gc-frame${o.self ? ' is-self' : ''}" aria-hidden="true">
-    <span class="soc-portrait__initial">${esc(initialOf(o.name))}</span>
-    ${art ? fallbackImg(art, 'soc-portrait__img') : ''}
-    ${dot}${level}
-  </span>`;
+  return renderPortrait({ ...o, size: o.size ?? 'md' });
 }
 
 /** "Knight · Hatchetmill" — parts that are empty are skipped. */
@@ -66,13 +46,10 @@ export function subtitle(...parts: (string | undefined | null | false)[]): strin
 
 export type TagTone = 'gold' | 'green' | 'red' | 'teal' | 'steel';
 
+/** Kit status pill (`.gc-tag`); steel is the kit default. */
 export function tagHtml(label: string, tone: TagTone = 'steel'): string {
-  return `<span class="soc-tag soc-tag--${tone}">${esc(label)}</span>`;
-}
-
-/** The game has two rarities the kit doesn't paint (janky, heirloom) — social.css covers them. */
-export function rarityOf(def: ItemDefinition | undefined): string {
-  return def?.rarity ?? 'common';
+  const toneClass = tone === 'steel' ? '' : ` gc-tag--${tone}`;
+  return `<span class="gc-tag${toneClass}">${esc(label)}</span>`;
 }
 
 export interface ItemFrameOpts {
@@ -85,27 +62,21 @@ export interface ItemFrameOpts {
   label?: string;
 }
 
-/** Kit item frame (`.gc-item`) for an item: art over initials (or emoji), optional count. */
+/** Kit item frame (`.gc-item`) for an item: art over its glyph fallback, optional count. */
 export function itemFrameHtml(itemId: string, def: ItemDefinition | undefined, opts: ItemFrameOpts = {}): string {
-  const tag = opts.button ? 'button' : 'span';
-  const sizeClass = opts.size === 'sm' ? ' gc-item--sm' : opts.size === 'lg' ? ' gc-item--lg' : '';
-  const extra = opts.extraClass ? ` ${opts.extraClass}` : '';
-  const data = Object.entries(opts.dataAttrs ?? {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('');
-  const typeAttr = opts.button ? ' type="button"' : '';
-  const label = opts.label ? ` aria-label="${esc(opts.label)}"` : '';
-  const inner = def?.iconEmoji
-    ? `<span class="soc-item__initial soc-item__emoji">${esc(def.iconEmoji)}</span>`
-    : `<span class="soc-item__initial">${esc(getItemInitials(def?.name ?? itemId))}</span>${fallbackImg(artworkUrl('item', itemId), 'gc-item__img')}`;
-  const count = opts.qty !== undefined && opts.qty > 1 ? `<span class="gc-item__count">${opts.qty}</span>` : '';
-  return `<${tag}${typeAttr} class="gc-item soc-item${sizeClass}${extra}" data-rarity="${esc(rarityOf(def))}"${data}${label}>${inner}${count}</${tag}>`;
+  return renderKitItem(itemId, def, {
+    size: opts.size === 'md' ? undefined : opts.size,
+    count: opts.qty,
+    button: opts.button,
+    // Unlabelled frames sit next to the item's name, so keep them out of the a11y tree.
+    decorative: !opts.label,
+    extraClass: opts.extraClass,
+    dataAttrs: opts.dataAttrs,
+    label: opts.label,
+  });
 }
 
 /** Friendly illustrated empty state: emblem, headline, line, one primary action. */
 export function emptyStateHtml(o: { emblem: string; title: string; body: string; actionHtml?: string }): string {
-  return `<div class="soc-empty">
-    <span class="soc-empty__emblem gc-frame" aria-hidden="true"><span>${o.emblem}</span></span>
-    <div class="soc-empty__title">${esc(o.title)}</div>
-    <p class="soc-empty__body">${esc(o.body)}</p>
-    ${o.actionHtml ?? ''}
-  </div>`;
+  return renderEmptyState(o);
 }

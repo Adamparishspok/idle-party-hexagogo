@@ -5,77 +5,8 @@
  * full screen. The docking contract with the shell is at the bottom of this
  * file (body[data-chat-open][data-chat-layout] + --chrome-bottom).
  *
- * New reusable pattern defined here: .gc-chip (toggle chip with a 48px hit
- * area around a compact pill face) — candidate for components.css.
+ * Channel filters use the kit .gc-chips / .gc-chip (components.css).
  */
-
-/* ── Toggle chips (.gc-chip) ──────────────────────────────────
-   The button is a full 48px tap target; the visible pill (__face) is
-   compact so a row of chips doesn't eat the panel. --chip-color tints it. */
-
-.gc-chips {
-  display: flex;
-  gap: var(--s-1);
-}
-.gc-chip {
-  --chip-color: var(--gold-300);
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap-min);
-  padding: 0 2px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.gc-chip__face {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 var(--s-3);
-  border: 2px solid var(--slate-700);
-  border-radius: var(--r-pill);
-  background: var(--slate-900);
-  font-family: var(--ui-font);
-  font-weight: 600;
-  font-size: var(--t-small);
-  line-height: 1;
-  color: #7d879b;
-  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
-}
-.gc-chip__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-  flex-shrink: 0;
-}
-.gc-chip.active .gc-chip__face,
-.gc-chip[aria-pressed="true"] .gc-chip__face {
-  border-color: var(--chip-color);
-  background: color-mix(in srgb, var(--chip-color) 20%, var(--slate-900));
-  color: #fff;
-}
-.gc-chip.active .gc-chip__dot,
-.gc-chip[aria-pressed="true"] .gc-chip__dot {
-  border-color: var(--ink-900);
-  background: var(--chip-color);
-}
-.gc-chip:hover .gc-chip__face {
-  filter: brightness(1.12);
-}
-.gc-chip:active .gc-chip__face {
-  transform: scale(0.94);
-}
-.gc-chip:focus-visible {
-  outline: none;
-}
-.gc-chip:focus-visible .gc-chip__face {
-  outline: 3px solid var(--gold-300);
-  outline-offset: 2px;
-}
 
 /* ── Root + window ───────────────────────────────────────── */
 
@@ -155,14 +86,8 @@
 .chat-popout-filters {
   flex-shrink: 0;
   padding: 2px var(--s-3);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
   background: rgba(10, 11, 16, 0.35);
   border-bottom: 2px solid rgba(255, 255, 255, 0.06);
-}
-.chat-popout-filters::-webkit-scrollbar {
-  display: none;
 }
 
 /* ── Timeline ────────────────────────────────────────────── */
@@ -597,8 +522,5 @@
   .chat-popout-mobile-sheet,
   .chat-popout-jump {
     animation: none;
-  }
-  .gc-chip__face {
-    transition: none;
   }
 }

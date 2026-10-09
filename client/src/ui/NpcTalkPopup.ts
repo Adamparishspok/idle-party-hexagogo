@@ -10,7 +10,7 @@ import type {
 import { canAcceptQuest, getObjectiveTarget } from '@idle-party-rpg/shared';
 import { artworkUrl } from './assets';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
-import { renderKitItem } from './KitItem';
+import { renderKitItem } from './ItemIcon';
 import '../styles/screens/map.css';
 
 type QuestKind = 'ready' | 'progress' | 'available';
@@ -316,16 +316,16 @@ export class NpcTalkPopup {
   }
 
   private statusChip(q: QuestEntry): string {
-    if (q.kind === 'ready') return '<span class="npc-chip npc-chip--ready">Ready</span>';
-    if (q.kind === 'available') return '<span class="npc-chip npc-chip--new">New</span>';
+    if (q.kind === 'ready') return '<span class="gc-tag gc-tag--gold">Ready</span>';
+    if (q.kind === 'available') return '<span class="gc-tag gc-tag--teal">New</span>';
     const label = q.progress?.status === 'accepted' ? 'Accepted' : 'In Progress';
-    return `<span class="npc-chip">${label}</span>`;
+    return `<span class="gc-tag">${label}</span>`;
   }
 
   private scopeChip(scope: 'solo' | 'party_shared'): string {
     return scope === 'solo'
-      ? '<span class="npc-chip npc-chip--scope">Solo</span>'
-      : '<span class="npc-chip npc-chip--scope npc-chip--party">Party</span>';
+      ? '<span class="gc-tag gc-tag--outline">Solo</span>'
+      : '<span class="gc-tag gc-tag--outline npc-scope--party">Party</span>';
   }
 
   private escape(s: string): string {

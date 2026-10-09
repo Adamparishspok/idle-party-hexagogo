@@ -3,7 +3,7 @@ import { getEquippedItemIds } from '@idle-party-rpg/shared';
 import type { GameClient } from '../../network/GameClient';
 import type { WorldCache } from '../../network/WorldCache';
 import { renderItemPopupContent } from '../../ui/ItemPopup';
-import { SLOT_ICONS, SLOT_LABELS } from '../../ui/ItemIcon';
+import { SLOT_LABELS, renderEmptySlotFrame } from '../../ui/ItemIcon';
 import { bringToFront, release, wireFocusOnInteract } from '../../ui/ModalStack';
 import { esc, classArtUrl, fallbackImg, initialOf, itemFrameHtml, portraitHtml, subtitle } from './socialHtml';
 import { openSocModal } from './socialModal';
@@ -58,11 +58,7 @@ export class ProfileModal {
           label: `${label}: ${def.name}`,
         });
       }
-      const icon = SLOT_ICONS[s];
-      return `<span class="gc-item gc-item--sm gc-item--empty soc-item soc-doll__slot" aria-label="${esc(label)}: empty">
-        <span class="soc-item__initial soc-doll__slot-label">${esc(label.slice(0, 2))}</span>
-        ${icon ? fallbackImg(icon, 'gc-item__img soc-doll__slot-icon') : ''}
-      </span>`;
+      return renderEmptySlotFrame(s, { size: 'sm', extraClass: 'soc-doll__slot', decorative: true });
     };
 
     const equipped = [...LEFT_SLOTS, ...RIGHT_SLOTS].filter(s => {

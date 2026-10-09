@@ -3,45 +3,9 @@
  * bell and the live toast stack. The bell button itself is shell chrome and
  * is styled in game-chrome.css.
  *
- * New reusable pattern defined here: .gc-octicon (small octagon icon frame
- * in the WorldQuest steel edge, tinted via --icon-color) — candidate for
- * components.css.
+ * Category icons use the kit .gc-octicon (components.css), tinted here via
+ * --icon-color.
  */
-
-/* ── Octagon icon frame (.gc-octicon) ────────────────────── */
-
-.gc-octicon {
-  --icon-color: var(--gc-steel-300);
-  position: relative;
-  isolation: isolate;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  color: var(--icon-color);
-  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.5));
-}
-.gc-octicon::before,
-.gc-octicon::after {
-  content: '';
-  position: absolute;
-  clip-path: var(--gc-octagon);
-  z-index: -1;
-}
-.gc-octicon::before {
-  inset: 0;
-  background: var(--gc-frame-edge);
-}
-.gc-octicon::after {
-  inset: var(--gc-frame-w);
-  background: var(--gc-frame-fill);
-}
-.gc-octicon svg {
-  width: 24px;
-  height: 24px;
-}
 
 /* Category tints. */
 .notif-icon[data-cat="party"] { --icon-color: var(--green-300); }

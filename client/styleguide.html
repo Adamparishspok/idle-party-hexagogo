@@ -42,6 +42,7 @@
         text-shadow: var(--text-stroke-sm);
         margin: 48px 0 16px;
       }
+      .sg-note { color: #a9b3c7; font-size: var(--t-small); margin: -8px 0 16px; max-width: 720px; }
       .sg-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
       .sg-col { display: flex; flex-direction: column; gap: 12px; }
       .sg-phones { display: flex; flex-wrap: wrap; gap: 32px; }
@@ -163,6 +164,7 @@
         <button class="gc-btn gc-btn--steel">Cancel</button>
         <button class="gc-btn gc-btn--red">Leave Party</button>
         <button class="gc-btn" disabled>Disabled</button>
+        <button class="gc-btn gc-btn--gold gc-btn--loading" disabled>Sending…</button>
       </div>
       <div class="sg-row" style="margin-top:20px">
         <button class="gc-btn gc-btn--gold gc-btn--lg">Enter Dungeon</button>
@@ -180,6 +182,152 @@
         <span class="gc-item gc-item--empty"></span>
         <span class="gc-item gc-item--sm" data-rarity="rare"><img class="gc-item__img" src="/item-artwork/rusty_dagger.png" alt="" /></span>
         <span class="gc-item gc-item--lg" data-rarity="legendary"><img class="gc-item__img" src="/item-artwork/ancestral_blade.png" alt="" /></span>
+      </div>
+
+      <h3>Item frame extras</h3>
+      <p class="sg-note">Missing art: the img removes itself and <code>.gc-item__glyph</code> (initials, or <code>.is-emoji</code>) shows. <code>--shiny</code> glows epic+; <code>__set</code> pip, <code>__slot</code> badge; empty slots show <code>__slot-name</code>.</p>
+      <div class="sg-row">
+        <span class="gc-item" data-rarity="uncommon"><span class="gc-item__glyph">IO</span></span>
+        <span class="gc-item" data-rarity="rare"><span class="gc-item__glyph is-emoji">🧪</span><span class="gc-item__count">4</span></span>
+        <span class="gc-item gc-item--shiny" data-rarity="epic"><img class="gc-item__img" src="/item-artwork/gnarled_wand.png" alt="" onerror="this.remove()" /><span class="gc-item__glyph">GW</span><span class="gc-item__set">S</span></span>
+        <span class="gc-item gc-item--shiny" data-rarity="heirloom"><span class="gc-item__glyph">AB</span></span>
+        <span class="gc-item" data-rarity="janky"><span class="gc-item__glyph">RS</span></span>
+        <span class="gc-item gc-item--empty"><span class="gc-item__slot-name">Hands</span></span>
+        <span class="gc-item gc-item--sm" data-rarity="legendary"><span class="gc-item__glyph">LB</span></span>
+      </div>
+      <div class="sg-row" style="margin-top:12px;font-size:var(--t-title)">
+        <span class="gc-rarity-text" data-rarity="common">Common</span>
+        <span class="gc-rarity-text" data-rarity="uncommon">Uncommon</span>
+        <span class="gc-rarity-text" data-rarity="rare">Rare</span>
+        <span class="gc-rarity-text" data-rarity="epic">Epic</span>
+        <span class="gc-rarity-text" data-rarity="legendary">Legendary</span>
+        <span class="gc-rarity-text" data-rarity="heirloom">Heirloom</span>
+      </div>
+
+      <h3>Portraits</h3>
+      <p class="sg-note"><code>.gc-portrait</code> --sm / --md / --lg / --xl; <code>.is-self</code> gold edge; pips <code>__level</code>, <code>__online</code>, <code>__count</code>. Initial shows when the art is missing.</p>
+      <div class="sg-row">
+        <span class="gc-portrait gc-portrait--sm"><span class="gc-portrait__initial">B</span><img class="gc-portrait__img" src="/class-artwork/knight.png" alt="" onerror="this.remove()" /><span class="gc-portrait__level">7</span></span>
+        <span class="gc-portrait gc-portrait--md"><span class="gc-portrait__initial">N</span><span class="gc-portrait__online is-online"></span></span>
+        <span class="gc-portrait gc-portrait--lg is-self"><span class="gc-portrait__initial">A</span><img class="gc-portrait__img" src="/class-artwork/mage.png" alt="" onerror="this.remove()" /><span class="gc-portrait__level">12</span><span class="gc-portrait__online"></span></span>
+        <span class="gc-portrait gc-portrait--xl"><span class="gc-portrait__initial">P</span><img class="gc-portrait__img" src="/class-artwork/priest.png" alt="" onerror="this.remove()" /><span class="gc-portrait__level">30</span><span class="gc-portrait__online is-online"></span></span>
+        <span class="gc-portrait gc-portrait--md"><span class="gc-portrait__initial">G</span><span class="gc-portrait__count">5</span></span>
+      </div>
+
+      <h3>Octagon icons</h3>
+      <div class="sg-row">
+        <span class="gc-octicon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 17H3z" fill="currentColor"/></svg></span>
+        <span class="gc-octicon" style="--icon-color:var(--green-300)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="currentColor"/></svg></span>
+        <span class="gc-octicon" style="--icon-color:var(--arcane-400)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3 7h7l-6 5 2 8-6-4-6 4 2-8-6-5h7z" fill="currentColor"/></svg></span>
+        <span class="gc-octicon gc-octicon--lg gc-octicon--gold"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="5"/><path d="M28 28l12 12" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg></span>
+      </div>
+
+      <h3>Chips, switches, steppers</h3>
+      <div class="sg-col" style="max-width:420px">
+        <div class="gc-chips" role="group" aria-label="Filter">
+          <button type="button" class="gc-chip" aria-pressed="true"><span class="gc-chip__face">All</span></button>
+          <button type="button" class="gc-chip" aria-pressed="false"><span class="gc-chip__face">Online</span></button>
+          <button type="button" class="gc-chip" aria-pressed="false"><span class="gc-chip__face">This room</span></button>
+        </div>
+        <div class="gc-chips" role="group" aria-label="Channels">
+          <button type="button" class="gc-chip" aria-pressed="true" style="--chip-color:#7ec8ff"><span class="gc-chip__face"><span class="gc-chip__dot"></span>Zone</span></button>
+          <button type="button" class="gc-chip" aria-pressed="true" style="--chip-color:#9ef07a"><span class="gc-chip__face"><span class="gc-chip__dot"></span>Party</span></button>
+          <button type="button" class="gc-chip" aria-pressed="false" style="--chip-color:#ff9ad5"><span class="gc-chip__face"><span class="gc-chip__dot"></span>DM</span></button>
+        </div>
+        <div class="gc-parchment sg-col">
+          <label class="gc-switch-row">
+            <span class="gc-switch-row__text"><span class="gc-switch-row__title">Party invites</span><span class="gc-switch-row__desc">Ping me when someone invites me.</span></span>
+            <span class="gc-switch"><input type="checkbox" role="switch" class="gc-switch__input" checked /><span class="gc-switch__track"><span class="gc-switch__thumb"></span></span></span>
+          </label>
+          <label class="gc-switch-row">
+            <span class="gc-switch-row__text"><span class="gc-switch-row__title">Trade offers</span></span>
+            <span class="gc-switch"><input type="checkbox" role="switch" class="gc-switch__input" /><span class="gc-switch__track"><span class="gc-switch__thumb"></span></span></span>
+          </label>
+          <div class="sg-row">
+            <div class="gc-stepper" role="group" aria-label="Quantity">
+              <button type="button" class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn" aria-label="One fewer">−</button>
+              <span class="gc-stepper__val">2</span>
+              <button type="button" class="gc-btn gc-btn--green gc-btn--icon gc-stepper__btn" aria-label="One more">+</button>
+            </div>
+            <div class="gc-stepper gc-stepper--lg" role="group" aria-label="Quantity">
+              <button type="button" class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn" aria-label="One fewer">−</button>
+              <span class="gc-stepper__val">12</span>
+              <button type="button" class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn" aria-label="One more">+</button>
+              <button type="button" class="gc-btn gc-btn--steel">Max</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Tags, needs, facts, coins</h3>
+      <div class="sg-row">
+        <span class="gc-tag">In Progress</span>
+        <span class="gc-tag gc-tag--gold">You</span>
+        <span class="gc-tag gc-tag--green">Ready</span>
+        <span class="gc-tag gc-tag--red">Blocked</span>
+        <span class="gc-tag gc-tag--teal">New</span>
+        <span class="gc-tag gc-tag--dark">2 / 5</span>
+        <span class="gc-tag gc-tag--rarity" data-rarity="epic">Epic</span>
+        <span class="gc-tag gc-tag--rarity" data-rarity="legendary">Legendary</span>
+      </div>
+      <div class="gc-needs" style="margin-top:12px">
+        <span class="gc-need is-short"><span class="gc-need__name">Iron Ore</span> <span class="gc-need__count">1/3</span></span>
+        <span class="gc-need is-ok"><span class="gc-need__name">Oak Log</span> <span class="gc-need__count">2/1</span></span>
+      </div>
+      <div class="sg-row" style="margin-top:12px;align-items:stretch">
+        <div class="gc-parchment" style="padding:16px">
+          <div class="gc-facts">
+            <span class="gc-fact"><span class="gc-fact__label">Time</span><span class="gc-fact__value">30s</span></span>
+            <span class="gc-fact"><span class="gc-fact__label">Craft XP</span><span class="gc-fact__value">+12</span></span>
+            <span class="gc-fact is-short"><span class="gc-fact__label">Level</span><span class="gc-fact__value">5</span></span>
+            <span class="gc-tag gc-tag--outline" style="align-self:center">Solo</span>
+          </div>
+        </div>
+        <div class="sg-row">
+          <span class="gc-coin gc-coin--sm"></span>
+          <span class="gc-coin"></span>
+          <span class="gc-coin gc-coin--lg"></span>
+          <span class="gc-display" style="font-size:var(--t-title);display:inline-flex;align-items:center;gap:6px"><span class="gc-coin"></span>1,250</span>
+        </div>
+      </div>
+
+      <h3>Empty states</h3>
+      <div class="sg-row" style="align-items:flex-start">
+        <div class="gc-empty" style="width:340px">
+          <span class="gc-octicon gc-octicon--lg gc-octicon--gold gc-empty__emblem" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="5"/><path d="M28 28l12 12" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg></span>
+          <div class="gc-empty__title">No adventurers here</div>
+          <p class="gc-empty__body">Nobody matches that search. Try another name or widen the filter.</p>
+          <button type="button" class="gc-btn gc-btn--gold gc-btn--lg">Show Everyone</button>
+        </div>
+        <div class="gc-empty gc-empty--compact" style="width:400px">
+          <span class="gc-octicon gc-octicon--lg gc-octicon--gold gc-empty__emblem" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M22 6h14l4 6-4 6H22z" fill="currentColor"/><path d="M26 18h6v22a3 3 0 0 1-6 0z" fill="currentColor"/></svg></span>
+          <div><div class="gc-empty__title">Your workbench is idle</div><p class="gc-empty__body">Pick a recipe below to start crafting.</p></div>
+        </div>
+      </div>
+
+      <h3>Modal footer, why-not note, long titles</h3>
+      <p class="sg-note"><code>.gc-modal__footer</code> pins a stack of actions inside the panel; <code>.gc-modal__why</code> says why the primary action is off; <code>.gc-title-tab__text</code> ellipsizes long titles.</p>
+      <div class="sg-phones">
+        <div class="sg-phone" style="height:560px">
+          <div class="gc-modal">
+            <div class="gc-modal__panel gc-parchment">
+              <div class="gc-title-tab gc-modal__title"><span class="gc-title-tab__text">The Exceedingly Long Name of a Recipe</span></div>
+              <button class="gc-close gc-modal__close" aria-label="Close"></button>
+              <div class="gc-modal__body">
+                <p>Trade with BaakaDesu. Both sides must accept.</p>
+                <p class="gc-modal__why" role="status">Still need 2 Iron Ore, 1 Oak Log.</p>
+                <p class="gc-modal__why is-ok">Queue 2 / 5</p>
+              </div>
+              <div class="gc-modal__footer">
+                <button class="gc-btn gc-btn--green gc-btn--lg gc-btn--block">Accept Trade</button>
+                <div class="gc-modal__footer-row">
+                  <button class="gc-btn gc-btn--steel">Counter</button>
+                  <button class="gc-btn gc-btn--red">Decline</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <h3>Bars, stats, badges</h3>

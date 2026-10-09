@@ -3,9 +3,10 @@ import type { ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
 // Player popups (they call renderItemIcon / renderItemPopupContent). Delete
 // this import and the file once those screens move to renderItemFrame.
 import '../styles/item-legacy.css';
-// Kit extensions for the rarity frame (renderItemFrame) and the item detail
-// modal (renderItemDetail in ItemPopup.ts).
+// Item detail modal styles (renderItemDetail in ItemPopup.ts). The frame
+// itself (.gc-item and its parts) is in the kit, components.css.
 import '../styles/screens/items.css';
+import { artworkUrl } from './assets';
 
 export const RARITY_COLORS: Record<string, string> = {
   janky: '#808080',
@@ -174,8 +175,9 @@ export function renderEmptySlotIcon(slot: string, options?: { extraClass?: strin
 
 // ── Kit item frames ──────────────────────────────────────────────────────
 // Rebuilt screens draw items as `.gc-item` octagon frames whose edge takes the
-// rarity color (components.css). The legacy square renderers above stay for
-// screens that haven't been rebuilt yet.
+// rarity color (components.css). `renderKitItem` is the one builder for that
+// markup; `renderItemFrame` wraps it with the inventory defaults. The legacy
+// square renderers above stay for screens that haven't been rebuilt yet.
 
 /** Short slot names that fit inside an empty frame when the slot icon is missing. */
 export const SLOT_SHORT_LABELS: Record<string, string> = {
@@ -184,19 +186,27 @@ export const SLOT_SHORT_LABELS: Record<string, string> = {
   foot: 'Feet', ring: 'Ring', necklace: 'Neck', back: 'Back', relic: 'Relic',
 };
 
-export interface ItemFrameOptions {
-  /** Stack count, drawn bottom-right when > 1. */
-  qty?: number;
-  /** Kit size modifier; default is the kit's 72px (screens may resize). */
+export interface KitItemOptions {
+  /** Kit size modifier (`gc-item--sm` / `gc-item--lg`); default is 72px. */
   size?: 'sm' | 'lg';
-  /** Show a small slot badge (top-right) for this slot. */
-  slot?: string;
+  /** Count shown bottom-right (omitted when ≤ 1 unless `alwaysCount`). */
+  count?: number;
+  alwaysCount?: boolean;
+  /** Render as a <button> (tappable) instead of a <span>. */
+  button?: boolean;
+  /** Purely decorative: an aria-hidden <span> (ignored when `button`). */
+  decorative?: boolean;
+  extraClass?: string;
+  /** data-* attributes (keys without the `data-` prefix). */
+  dataAttrs?: Record<string, string>;
+  /** Accessible label; defaults to the item name. */
+  label?: string;
+  /** Hover tooltip (`title`) for buttons. */
+  title?: string;
   /** Show the gold set pip (top-left) when the item belongs to any set. */
   setDefs?: Record<string, SetDefinition>;
-  extraClass?: string;
-  dataAttrs?: Record<string, string>;
-  /** Render as a <span> (decorative) instead of a <button>. */
-  decorative?: boolean;
+  /** Show a small slot badge (top-right) for this slot. */
+  slot?: string;
 }
 
 function dataAttrString(attrs?: Record<string, string>): string {
@@ -216,57 +226,101 @@ function slotIconImg(slot: string, className: string): string {
 }
 
 /**
- * Inner art for a frame: the item artwork over the item's initials (or its
- * emoji). The img stays invisible until it loads and removes itself on 404,
- * so the initials only show when there is no art — never a broken glyph.
+ * Inner art for a frame: the item artwork followed by its `.gc-item__glyph`
+ * (initials, or the item's emoji). The glyph is hidden while the img exists
+ * and shows only when a 404 removes it — never a broken-image icon or a
+ * placeholder service.
  */
-export function renderItemArt(itemId: string, def: ItemDefinition): string {
-  if (def.iconEmoji) {
-    return `<span class="gc-item__emoji">${escapeHtml(def.iconEmoji)}</span>`;
+export function renderItemArt(itemId: string, def: ItemDefinition | undefined): string {
+  if (def?.iconEmoji) {
+    return `<span class="gc-item__glyph is-emoji" aria-hidden="true">${escapeHtml(def.iconEmoji)}</span>`;
   }
-  const tint = def.iconColor ? ` style="color:${escapeHtml(def.iconColor)}"` : '';
-  return `<img class="gc-item__img" src="/item-artwork/${encodeURIComponent(itemId)}.png" alt="" onload="this.classList.add('is-loaded')" onerror="this.remove()" decoding="async">`
-    + `<span class="gc-item__initials"${tint}>${escapeHtml(getItemInitials(def.name))}</span>`;
+  const tint = def?.iconColor ? ` style="color:${escapeHtml(def.iconColor)}"` : '';
+  return `<img class="gc-item__img" src="${escapeHtml(artworkUrl('item', itemId))}" alt="" onerror="this.remove()" decoding="async">`
+    + `<span class="gc-item__glyph" aria-hidden="true"${tint}>${escapeHtml(getItemInitials(def?.name ?? itemId))}</span>`;
+}
+
+/**
+ * An item in a kit `.gc-item` octagon frame: rarity-colored edge (epic+
+ * glow), artwork with the glyph fallback, and optional set pip, slot badge
+ * and count.
+ */
+export function renderKitItem(itemId: string, def: ItemDefinition | undefined, opts: KitItemOptions = {}): string {
+  const name = def?.name ?? itemId;
+  const rarity = def?.rarity ?? 'common';
+  const classes = ['gc-item'];
+  if (opts.size) classes.push(`gc-item--${opts.size}`);
+  if (SHINY_RARITIES.has(rarity)) classes.push('gc-item--shiny');
+  if (opts.extraClass) classes.push(opts.extraClass);
+
+  let inner = renderItemArt(itemId, def);
+  if (opts.setDefs && getItemSetId(itemId, opts.setDefs)) {
+    inner += '<span class="gc-item__set" aria-hidden="true">S</span>';
+  }
+  if (opts.slot) {
+    inner += slotIconImg(opts.slot, 'gc-item__slot');
+  }
+  if (opts.count !== undefined && (opts.alwaysCount || opts.count > 1)) {
+    inner += `<span class="gc-item__count">${opts.count}</span>`;
+  }
+
+  const attrs = `class="${classes.join(' ')}" data-rarity="${escapeHtml(rarity)}"${dataAttrString(opts.dataAttrs)}`;
+  const label = escapeHtml(opts.label ?? name);
+  if (opts.button) {
+    const title = opts.title ? ` title="${escapeHtml(opts.title)}"` : '';
+    return `<button type="button" ${attrs}${title} aria-label="${label}">${inner}</button>`;
+  }
+  if (opts.decorative) return `<span ${attrs} aria-hidden="true">${inner}</span>`;
+  return `<span ${attrs} role="img" aria-label="${label}">${inner}</span>`;
+}
+
+export interface ItemFrameOptions {
+  /** Stack count, drawn bottom-right when > 1. */
+  qty?: number;
+  /** Kit size modifier; default is the kit's 72px (screens may resize). */
+  size?: 'sm' | 'lg';
+  /** Show a small slot badge (top-right) for this slot. */
+  slot?: string;
+  /** Show the gold set pip (top-left) when the item belongs to any set. */
+  setDefs?: Record<string, SetDefinition>;
+  extraClass?: string;
+  dataAttrs?: Record<string, string>;
+  /** Render as a <span> (decorative) instead of a <button>. */
+  decorative?: boolean;
 }
 
 /** Render an item as a kit `.gc-item` rarity frame (a button by default). */
 export function renderItemFrame(itemId: string, def: ItemDefinition, options?: ItemFrameOptions): string {
-  const rarity = def.rarity ?? 'common';
-  const classes = ['gc-item'];
-  if (options?.size) classes.push(`gc-item--${options.size}`);
-  if (SHINY_RARITIES.has(rarity)) classes.push('gc-item--shiny');
-  if (options?.extraClass) classes.push(options.extraClass);
-
-  let inner = renderItemArt(itemId, def);
-  if (options?.setDefs && getItemSetId(itemId, options.setDefs)) {
-    inner += '<span class="gc-item__set" aria-hidden="true">S</span>';
-  }
-  if (options?.slot) {
-    inner += slotIconImg(options.slot, 'gc-item__slot');
-  }
   const qty = options?.qty ?? 0;
-  if (qty > 1) {
-    inner += `<span class="gc-item__count">${qty}</span>`;
-  }
-
-  const label = qty > 1 ? `${def.name} ×${qty}` : def.name;
-  const attrs = `class="${classes.join(' ')}" data-rarity="${escapeHtml(rarity)}"${dataAttrString(options?.dataAttrs)}`;
-  if (options?.decorative) return `<span ${attrs} aria-hidden="true">${inner}</span>`;
-  return `<button type="button" ${attrs} title="${escapeHtml(def.name)}" aria-label="${escapeHtml(label)}">${inner}</button>`;
+  return renderKitItem(itemId, def, {
+    size: options?.size,
+    count: qty,
+    button: !options?.decorative,
+    decorative: options?.decorative,
+    extraClass: options?.extraClass,
+    dataAttrs: options?.dataAttrs,
+    setDefs: options?.setDefs,
+    slot: options?.slot,
+    title: def.name,
+    label: qty > 1 ? `${def.name} ×${qty}` : def.name,
+  });
 }
 
 /** Render an empty equipment slot as a muted `.gc-item--empty` frame button. */
 export function renderEmptySlotFrame(
   slot: string,
-  options?: { size?: 'sm' | 'lg'; extraClass?: string; dataAttrs?: Record<string, string> },
+  options?: { size?: 'sm' | 'lg'; extraClass?: string; dataAttrs?: Record<string, string>; decorative?: boolean },
 ): string {
   const classes = ['gc-item', 'gc-item--empty'];
   if (options?.size) classes.push(`gc-item--${options.size}`);
   if (options?.extraClass) classes.push(options.extraClass);
   const label = SLOT_LABELS[slot] ?? slot;
   const short = SLOT_SHORT_LABELS[slot] ?? label;
-  return `<button type="button" class="${classes.join(' ')}" aria-label="Empty ${escapeHtml(label)} slot"${dataAttrString(options?.dataAttrs)}>`
-    + slotIconImg(slot, 'gc-item__slot-glyph')
-    + `<span class="gc-item__slot-name">${escapeHtml(short)}</span>`
-    + '</button>';
+  const inner = slotIconImg(slot, 'gc-item__slot-glyph')
+    + `<span class="gc-item__slot-name">${escapeHtml(short)}</span>`;
+  const attrs = `class="${classes.join(' ')}"${dataAttrString(options?.dataAttrs)}`;
+  if (options?.decorative) {
+    return `<span ${attrs} role="img" aria-label="${escapeHtml(label)}: empty">${inner}</span>`;
+  }
+  return `<button type="button" ${attrs} aria-label="Empty ${escapeHtml(label)} slot">${inner}</button>`;
 }

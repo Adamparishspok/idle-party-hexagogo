@@ -139,52 +139,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.cr-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  padding: 0 var(--s-2);
-  border-radius: var(--r-pill);
-  border: 2px solid var(--ink-900);
-  background: var(--slate-800);
-  font-family: var(--display-font);
-  font-size: var(--t-caption);
-  line-height: 1;
-  color: var(--slate-text);
-  font-variant-numeric: tabular-nums;
-}
-.cr-pill.is-full {
-  background: linear-gradient(180deg, var(--gold-300), var(--gold-500));
-  color: var(--ink-900);
-}
-
-/* ── Friendly empty states ───────────────────────────────── */
-
-.cr-idle {
-  display: flex;
-  align-items: center;
-  gap: var(--s-4);
-  padding: var(--s-4);
-  border: 2px dashed rgba(205, 183, 154, 0.35);
-  border-radius: var(--r-md);
-  background: rgba(0, 0, 0, 0.25);
-}
-.cr-idle__slot {
-  opacity: 0.7;
-}
-.cr-idle__title {
-  font-family: var(--display-font);
-  font-size: var(--t-label);
-  color: #fff;
-  text-shadow: var(--text-stroke-sm);
-}
-.cr-idle__sub {
-  margin-top: 2px;
-  font-size: var(--t-small);
-  line-height: 1.35;
-  color: #cdb79a;
-}
-
 .cr-message {
   flex: 1;
   min-height: 0;
@@ -283,26 +237,6 @@
 .cr-cancel__x::before { transform: translate(-50%, -50%) rotate(45deg); }
 .cr-cancel__x::after { transform: translate(-50%, -50%) rotate(-45deg); }
 
-/* ── Item frames (art fallback + extra rarities) ─────────── */
-
-.cr-item__initials {
-  position: absolute;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--display-font);
-  font-size: var(--t-label);
-  color: rgba(255, 255, 255, 0.6);
-  text-shadow: var(--text-stroke-sm);
-}
-.gc-item--lg .cr-item__initials {
-  font-size: var(--t-heading);
-}
-.cr-item.is-noart .cr-item__initials {
-  display: flex;
-}
-
 /* ── Recipe list ─────────────────────────────────────────── */
 
 .cr-recipe-list {
@@ -371,64 +305,8 @@
   color: #a9b3c7;
 }
 
-.cr-status {
-  flex-shrink: 0;
-  padding: 3px var(--s-2);
-  border-radius: var(--r-pill);
-  border: 2px solid var(--ink-900);
-  background: var(--slate-900);
-  font-family: var(--display-font);
-  font-size: var(--t-caption);
-  line-height: 1;
-  color: #c3cad8;
-}
-.cr-status.is-ready {
-  background: linear-gradient(180deg, var(--green-300), var(--green-500));
-  color: #fff;
-  text-shadow: var(--text-stroke-sm);
-}
-
-/* Ingredient chips: green when you have enough, red when short. */
-.cr-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-1);
+.cr-recipe__needs {
   margin-top: var(--s-1);
-}
-.cr-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  max-width: 100%;
-  padding: 2px var(--s-2);
-  border-radius: var(--r-sm);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.3);
-  font-size: var(--t-caption);
-  line-height: 1.3;
-}
-.cr-chip__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #dfe4ee;
-}
-.cr-chip__count {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.cr-chip.is-ok {
-  border-color: rgba(158, 240, 122, 0.4);
-}
-.cr-chip.is-ok .cr-chip__count {
-  color: var(--green-300);
-}
-.cr-chip.is-short {
-  border-color: rgba(255, 154, 138, 0.45);
-}
-.cr-chip.is-short .cr-chip__count {
-  color: var(--red-300);
 }
 
 /* ── Recipe detail modal ─────────────────────────────────── */
@@ -472,36 +350,8 @@
   color: var(--parch-ink);
 }
 
-.cr-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-2);
+.cr-modal__facts {
   margin-top: var(--s-3);
-}
-.cr-fact {
-  display: inline-flex;
-  flex-direction: column;
-  min-width: 72px;
-  padding: var(--s-1) var(--s-3);
-  border-radius: var(--r-sm);
-  border: 2px solid var(--parch-500);
-  background: rgba(255, 255, 255, 0.35);
-}
-.cr-fact__k {
-  font-size: var(--t-caption);
-  color: var(--parch-ink-soft);
-}
-.cr-fact__v {
-  font-family: var(--display-font);
-  font-size: var(--t-label);
-  line-height: 1.15;
-  color: var(--parch-ink);
-}
-.cr-fact.is-short {
-  border-color: var(--red-500);
-}
-.cr-fact.is-short .cr-fact__v {
-  color: var(--red-700);
 }
 
 .cr-ings {
@@ -539,24 +389,6 @@
   line-height: 1.2;
   color: var(--parch-ink);
   overflow-wrap: anywhere;
-}
-
-/* The "why not" line sits right above the overlapping Craft button. */
-.cr-modal__why {
-  margin: var(--s-4) 0 0;
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-sm);
-  background: rgba(224, 70, 58, 0.12);
-  border: 2px solid rgba(224, 70, 58, 0.45);
-  font-size: var(--t-small);
-  line-height: 1.35;
-  text-align: center;
-  color: var(--red-700);
-}
-.cr-modal__why.is-ok {
-  background: rgba(79, 191, 58, 0.12);
-  border-color: rgba(42, 122, 30, 0.4);
-  color: var(--green-700);
 }
 
 .cr-modal__craft {
@@ -620,13 +452,4 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
-
-/* Long recipe names truncate inside the title tab instead of spilling past it. */
-.cr-modal .gc-modal__title {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 40px;
-  text-align: center;
 }

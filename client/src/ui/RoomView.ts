@@ -2,6 +2,7 @@ import type { TileClickInfo } from './ThreeWorldMap';
 import type { NpcDefinition, DungeonDefinition } from '@idle-party-rpg/shared';
 import { artworkUrl } from './assets';
 import { bringToFront, release } from './ModalStack';
+import { renderPortrait } from './Portrait';
 import '../styles/screens/map.css';
 
 type Member = { username: string; className?: string; level?: number };
@@ -374,17 +375,12 @@ export class RoomView {
   ): string {
     if (members.length === 0) return '';
     const portraits = members.map(p => {
-      const initial = this.escapeHtml(p.username.charAt(0).toUpperCase());
-      const img = p.className
-        ? `<img class="rv-member__img" src="${artworkUrl('class', encodeURIComponent(p.className.toLowerCase()))}" alt="" onerror="this.style.visibility='hidden'" />`
-        : '';
-      const level = p.level !== undefined ? `<span class="rv-member__level">${p.level}</span>` : '';
       const isSelf = this.self?.username === p.username;
+      const portrait = renderPortrait({ name: p.username, className: p.className, level: p.level, self: isSelf });
       return `
         <button type="button" class="rv-member room-party-member${isSelf ? ' is-self' : ''}" data-username="${this.escapeHtml(p.username)}"
           aria-label="${this.escapeHtml(p.username)}${p.className ? `, ${this.escapeHtml(p.className)}` : ''}">
-          <span class="rv-member__frame"><span class="rv-member__initial" aria-hidden="true">${initial}</span>${img}</span>
-          ${level}
+          ${portrait}
           <span class="rv-member__name">${this.escapeHtml(p.username)}</span>
         </button>`;
     }).join('');

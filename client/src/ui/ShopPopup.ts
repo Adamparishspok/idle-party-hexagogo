@@ -3,9 +3,8 @@ import type { WorldCache } from '../network/WorldCache';
 import type { ServerStateMessage } from '@idle-party-rpg/shared';
 import type { ShopDefinition, ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
 import { getUnequippedCount, listUnequippedEntries } from '@idle-party-rpg/shared';
-import { escapeHtml } from './ItemIcon';
+import { escapeHtml, renderKitItem } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
-import { renderKitItem } from './KitItem';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import '../styles/screens/map.css';
 
@@ -264,14 +263,14 @@ export class ShopPopup {
           ${renderKitItem(itemId, def, { size: 'lg' })}
           <div class="shop-detail__heading">
             <h2 class="shop-detail__name">${escapeHtml(def.name)}</h2>
-            <span class="shop-detail__rarity" data-rarity="${escapeHtml(rarity)}">${escapeHtml(rarity)}</span>
+            <span class="gc-tag gc-tag--rarity shop-detail__rarity" data-rarity="${escapeHtml(rarity)}">${escapeHtml(rarity)}</span>
           </div>
         </div>
         <div class="shop-detail__stats">${stats}</div>
-        <div class="shop-detail__qty" role="group" aria-label="Quantity">
-          <button type="button" class="gc-btn gc-btn--steel gc-btn--icon shop-qty-minus" aria-label="One fewer">${ICON_MINUS}</button>
-          <span class="shop-detail__qty-value shop-qty-value" aria-live="polite">${qty}</span>
-          <button type="button" class="gc-btn gc-btn--steel gc-btn--icon shop-qty-plus" aria-label="One more">${ICON_PLUS}</button>
+        <div class="gc-stepper gc-stepper--lg shop-detail__qty" role="group" aria-label="Quantity">
+          <button type="button" class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn shop-qty-minus" aria-label="One fewer">${ICON_MINUS}</button>
+          <span class="gc-stepper__val shop-qty-value" aria-live="polite">${qty}</span>
+          <button type="button" class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn shop-qty-plus" aria-label="One more">${ICON_PLUS}</button>
           <button type="button" class="gc-btn gc-btn--steel shop-qty-all">${maxLabel}</button>
         </div>
         <div class="shop-detail__total">

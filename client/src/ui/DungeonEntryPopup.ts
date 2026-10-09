@@ -1,7 +1,7 @@
 import type { GameClient } from '../network/GameClient';
 import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
-import { renderKitItem } from './KitItem';
+import { renderKitItem } from './ItemIcon';
 import '../styles/screens/map.css';
 
 const ICON_KEY = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M11.5 11.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>';

@@ -581,12 +581,10 @@ export class SocialScreen implements Screen {
 
   private refreshOnlineDots(): void {
     const onlineSet = new Set(this.lastSocial?.onlinePlayers ?? []);
-    for (const dot of this.panelContainer.querySelectorAll<HTMLElement>('.soc-dot')) {
+    for (const dot of this.panelContainer.querySelectorAll<HTMLElement>('.gc-portrait__online')) {
       const username = dot.closest('[data-username]')?.getAttribute('data-username');
       if (!username) continue;
-      const on = onlineSet.has(username);
-      dot.classList.toggle('is-online', on);
-      dot.classList.toggle('is-offline', !on);
+      dot.classList.toggle('is-online', onlineSet.has(username));
     }
   }
 
@@ -769,8 +767,8 @@ export class SocialScreen implements Screen {
         <div class="soc-lb__toolbar">
           <input class="gc-input soc-search" type="search" enterkeyhint="search" placeholder="Search adventurers…" aria-label="Search players" value="${esc(this.searchQuery)}" />
           <div class="soc-lb__controls">
-            <div class="soc-chips" role="group" aria-label="Filter">
-              ${FILTERS.map(f => `<button type="button" class="soc-chip" data-action="filter" data-filter="${f.id}" aria-pressed="${this.filterBy === f.id}">${f.label}</button>`).join('')}
+            <div class="gc-chips soc-lb__chips" role="group" aria-label="Filter">
+              ${FILTERS.map(f => `<button type="button" class="gc-chip" data-action="filter" data-filter="${f.id}" aria-pressed="${this.filterBy === f.id}"><span class="gc-chip__face">${f.label}</span></button>`).join('')}
             </div>
             <button type="button" class="gc-btn gc-btn--steel soc-sort" data-action="sort" aria-label="Change sort">${SocialScreen.sortLabel(this.sortBy)}</button>
           </div>

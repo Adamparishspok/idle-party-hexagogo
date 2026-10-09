@@ -101,7 +101,7 @@ Grouping logic lives in `RoomView.groupPlayersByParty` and depends on `partyId` 
 
 Travelling from a remote-room preview until your party arrives at that tile plays an arrival expand animation. Shop, NPC, dungeon and transition actions only appear in the current room (`playerOnTile && state?.shopDefinition` / `tileDef?.npcId` / `tileDef?.dungeonId` / `transitions`).
 
-**Room popups.** `NpcTalkPopup`, `ShopPopup` and `DungeonEntryPopup` are `.gc-modal` parchment dialogs. They draw items with `renderKitItem()` (`ui/KitItem.ts`), which falls back to an emoji or initials glyph when art is missing.
+**Room popups.** `NpcTalkPopup`, `ShopPopup` and `DungeonEntryPopup` are `.gc-modal` parchment dialogs. They draw items with `renderKitItem()` (`ui/ItemIcon.ts` — the one `.gc-item` builder; `renderItemFrame()` wraps it), which falls back to an emoji or initials glyph when art is missing.
 - NpcTalkPopup follows the quest-dialog layout: round portrait, objective lines in the accent colour, a Rewards divider with item/XP/gold frames, and the action as the bottom-edge primary. It shows one quest in full and lists the NPC's other quests as rows that switch focus.
 - ShopPopup has Buy/Sell tabs and a grid of item frames with prices. The detail view has a −/+/Max stepper and an outlined total that turns red when you can't afford it.
 
@@ -299,7 +299,7 @@ A painted-fantasy mobile-game look modelled on WorldQuest, at Rovio-level polish
 
 - **Type:** Lilita One for display (titles, buttons, numbers) and Oswald for UI and body text. The floor is 13px and body text is 17px; display text gets an outline (`--text-stroke`).
 - **Tokens:** `client/src/styles/tokens.css`.
-- **Component kit:** `client/src/styles/components.css`, previewed in the dev-only `client/styleguide.html`.
+- **Component kit:** `client/src/styles/components.css`, previewed in the dev-only `client/styleguide.html`. Its families are buttons (incl. `--loading`), close, parchment, card, title tab, modal (with `__footer` and `__why`), divider, item frame (glyph fallback, set/slot pips, shiny, rarity text), portrait, octagon icon, stat, bar, tabs, chips, switch, stepper, row, input, badge, tag, need chip, fact tile, coin, and empty state — screens reuse these instead of restyling locally (helpers: `renderKitItem`/`renderItemFrame` in `ui/ItemIcon.ts`, `renderPortrait` in `ui/Portrait.ts`, `renderEmptyState` in `ui/EmptyState.ts`).
 - **Shell:** `game-chrome.css`.
 - **Screens:** each screen has its own stylesheet under `client/src/styles/screens/`, imported from its TS module.
 - **Legacy:** `pixel-theme.css` keeps only rules no rebuilt screen has replaced yet (base layout, admin dashboard, a few shared item-grid rules). Each rebuild deletes its legacy section rather than overriding it.

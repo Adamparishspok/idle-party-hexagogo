@@ -11,6 +11,19 @@
  *    stacked `background` pointing at /ui-artwork/{id}.png. A missing PNG
  *    falls back to the CSS look (a failed border-image renders the plain
  *    border), so art drops in without code changes.
+ *  - Missing art is never a placeholder image: frames (item, portrait) paint a
+ *    glyph — initials, emoji, or a slot name — that shows once a failed <img>
+ *    removes itself.
+ *  - Motion is decoration only: every animation/transition here is switched
+ *    off (or slowed, for spinners) under prefers-reduced-motion.
+ *  - One implementation per pattern. If a screen needs a variant, add a
+ *    modifier here rather than restyling a kit block locally.
+ *
+ * Families: text helpers, buttons (+ loading), close, parchment, card,
+ * title tab, modal (+ footer, why-not note), divider, item frame (+ glyph,
+ * set/slot pips, shiny, rarity text), portrait, octagon icon, stat, bar,
+ * tabs, chips, switch, stepper, row, input, badge, tag, need chip, fact
+ * tile, coin, empty state, screen title.
  *
  * Naming: `.gc-*` blocks, `--modifier` variants, `__part` children.
  */
@@ -124,6 +137,25 @@
 .gc-btn--icon {
   width: var(--tap-min);
   padding: 0;
+}
+/* Busy: a spinner before the label. Pair with `disabled` while working;
+   the face stays colorful — it's working, not unavailable. */
+.gc-btn--loading {
+  cursor: progress;
+}
+.gc-btn--loading:disabled {
+  filter: saturate(0.75) brightness(0.95);
+  cursor: progress;
+}
+.gc-btn--loading::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: gc-spin 0.8s linear infinite;
 }
 
 /* ── Close button (parchment square with an X) ───────────── */
@@ -241,6 +273,13 @@
   text-shadow: var(--text-stroke-sm);
   white-space: nowrap;
 }
+/* Wrap long labels so they ellipsize instead of overflowing the tab. */
+.gc-title-tab__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Modal ────────────────────────────────────────────────────
    Structure:
@@ -250,7 +289,12 @@
          .gc-modal__close  (.gc-close, overlapping the top-right corner)
          .gc-modal__portrait (optional round portrait, top-left)
          .gc-modal__body   (scrolls if tall)
-         .gc-modal__actions (button row, overlapping the bottom edge) */
+           .gc-modal__why  (optional red "why not" note, last in the body)
+         .gc-modal__actions (button row, overlapping the bottom edge)
+         — or —
+         .gc-modal__footer (pinned in-panel action stack, for dialogs with
+                            more buttons than the overlapping row holds;
+                            .gc-modal__footer-row lays secondary ones out) */
 
 .gc-modal {
   position: fixed;
@@ -319,6 +363,39 @@
   justify-content: center;
   gap: var(--s-3);
 }
+.gc-modal__footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+}
+.gc-modal__footer:empty {
+  display: none;
+}
+.gc-modal__footer-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s-2);
+}
+/* "Why not" note: sits just above the actions and says why the primary
+   action is unavailable. `.is-ok` turns it into a green go-ahead. */
+.gc-modal__why {
+  margin: var(--s-4) 0 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background: rgba(224, 70, 58, 0.12);
+  border: 2px solid rgba(224, 70, 58, 0.45);
+  font-size: var(--t-small);
+  line-height: 1.35;
+  text-align: center;
+  color: var(--red-700);
+}
+.gc-modal__why.is-ok {
+  background: rgba(79, 191, 58, 0.12);
+  border-color: rgba(42, 122, 30, 0.4);
+  color: var(--green-700);
+}
 
 @keyframes gc-fade-in {
   from { opacity: 0; }
@@ -327,6 +404,9 @@
 @keyframes gc-pop-in {
   from { opacity: 0; transform: scale(0.88); }
   to { opacity: 1; transform: scale(1); }
+}
+@keyframes gc-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ── Ornamental divider ("—— Rewards ——") ─────────────────── */
@@ -350,7 +430,17 @@
 
 /* ── Item / reward frame ──────────────────────────────────────
    Octagon frame whose edge takes the rarity color. Optional count in the
-   bottom-right corner, outlined like WorldQuest's reward numbers. */
+   bottom-right corner, outlined like WorldQuest's reward numbers.
+
+   Markup (renderKitItem / renderItemFrame in ui/ItemIcon.ts emit this):
+     .gc-item[data-rarity] (+ --sm / --lg / --empty / --shiny)
+       img.gc-item__img     (art; removes itself on 404)
+       .gc-item__glyph      (initials, or .is-emoji — shows only when the
+                             art is missing; must come after the img)
+       .gc-item__set        (gold "S" pip, top-left)
+       img.gc-item__slot    (slot badge art, top-right, optional)
+       .gc-item__count      (stack count, bottom-right)
+   Empty equipment slot: img.gc-item__slot-glyph + .gc-item__slot-name. */
 
 .gc-item {
   --gc-frame-edge: linear-gradient(160deg, #eef1f5 0%, var(--rarity) 30%, color-mix(in srgb, var(--rarity) 55%, #000) 75%, var(--rarity) 100%);
@@ -382,26 +472,59 @@
   inset: var(--gc-frame-w);
   background: var(--gc-frame-fill);
 }
-.gc-item[data-rarity="uncommon"] { --rarity: var(--rarity-uncommon); }
-.gc-item[data-rarity="rare"] { --rarity: var(--rarity-rare); }
-.gc-item[data-rarity="epic"] { --rarity: var(--rarity-epic); }
-.gc-item[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
-.gc-item[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
-.gc-item[data-rarity="janky"] { --rarity: var(--rarity-janky); }
+/* Rarity → --rarity. Shared by frames, rarity text, and rarity tags. */
+.gc-rarity-text,
+.gc-tag--rarity {
+  --rarity: var(--rarity-common);
+}
+:is(.gc-item, .gc-rarity-text, .gc-tag--rarity)[data-rarity="uncommon"] { --rarity: var(--rarity-uncommon); }
+:is(.gc-item, .gc-rarity-text, .gc-tag--rarity)[data-rarity="rare"] { --rarity: var(--rarity-rare); }
+:is(.gc-item, .gc-rarity-text, .gc-tag--rarity)[data-rarity="epic"] { --rarity: var(--rarity-epic); }
+:is(.gc-item, .gc-rarity-text, .gc-tag--rarity)[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
+:is(.gc-item, .gc-rarity-text, .gc-tag--rarity)[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
+:is(.gc-item, .gc-rarity-text, .gc-tag--rarity)[data-rarity="janky"] { --rarity: var(--rarity-janky); }
 .gc-item--empty {
   --rarity: #6d7480;
 }
 .gc-item--sm { width: 56px; height: 56px; }
 .gc-item--lg { width: 88px; height: 88px; }
+/* Epic and better get a soft glow in their rarity color. Static on purpose:
+   a pulsing filter on a whole inventory grid is expensive on phones. */
+.gc-item--shiny {
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 6px color-mix(in srgb, var(--rarity) 70%, transparent));
+}
 .gc-item__img {
   position: absolute;
+  z-index: 1;
   inset: calc(var(--gc-frame-w) + 4px);
   width: calc(100% - 2 * (var(--gc-frame-w) + 4px));
   height: calc(100% - 2 * (var(--gc-frame-w) + 4px));
   object-fit: contain;
 }
+/* Missing-art fallback: initials (or an emoji) painted on the frame. Hidden
+   while the art exists; a 404 removes the img and the glyph shows through. */
+.gc-item__glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  pointer-events: none;
+}
+.gc-item__img ~ .gc-item__glyph { visibility: hidden; }
+.gc-item__glyph.is-emoji { font-size: 32px; text-shadow: none; }
+.gc-item--sm .gc-item__glyph { font-size: var(--t-label); }
+.gc-item--sm .gc-item__glyph.is-emoji { font-size: 26px; }
+.gc-item--lg .gc-item__glyph { font-size: var(--t-heading); }
+.gc-item--lg .gc-item__glyph.is-emoji { font-size: 44px; }
 .gc-item__count {
   position: absolute;
+  z-index: 2;
   right: 4px;
   bottom: 0;
   font-family: var(--display-font);
@@ -410,11 +533,255 @@
   color: #fff;
   text-shadow: var(--text-stroke-sm);
 }
+/* Set pip — small gold coin, top-left. */
+.gc-item__set {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 35% 30%, var(--gold-300), var(--gold-500) 55%, var(--gold-700));
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+/* Slot badge — optional art, top-right; hidden until (unless) it loads. */
+.gc-item__slot {
+  position: absolute;
+  z-index: 2;
+  right: 2px;
+  top: 2px;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  opacity: 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8));
+}
+.gc-item__slot.is-loaded {
+  opacity: 0.9;
+}
+/* Empty equipment slot: faint slot glyph, or its short name when the glyph
+   art is missing. */
+.gc-item__slot-glyph {
+  position: absolute;
+  inset: 26%;
+  width: 48%;
+  height: 48%;
+  object-fit: contain;
+  opacity: 0;
+}
+.gc-item__slot-glyph.is-loaded {
+  opacity: 0.45;
+}
+.gc-item__slot-name {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: var(--gc-steel-300);
+  opacity: 0.8;
+}
+.gc-item__slot-glyph ~ .gc-item__slot-name {
+  display: none;
+}
 button.gc-item {
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 button.gc-item:active {
   transform: scale(0.95);
+}
+button.gc-item:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
+/* Item name in its rarity color, outlined so pale tiers read on parchment. */
+.gc-rarity-text {
+  font-family: var(--display-font);
+  color: var(--rarity);
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* ── Portrait (octagon class-portrait frame) ──────────────────
+   Class art clipped to the octagon over the player's initial (shown when
+   the art 404s). Size with --sm (52) / --md (64) / --lg (80) / --xl (104),
+   or set --portrait-size. `.is-self` paints the gold edge.
+   Corner pips: __level (bottom-left), __online (bottom-right; .is-online),
+   __count (top-right). Markup: portraitHtml() in screens/social/socialHtml.ts.
+     .gc-portrait.gc-portrait--md
+       .gc-portrait__initial  img.gc-portrait__img  [pips…]              */
+
+.gc-portrait {
+  --portrait-size: 52px;
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  display: inline-block;
+  width: var(--portrait-size);
+  height: var(--portrait-size);
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.55));
+}
+.gc-portrait::before,
+.gc-portrait::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+  pointer-events: none;
+}
+.gc-portrait::before {
+  inset: 0;
+  background: var(--gc-frame-edge);
+}
+.gc-portrait::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+.gc-portrait--sm { --portrait-size: 52px; }
+.gc-portrait--md { --portrait-size: 64px; }
+.gc-portrait--lg { --portrait-size: 80px; }
+.gc-portrait--xl { --portrait-size: 104px; --gc-frame-w: 4px; }
+.gc-portrait.is-self { --gc-frame-edge: var(--gc-frame-edge-gold); }
+.gc-portrait__initial,
+.gc-portrait__img {
+  position: absolute;
+  inset: var(--gc-frame-w);
+  width: calc(100% - 2 * var(--gc-frame-w));
+  height: calc(100% - 2 * var(--gc-frame-w));
+  clip-path: var(--gc-octagon);
+}
+.gc-portrait__initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display-font);
+  font-size: calc(var(--portrait-size) * 0.46);
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: var(--text-stroke-sm);
+}
+.gc-portrait__img {
+  object-fit: cover;
+  object-position: top;
+}
+.gc-portrait__level,
+.gc-portrait__count {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  font-variant-numeric: tabular-nums;
+}
+.gc-portrait__level {
+  left: -6px;
+  bottom: -6px;
+  border-color: var(--gold-500);
+  background: radial-gradient(circle at 50% 35%, #2e3242 0%, var(--gc-iron-950) 80%);
+}
+.gc-portrait__count {
+  right: -6px;
+  top: -6px;
+  background: radial-gradient(circle at 35% 30%, var(--teal-300), var(--teal-500) 60%, var(--teal-700));
+}
+.gc-portrait__online {
+  position: absolute;
+  z-index: 1;
+  right: -2px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid var(--ink-900);
+  background: #6d7480;
+}
+.gc-portrait__online.is-online {
+  background: radial-gradient(circle at 35% 30%, var(--green-300), var(--green-500) 70%);
+  box-shadow: 0 0 6px rgba(158, 240, 122, 0.7);
+}
+.gc-portrait--xl .gc-portrait__level {
+  min-width: 36px;
+  height: 36px;
+  font-size: var(--t-small);
+}
+.gc-portrait--xl .gc-portrait__online {
+  width: 22px;
+  height: 22px;
+  right: 2px;
+  bottom: 2px;
+}
+
+/* ── Octagon icon (small steel-edged octagon around an SVG) ───
+   Tint the glyph with --icon-color. --lg is the empty-state emblem size;
+   --gold swaps in the gold edge. */
+
+.gc-octicon {
+  --icon-color: var(--gc-steel-300);
+  --octicon-size: 44px;
+  --octicon-glyph: 24px;
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--octicon-size);
+  height: var(--octicon-size);
+  color: var(--icon-color);
+  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.5));
+}
+.gc-octicon::before,
+.gc-octicon::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+}
+.gc-octicon::before {
+  inset: 0;
+  background: var(--gc-frame-edge);
+}
+.gc-octicon::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+.gc-octicon svg {
+  width: var(--octicon-glyph);
+  height: var(--octicon-glyph);
+}
+.gc-octicon--lg {
+  --octicon-size: 80px;
+  --octicon-glyph: 44px;
+}
+.gc-octicon--gold {
+  --gc-frame-edge: var(--gc-frame-edge-gold);
+  --icon-color: var(--gold-300);
 }
 
 /* ── Stat (big number with icon + label, e.g. "Health 113") ── */
@@ -516,6 +883,246 @@ button.gc-item:active {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 0 var(--wood-900);
 }
 
+/* ── Toggle chips (filter row) ────────────────────────────────
+   The button is a full 48px tap target; the visible pill (__face) is compact
+   so a row of chips doesn't eat the panel. Selected = `aria-pressed="true"`
+   (or `.active`). --chip-color tints the selected face and the optional
+   __dot. `.gc-chips` scrolls sideways when it overflows.
+     <div class="gc-chips" role="group">
+       <button class="gc-chip" aria-pressed="true">
+         <span class="gc-chip__face"><span class="gc-chip__dot"></span>Party</span>
+       </button>
+     </div>                                                        */
+
+.gc-chips {
+  display: flex;
+  gap: var(--s-1);
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.gc-chips::-webkit-scrollbar {
+  display: none;
+}
+.gc-chip {
+  --chip-color: var(--gold-300);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: 0 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.gc-chip__face {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 var(--s-3);
+  border: 2px solid var(--slate-700);
+  border-radius: var(--r-pill);
+  background: var(--slate-900);
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-small);
+  line-height: 1;
+  color: #8f99ad;
+  white-space: nowrap;
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.gc-chip__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  flex-shrink: 0;
+}
+.gc-chip.active .gc-chip__face,
+.gc-chip[aria-pressed="true"] .gc-chip__face {
+  border-color: var(--chip-color);
+  background: color-mix(in srgb, var(--chip-color) 20%, var(--slate-900));
+  color: #fff;
+}
+.gc-chip.active .gc-chip__dot,
+.gc-chip[aria-pressed="true"] .gc-chip__dot {
+  border-color: var(--ink-900);
+  background: var(--chip-color);
+}
+.gc-chip:hover .gc-chip__face {
+  filter: brightness(1.12);
+}
+.gc-chip:active .gc-chip__face {
+  transform: scale(0.94);
+}
+.gc-chip:focus-visible {
+  outline: none;
+}
+.gc-chip:focus-visible .gc-chip__face {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
+/* ── Toggle switch ────────────────────────────────────────────
+   .gc-switch wraps a real checkbox (`.gc-switch__input`, role="switch") over
+   a drawn track + thumb, so `change` events and `checked` still work as
+   plain checkboxes. Put it in a .gc-switch-row <label> so the whole row
+   (≥64px) toggles it.
+     <label class="gc-switch-row">
+       <span class="gc-switch-row__text">
+         <span class="gc-switch-row__title">…</span>
+         <span class="gc-switch-row__desc">…</span>
+       </span>
+       <span class="gc-switch">
+         <input type="checkbox" role="switch" class="gc-switch__input">
+         <span class="gc-switch__track"><span class="gc-switch__thumb"></span></span>
+       </span>
+     </label>                                                     */
+
+.gc-switch {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-block;
+  width: 64px;
+  height: 36px;
+}
+.gc-switch__input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.gc-switch__input:disabled {
+  cursor: not-allowed;
+}
+.gc-switch__track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, #2a2f3c 0%, #3a4152 100%);
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.6), 0 2px 0 rgba(255, 255, 255, 0.15);
+  transition: background var(--dur-med) var(--ease-out);
+}
+.gc-switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--ink-900);
+  background: radial-gradient(circle at 40% 30%, #ffffff 0%, #d9dde5 60%, #a9b0bb 100%);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  transition: transform var(--dur-med) var(--ease-spring), width var(--dur-fast) var(--ease-out);
+}
+.gc-switch__input:checked + .gc-switch__track {
+  background: linear-gradient(180deg, var(--green-300) 0%, var(--green-500) 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.18);
+}
+.gc-switch__input:checked + .gc-switch__track .gc-switch__thumb {
+  transform: translateX(28px);
+}
+/* Pressed: the thumb squishes toward its destination. */
+.gc-switch__input:active:not(:disabled) + .gc-switch__track .gc-switch__thumb {
+  width: 32px;
+}
+.gc-switch__input:checked:active:not(:disabled) + .gc-switch__track .gc-switch__thumb {
+  transform: translateX(22px);
+}
+.gc-switch__input:focus-visible + .gc-switch__track {
+  outline: 3px solid var(--gold-500);
+  outline-offset: 3px;
+}
+.gc-switch__input:disabled + .gc-switch__track {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+/* Switch row: on parchment (settings dialogs). */
+.gc-switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 64px;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.gc-switch-row:active {
+  background: rgba(138, 106, 60, 0.15);
+}
+.gc-switch-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.gc-switch-row__title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--parch-ink);
+}
+.gc-switch-row__desc {
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: var(--parch-ink-soft);
+}
+
+/* ── Stepper (− qty + [Max]) ──────────────────────────────────
+   Square 48px kit buttons around an outlined number. Extra buttons (e.g. a
+   "Max" .gc-btn) can follow. --lg for the hero quantity in a buy dialog.
+     <div class="gc-stepper" role="group" aria-label="Quantity">
+       <button class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn">−</button>
+       <span class="gc-stepper__val" aria-live="polite">1</span>
+       <button class="gc-btn gc-btn--green gc-btn--icon gc-stepper__btn">+</button>
+     </div>                                                        */
+
+.gc-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.gc-stepper__btn {
+  font-size: var(--t-title);
+  padding-bottom: 2px;
+}
+.gc-stepper__btn svg {
+  width: 22px;
+  height: 22px;
+}
+.gc-stepper__val {
+  min-width: 32px;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1;
+  text-align: center;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  font-variant-numeric: tabular-nums;
+}
+.gc-stepper--lg {
+  gap: var(--s-3);
+}
+.gc-stepper--lg .gc-stepper__val {
+  min-width: 56px;
+  font-size: var(--t-heading);
+  text-shadow: var(--text-stroke);
+}
+
 /* ── List row ─────────────────────────────────────────────── */
 
 .gc-row {
@@ -608,6 +1215,189 @@ button.gc-row:active {
   font-size: var(--t-small);
 }
 
+/* ── Tag (small status pill: You / Leader / Ready / 2 / 5) ────
+   Default steel; tones --gold / --green / --red / --teal; --dark for quiet
+   counters and statuses on dark screens; --outline for parchment; --rarity
+   paints the item rarity from data-rarity. */
+
+.gc-tag {
+  --tag-bg: linear-gradient(180deg, #8b93a3, #555c6b);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: var(--tag-bg);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.gc-tag--gold { --tag-bg: linear-gradient(180deg, #ffe58a, #e09a1e); }
+.gc-tag--green { --tag-bg: linear-gradient(180deg, var(--green-300), var(--green-700)); }
+.gc-tag--red { --tag-bg: linear-gradient(180deg, var(--red-300), var(--red-700)); }
+.gc-tag--teal { --tag-bg: linear-gradient(180deg, var(--teal-300), var(--teal-700)); }
+.gc-tag--rarity { --tag-bg: var(--rarity); }
+.gc-tag--dark {
+  --tag-bg: var(--slate-900);
+  color: #c3cad8;
+  text-shadow: none;
+}
+/* Quiet label on parchment: ink outline, no fill (tint via `color`). */
+.gc-tag--outline {
+  --tag-bg: transparent;
+  border-color: currentColor;
+  color: var(--parch-ink-soft);
+  text-shadow: none;
+}
+
+/* ── Need chip (ingredient: name + have/need) ──────────────────
+   `.is-ok` (green count) when you have enough, `.is-short` (red) when not.
+   Wrap a list in .gc-needs. */
+
+.gc-needs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+.gc-need {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.3);
+  font-size: var(--t-caption);
+  line-height: 1.3;
+}
+.gc-need__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #dfe4ee;
+}
+.gc-need__count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.gc-need.is-ok { border-color: rgba(158, 240, 122, 0.4); }
+.gc-need.is-ok .gc-need__count { color: var(--green-300); }
+.gc-need.is-short { border-color: rgba(255, 154, 138, 0.45); }
+.gc-need.is-short .gc-need__count { color: var(--red-300); }
+
+/* ── Fact tile (parchment key/value: "Time 30s", "Level 5") ───
+   `.is-short` marks an unmet requirement in red. Wrap in .gc-facts. */
+
+.gc-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.gc-fact {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 72px;
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-sm);
+  border: 2px solid var(--parch-500);
+  background: rgba(255, 255, 255, 0.35);
+}
+.gc-fact__label {
+  font-size: var(--t-caption);
+  color: var(--parch-ink-soft);
+}
+.gc-fact__value {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+  color: var(--parch-ink);
+}
+.gc-fact.is-short { border-color: var(--red-500); }
+.gc-fact.is-short .gc-fact__value { color: var(--red-700); }
+
+/* ── Coin (painted gold coin for prices and the HUD purse) ────
+   Size with --sm (16) / --lg (32) or set --coin. */
+
+.gc-coin {
+  --coin: 24px;
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--coin);
+  height: var(--coin);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff6c4 0%, var(--gold-500) 38%, #c7901d 68%, #7a5510 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(122, 85, 16, 0.85),
+    inset 0 0 0 calc(var(--coin) * 0.2) rgba(255, 231, 160, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.gc-coin--sm { --coin: 16px; }
+.gc-coin--lg { --coin: 32px; }
+
+/* ── Empty state (emblem + headline + line + one action) ──────
+   Friendly, never a bare "No items". The emblem is a .gc-octicon (--lg
+   --gold) holding an SVG. --compact is a single row for in-panel use.
+   Markup: renderEmptyState() in ui/EmptyState.ts. */
+
+.gc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-5) var(--s-4);
+  border-radius: var(--r-lg);
+  border: 2px dashed var(--slate-500);
+  background: radial-gradient(ellipse at 50% 0%, rgba(245, 200, 66, 0.1) 0%, transparent 65%), rgba(28, 32, 41, 0.6);
+  text-align: center;
+  animation: gc-fade-in var(--dur-med) var(--ease-out);
+}
+.gc-empty__emblem {
+  margin-bottom: var(--s-1);
+}
+.gc-empty__title {
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.gc-empty__body {
+  max-width: 34ch;
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: #c3cbdb;
+}
+.gc-empty--compact {
+  flex-direction: row;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  text-align: left;
+}
+.gc-empty--compact .gc-empty__emblem {
+  --octicon-size: 56px;
+  --octicon-glyph: 30px;
+  margin-bottom: 0;
+}
+.gc-empty--compact .gc-empty__title {
+  font-size: var(--t-label);
+}
+.gc-empty--compact .gc-empty__body {
+  max-width: none;
+  margin: 2px 0 0;
+  font-size: var(--t-small);
+  line-height: 1.35;
+}
+
 /* ── Screen title ─────────────────────────────────────────── */
 
 .gc-screen-title {
@@ -622,11 +1412,20 @@ button.gc-row:active {
 
 @media (prefers-reduced-motion: reduce) {
   .gc-modal,
-  .gc-modal__panel {
+  .gc-modal__panel,
+  .gc-empty {
     animation: none;
   }
   .gc-btn,
-  .gc-bar__fill {
+  .gc-bar__fill,
+  button.gc-item,
+  .gc-chip__face,
+  .gc-switch__track,
+  .gc-switch__thumb {
     transition: none;
+  }
+  /* Spinners still need to say "working" — slow them instead of freezing. */
+  .gc-btn--loading::before {
+    animation-duration: 2.4s;
   }
 }

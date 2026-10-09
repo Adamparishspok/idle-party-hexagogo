@@ -10,7 +10,11 @@ import { canQueueRecipe, MAX_CRAFT_QUEUE, CRAFTING_UNLOCK_LEVEL } from '@idle-pa
 import type { Screen } from './ScreenManager';
 import { artworkUrl } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
+import { renderEmptyState } from '../ui/EmptyState';
 import '../styles/screens/craft.css';
+
+const EMBLEM_HAMMER = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M22 6h14l4 6-4 6H22z" fill="currentColor"/><path d="M26 18h6v22a3 3 0 0 1-6 0z" fill="currentColor"/><path d="M8 34h16v6H8z" fill="currentColor" opacity="0.6"/></svg>';
+const EMBLEM_SCROLL = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M12 8h22a4 4 0 0 1 4 4v24h-4V12H16v26a4 4 0 0 1-4 4 4 4 0 0 1-4-4v-4h4z" fill="currentColor"/><path d="M20 18h10M20 24h10M20 30h8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M16 38a4 4 0 0 0 4 4h20a4 4 0 0 0 4-4v-2H20v2a4 4 0 0 1-4 4z" fill="currentColor" opacity="0.7"/></svg>';
 
 function fmtSeconds(seconds: number): string {
   if (seconds < 60) return `${Math.ceil(seconds)}s`;
@@ -41,8 +45,9 @@ interface FrameOpts {
 
 /**
  * Rarity item frame (.gc-item) for an item id. Art loads from
- * /item-artwork/{id}.png; when it fails the img is dropped and the item's
- * initials show inside the frame instead (wired in `wireItemArt`).
+ * /item-artwork/{id}.png; when it fails the img is dropped and the kit
+ * `.gc-item__glyph` (the item's initials) shows instead (wired in
+ * `wireItemArt`, which also remembers the miss so it isn't refetched).
  */
 function itemFrame(itemId: string, def: ItemDefinition | undefined, opts: FrameOpts = {}): string {
   const name = def?.name ?? itemId;
@@ -54,8 +59,8 @@ function itemFrame(itemId: string, def: ItemDefinition | undefined, opts: FrameO
   const count = opts.count
     ? `<span class="gc-item__count${opts.countClass ? ` ${opts.countClass}` : ''}">${escapeHtml(opts.count)}</span>`
     : '';
-  return `<span class="gc-item${sizeCls} cr-item${noArt ? ' is-noart' : ''}" data-rarity="${escapeHtml(def?.rarity ?? 'common')}">`
-    + `<span class="cr-item__initials" aria-hidden="true">${escapeHtml(initials(name))}</span>${img}${count}</span>`;
+  return `<span class="gc-item${sizeCls}" data-rarity="${escapeHtml(def?.rarity ?? 'common')}">`
+    + `${img}<span class="gc-item__glyph" aria-hidden="true">${escapeHtml(initials(name))}</span>${count}</span>`;
 }
 
 /** Drop failed item art so the frame's initials show instead of a broken image. */
@@ -65,7 +70,6 @@ function wireItemArt(root: ParentNode): void {
     img.dataset.wired = '1';
     const fail = () => {
       failedArt.add(img.dataset.art ?? '');
-      img.parentElement?.classList.add('is-noart');
       img.remove();
     };
     if (img.complete && img.naturalWidth === 0 && img.src) fail();
@@ -285,19 +289,18 @@ export class CraftingScreen implements Screen {
     const head = `
       <div class="cr-section__head">
         <h2 class="cr-section__title">Workbench</h2>
-        <span class="cr-pill${c.queue.jobs.length >= MAX_CRAFT_QUEUE ? ' is-full' : ''}">${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE}</span>
+        <span class="gc-tag ${c.queue.jobs.length >= MAX_CRAFT_QUEUE ? 'gc-tag--gold' : 'gc-tag--dark'}">${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE}</span>
         <span class="cr-section__aside" data-queue-total></span>
       </div>
     `;
     if (c.queue.jobs.length === 0) {
       return `${head}
-        <div class="cr-idle">
-          <div class="cr-idle__slot gc-item gc-item--empty" aria-hidden="true"></div>
-          <div>
-            <div class="cr-idle__title">Your workbench is idle</div>
-            <div class="cr-idle__sub">Pick a recipe below to start crafting. It keeps going while you're away.</div>
-          </div>
-        </div>
+        ${renderEmptyState({
+          emblem: EMBLEM_HAMMER,
+          title: 'Your workbench is idle',
+          body: "Pick a recipe below to start crafting. It keeps going while you're away.",
+          compact: true,
+        })}
       `;
     }
 
@@ -343,27 +346,26 @@ export class CraftingScreen implements Screen {
     const head = `<div class="cr-section__head"><h2 class="cr-section__title">Recipes</h2></div>`;
     if (c.recipes.length === 0) {
       return `${head}
-        <div class="cr-idle">
-          <div class="cr-idle__slot gc-item gc-item--empty" aria-hidden="true"></div>
-          <div>
-            <div class="cr-idle__title">No recipes yet</div>
-            <div class="cr-idle__sub">New recipes appear here as the world opens up. Keep adventuring!</div>
-          </div>
-        </div>
+        ${renderEmptyState({
+          emblem: EMBLEM_SCROLL,
+          title: 'No recipes yet',
+          body: 'New recipes appear here as the world opens up. Keep adventuring!',
+          compact: true,
+        })}
       `;
     }
     const rows = c.recipes.map(recipe => {
       const chips = recipe.ingredients.map(ing => {
         const have = this.lastInventory[ing.itemId] ?? 0;
         const ok = have >= ing.quantity;
-        return `<span class="cr-chip ${ok ? 'is-ok' : 'is-short'}"><span class="cr-chip__name">${escapeHtml(this.itemName(ing.itemId))}</span> <span class="cr-chip__count">${have}/${ing.quantity}</span></span>`;
+        return `<span class="gc-need ${ok ? 'is-ok' : 'is-short'}"><span class="gc-need__name">${escapeHtml(this.itemName(ing.itemId))}</span> <span class="gc-need__count">${have}/${ing.quantity}</span></span>`;
       }).join('');
       const resultDef = this.lookupItem(recipe.result.itemId);
       const qty = recipe.result.quantity > 1 ? `×${recipe.result.quantity}` : undefined;
       const check = canQueueRecipe(recipe, this.lastInventory, c.queue, this.lastClassName, this.lastLevel);
       const badge = check.ok
-        ? `<span class="cr-status is-ready">Ready</span>`
-        : `<span class="cr-status">${escapeHtml(this.shortReason(check.reason, recipe))}</span>`;
+        ? `<span class="gc-tag gc-tag--green">Ready</span>`
+        : `<span class="gc-tag gc-tag--dark">${escapeHtml(this.shortReason(check.reason, recipe))}</span>`;
       return `
         <button type="button" class="cr-recipe${check.ok ? ' is-ready' : ''}" data-recipe-id="${escapeHtml(recipe.id)}">
           ${itemFrame(recipe.result.itemId, resultDef, { size: 'sm', count: qty })}
@@ -373,7 +375,7 @@ export class CraftingScreen implements Screen {
               ${badge}
             </span>
             <span class="cr-recipe__meta">${this.metaText(recipe)}</span>
-            <span class="cr-chips">${chips}</span>
+            <span class="gc-needs cr-recipe__needs">${chips}</span>
           </span>
         </button>
       `;
@@ -467,7 +469,7 @@ export class CraftingScreen implements Screen {
     overlay.className = 'gc-modal cr-modal';
     overlay.innerHTML = `
       <div class="gc-modal__panel gc-parchment" role="dialog" aria-modal="true" aria-labelledby="cr-modal-title">
-        <div class="gc-title-tab gc-modal__title" id="cr-modal-title"></div>
+        <div class="gc-title-tab gc-modal__title" id="cr-modal-title"><span class="gc-title-tab__text"></span></div>
         <button type="button" class="gc-close gc-modal__close" aria-label="Close"></button>
         <div class="gc-modal__body cr-modal__body"></div>
         <div class="cr-modal__toast" aria-live="polite"></div>
@@ -528,7 +530,7 @@ export class CraftingScreen implements Screen {
       return;
     }
 
-    const title = overlay.querySelector<HTMLElement>('.gc-modal__title')!;
+    const title = overlay.querySelector<HTMLElement>('.gc-modal__title .gc-title-tab__text')!;
     if (title.textContent !== recipe.name) title.textContent = recipe.name;
 
     const resultDef = this.lookupItem(recipe.result.itemId);
@@ -548,21 +550,21 @@ export class CraftingScreen implements Screen {
     }).join('');
 
     const facts: string[] = [
-      `<span class="cr-fact"><span class="cr-fact__k">Time</span><span class="cr-fact__v">${fmtSeconds(recipe.durationSeconds)}</span></span>`,
+      `<span class="gc-fact"><span class="gc-fact__label">Time</span><span class="gc-fact__value">${fmtSeconds(recipe.durationSeconds)}</span></span>`,
     ];
     if (recipe.xpReward && recipe.xpReward > 0) {
-      facts.push(`<span class="cr-fact"><span class="cr-fact__k">Craft XP</span><span class="cr-fact__v">+${recipe.xpReward}</span></span>`);
+      facts.push(`<span class="gc-fact"><span class="gc-fact__label">Craft XP</span><span class="gc-fact__value">+${recipe.xpReward}</span></span>`);
     }
     const reqLevel = recipe.requiredLevel ?? CRAFTING_UNLOCK_LEVEL;
-    facts.push(`<span class="cr-fact${this.lastLevel < reqLevel ? ' is-short' : ''}"><span class="cr-fact__k">Level</span><span class="cr-fact__v">${reqLevel}</span></span>`);
+    facts.push(`<span class="gc-fact${this.lastLevel < reqLevel ? ' is-short' : ''}"><span class="gc-fact__label">Level</span><span class="gc-fact__value">${reqLevel}</span></span>`);
     if (recipe.classRestriction && recipe.classRestriction.length > 0) {
       const ok = !!this.lastClassName && recipe.classRestriction.includes(this.lastClassName);
-      facts.push(`<span class="cr-fact${ok ? '' : ' is-short'}"><span class="cr-fact__k">Class</span><span class="cr-fact__v">${escapeHtml(recipe.classRestriction.join(' / '))}</span></span>`);
+      facts.push(`<span class="gc-fact${ok ? '' : ' is-short'}"><span class="gc-fact__label">Class</span><span class="gc-fact__value">${escapeHtml(recipe.classRestriction.join(' / '))}</span></span>`);
     }
 
     const why = check.ok
-      ? `<p class="cr-modal__why is-ok">Queue ${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE}</p>`
-      : `<p class="cr-modal__why" role="status">${escapeHtml(this.longReason(check.reason, recipe))}</p>`;
+      ? `<p class="gc-modal__why is-ok">Queue ${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE}</p>`
+      : `<p class="gc-modal__why" role="status">${escapeHtml(this.longReason(check.reason, recipe))}</p>`;
 
     const html = `
       <div class="cr-modal__hero">
@@ -573,7 +575,7 @@ export class CraftingScreen implements Screen {
         </div>
       </div>
       ${recipe.description ? `<p class="cr-modal__desc">${escapeHtml(recipe.description)}</p>` : ''}
-      <div class="cr-facts">${facts.join('')}</div>
+      <div class="gc-facts cr-modal__facts">${facts.join('')}</div>
       <div class="gc-divider">Ingredients</div>
       <div class="cr-ings">${ings}</div>
       ${why}

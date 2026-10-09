@@ -1,10 +1,8 @@
 /*
  * Settings area — the Settings root screen, its Player Options and
  * Notifications modals (kit .gc-modal on parchment), the Patch Notes pushed
- * screen, and the (currently unused) Placeholder screen.
- *
- * Also home to .gc-switch / .gc-switch-row, a chunky toggle switch that is
- * a kit candidate (see the section header below).
+ * screen, and the (currently unused) Placeholder screen. Toggles use the kit
+ * .gc-switch / .gc-switch-row (components.css).
  */
 
 /* ── Settings screen ───────────────────────────────────────── */
@@ -146,120 +144,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
-}
-
-/* ── Toggle switch (kit candidate) ─────────────────────────────
-   .gc-switch wraps a real checkbox (`.gc-switch__input`, role="switch") over
-   a drawn track + thumb, so `change` events and `checked` still work as
-   plain checkboxes. Put it in a <label> so the whole row toggles it.
-
-     <label class="gc-switch-row">
-       <span class="gc-switch-row__text">
-         <span class="gc-switch-row__title">…</span>
-         <span class="gc-switch-row__desc">…</span>
-       </span>
-       <span class="gc-switch">
-         <input type="checkbox" role="switch" class="gc-switch__input">
-         <span class="gc-switch__track"><span class="gc-switch__thumb"></span></span>
-       </span>
-     </label>                                                     */
-
-.gc-switch {
-  position: relative;
-  flex-shrink: 0;
-  display: inline-block;
-  width: 64px;
-  height: 36px;
-}
-.gc-switch__input {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.gc-switch__input:disabled {
-  cursor: not-allowed;
-}
-.gc-switch__track {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--r-pill);
-  border: 2px solid var(--ink-900);
-  background: linear-gradient(180deg, #2a2f3c 0%, #3a4152 100%);
-  box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.6), 0 2px 0 rgba(255, 255, 255, 0.15);
-  transition: background var(--dur-med) var(--ease-out);
-}
-.gc-switch__thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 2px solid var(--ink-900);
-  background: radial-gradient(circle at 40% 30%, #ffffff 0%, #d9dde5 60%, #a9b0bb 100%);
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
-  transition: transform var(--dur-med) var(--ease-spring), width var(--dur-fast) var(--ease-out);
-}
-.gc-switch__input:checked + .gc-switch__track {
-  background: linear-gradient(180deg, var(--green-300) 0%, var(--green-500) 100%);
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.18);
-}
-.gc-switch__input:checked + .gc-switch__track .gc-switch__thumb {
-  transform: translateX(28px);
-}
-/* Pressed: the thumb squishes toward its destination. */
-.gc-switch__input:active:not(:disabled) + .gc-switch__track .gc-switch__thumb {
-  width: 32px;
-}
-.gc-switch__input:checked:active:not(:disabled) + .gc-switch__track .gc-switch__thumb {
-  transform: translateX(22px);
-}
-.gc-switch__input:focus-visible + .gc-switch__track {
-  outline: 3px solid var(--gold-500);
-  outline-offset: 3px;
-}
-.gc-switch__input:disabled + .gc-switch__track {
-  opacity: 0.4;
-  filter: grayscale(1);
-}
-
-.gc-switch-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  min-height: 64px;
-  padding: var(--s-3);
-  border-radius: var(--r-md);
-  border: 2px solid var(--parch-500);
-  background: rgba(255, 255, 255, 0.28);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.gc-switch-row:active {
-  background: rgba(138, 106, 60, 0.15);
-}
-.gc-switch-row__text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-}
-.gc-switch-row__title {
-  font-family: var(--display-font);
-  font-size: var(--t-label);
-  color: var(--parch-ink);
-}
-.gc-switch-row__desc {
-  font-size: var(--t-small);
-  line-height: 1.35;
-  color: var(--parch-ink-soft);
 }
 
 /* ── Volume slider (Sound modal) ──────────────────────────────
@@ -567,9 +451,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .st-row,
-  .gc-switch__track,
-  .gc-switch__thumb {
+  .st-row {
     transition: none;
   }
 }

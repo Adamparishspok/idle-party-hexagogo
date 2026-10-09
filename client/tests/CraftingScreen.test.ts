@@ -89,11 +89,11 @@ describe('CraftingScreen', () => {
 
   it('marks ingredient chips have/need and shows a friendly idle queue', () => {
     mount(makeState(craftState(), { iron_ore: 1, oak_log: 1 }));
-    const chips = [...document.querySelectorAll('.cr-chip')];
-    expect(chips.map(c => c.className)).toEqual(['cr-chip is-short', 'cr-chip is-ok']);
-    expect(chips[0].querySelector('.cr-chip__count')?.textContent).toBe('1/3');
-    expect(document.querySelector('.cr-recipe .cr-status')?.textContent).toBe('Need items');
-    expect(document.querySelector('.cr-idle__title')?.textContent).toContain('idle');
+    const chips = [...document.querySelectorAll('.gc-need')];
+    expect(chips.map(c => c.className)).toEqual(['gc-need is-short', 'gc-need is-ok']);
+    expect(chips[0].querySelector('.gc-need__count')?.textContent).toBe('1/3');
+    expect(document.querySelector('.cr-recipe .gc-tag')?.textContent).toBe('Need items');
+    expect(document.querySelector('.gc-empty__title')?.textContent).toContain('idle');
   });
 
   it('opens the detail modal and crafts from it', () => {
@@ -114,7 +114,7 @@ describe('CraftingScreen', () => {
     push(makeState(craftState(), { iron_ore: 1 }));
     const craft = document.querySelector('.cr-modal__craft') as HTMLButtonElement;
     expect(craft.disabled).toBe(true);
-    expect(document.querySelector('.cr-modal__why')?.textContent).toBe('Still need 2 Iron Ore, 1 Oak Log.');
+    expect(document.querySelector('.cr-modal .gc-modal__why')?.textContent).toBe('Still need 2 Iron Ore, 1 Oak Log.');
   });
 
   it('cancels a queued job by index', () => {
