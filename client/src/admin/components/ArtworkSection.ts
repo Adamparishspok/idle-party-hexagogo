@@ -15,7 +15,7 @@
  * excluded by the type.
  */
 
-import { assetPublicPath } from '@idle-party-rpg/shared';
+import { assetPublicPath, isAudioAssetKind } from '@idle-party-rpg/shared';
 import type { ManagedAssetKind } from '@idle-party-rpg/shared';
 
 export interface ArtworkSectionOpts {
@@ -42,7 +42,14 @@ function publicArtworkUrl(kind: ManagedAssetKind, id: string): string {
 /** HTML for the artwork upload section. Caller wraps in a fieldset/legend. */
 export function renderArtworkSection(opts: ArtworkSectionOpts): string {
   const prefix = opts.idPrefix ?? `if-art-${opts.kind}`;
-  const preview = opts.id
+  // The sfx kind stores OGG/MP3, so it previews with an audio player and only
+  // offers audio in the picker; every other kind is a PNG. The preview points
+  // at the primary (.ogg) URL — an MP3-only upload previews after upload,
+  // when the response carries the real URL.
+  const isAudio = isAudioAssetKind(opts.kind);
+  const preview = opts.id && isAudio
+    ? `<audio controls preload="none" src="${publicArtworkUrl(opts.kind, opts.id)}" class="admin-art-preview" data-artwork-preview></audio>`
+    : opts.id
     ? `<img src="${publicArtworkUrl(opts.kind, opts.id)}" class="admin-art-preview"
               onerror="this.style.display='none'" data-artwork-preview>`
     : `<div class="admin-art-preview-empty">No artwork yet — save first to enable upload.</div>`;
@@ -50,7 +57,7 @@ export function renderArtworkSection(opts: ArtworkSectionOpts): string {
     <input type="hidden" data-artwork-id value="${escapeAttr(opts.id)}">
     <input type="hidden" data-artwork-kind value="${opts.kind}">
     ${preview}
-    <input type="file" id="${prefix}-file" accept="image/png">
+    <input type="file" id="${prefix}-file" accept="${isAudio ? 'audio/ogg,audio/mpeg,.ogg,.mp3' : 'image/png'}">
     <div class="admin-modal-actions">
       <button class="admin-btn admin-btn-sm" id="${prefix}-upload" type="button">Upload</button>
       <button class="admin-btn admin-btn-sm admin-btn-danger" id="${prefix}-remove" type="button">Remove Artwork</button>
@@ -70,7 +77,7 @@ async function uploadArtwork(root: HTMLElement, opts: ArtworkSectionOpts): Promi
   if (!id) { alert(`Save the ${opts.kind} first before uploading artwork.`); return; }
   const prefix = opts.idPrefix ?? `if-art-${opts.kind}`;
   const fileInput = root.querySelector(`#${prefix}-file`) as HTMLInputElement | null;
-  if (!fileInput?.files?.length) { alert('Select a PNG file first.'); return; }
+  if (!fileInput?.files?.length) { alert(`Select ${isAudioAssetKind(opts.kind) ? 'an OGG or MP3' : 'a PNG'} file first.`); return; }
   const formData = new FormData();
   formData.append('artwork', fileInput.files[0]);
   try {
@@ -86,7 +93,7 @@ async function uploadArtwork(root: HTMLElement, opts: ArtworkSectionOpts): Promi
     // The response carries the stored file's URL already stamped with its
     // write time, so the preview refreshes without a cache-busting guess.
     const data = await res.json().catch(() => ({}));
-    const preview = root.querySelector('[data-artwork-preview]') as HTMLImageElement | null;
+    const preview = root.querySelector('[data-artwork-preview]') as HTMLImageElement | HTMLAudioElement | null;
     if (preview) {
       preview.src = data?.asset?.url ?? `${publicArtworkUrl(opts.kind, id)}?t=${Date.now()}`;
       preview.style.display = '';

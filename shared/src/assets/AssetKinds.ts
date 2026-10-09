@@ -8,7 +8,8 @@
  * be uploaded. Everything now derives from `ASSET_KIND_INFO`: adding a kind is
  * one row here.
  *
- * URL convention is `<mount>/{id}.png`, served from `data/<dir>/`. Most kinds
+ * URL convention is `<mount>/{id}.png` (or `.ogg`/`.mp3` for the audio kind,
+ * see `formats`), served from `data/<dir>/`. Most kinds
  * follow `/{kind}-artwork/{id}.png`, but the three icon sets predate that
  * convention and keep their own mounts, so `dir` and `mount` are spelled out
  * per row rather than derived from the kind name.
@@ -33,6 +34,7 @@ export const ASSET_KINDS = [
   'nav-icon',
   'skill',
   'ui',
+  'sfx',
 ] as const;
 
 export type AssetKind = (typeof ASSET_KINDS)[number];
@@ -49,6 +51,45 @@ export const UI_CHROME_IDS = [
   'xp-frame',
   'hud-pill',
 ] as const;
+
+/**
+ * Sound-event ids the client's `SoundManager` plays. Each one tries
+ * `/sfx/{id}.ogg`, then `/sfx/{id}.mp3`, and falls back to a procedural Web
+ * Audio placeholder,
+ * so — like the painted chrome — a dropped-in file is an upgrade, never a
+ * requirement. Adding an id here is the whole contract: the SoundManager needs
+ * a placeholder recipe for it (enforced by its `Record<SfxId, …>` table).
+ */
+export const SFX_IDS = [
+  'ui-tap',
+  'ui-open',
+  'ui-close',
+  'tab-switch',
+  'hit',
+  'hit-crit',
+  'miss',
+  'heal',
+  'skill',
+  'victory',
+  'defeat',
+  'level-up',
+  'coin',
+  'loot',
+  'equip',
+  'craft-complete',
+  'chat-message',
+  'notification',
+  'error',
+] as const;
+
+export type SfxId = (typeof SFX_IDS)[number];
+
+/**
+ * File format a kind is stored and served as. Everything was PNG until sound
+ * effects joined the registry; the format drives the public URL's extension,
+ * which files the store lists, and which signature an upload must carry.
+ */
+export type AssetFileFormat = 'png' | 'ogg' | 'mp3';
 
 /**
  * How the coverage report enumerates the ids a kind is *expected* to have art
@@ -95,7 +136,7 @@ export interface AssetKindInfo {
   label: string;
   /** What this art is used for — surfaced verbatim in the API and MCP tools. */
   description: string;
-  /** Folder under the process working directory that holds the PNGs. */
+  /** Folder under the process working directory that holds the files. */
   dir: string;
   /** Public URL prefix the client fetches from. */
   mount: string;
@@ -119,6 +160,14 @@ export interface AssetKindInfo {
    * single canonical filename instead of leaving the drift in place.
    */
   lowercaseIds?: boolean;
+  /**
+   * Accepted file formats, in the order the client tries them; the first is
+   * the primary (used for the canonical public URL). Omitted means `['png']`
+   * — every image kind — so only the audio kind has to say anything. Sound
+   * effects take OGG first (the Kenney packs ship OGG) and MP3 as a fallback;
+   * an upload is stored under whichever extension its bytes actually are.
+   */
+  formats?: readonly AssetFileFormat[];
 }
 
 export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
@@ -306,6 +355,20 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
     fixedIds: UI_CHROME_IDS,
     shape: 'any',
   },
+  sfx: {
+    label: 'Sound effect',
+    description:
+      'Short OGG (preferred) or MP3 sound effects keyed by sound-event id (button taps, combat hits, level-up, loot, …). '
+      + 'Each event has a synthesized placeholder, so a missing file just plays the placeholder.',
+    dir: 'data/sfx',
+    mount: '/sfx',
+    idSource: 'fixed',
+    idFormat: 'Fixed sound-event id (SFX_IDS)',
+    fixedIds: SFX_IDS,
+    // Audio has no aspect ratio; `any` skips the square check.
+    shape: 'any',
+    formats: ['ogg', 'mp3'],
+  },
 };
 
 /**
@@ -334,6 +397,7 @@ export const MANAGED_ASSET_KINDS = [
   'nav-icon',
   'skill',
   'ui',
+  'sfx',
 ] as const;
 
 export type ManagedAssetKind = (typeof MANAGED_ASSET_KINDS)[number];
@@ -383,9 +447,27 @@ export function canonicalAssetId(kind: AssetKind, id: string): string {
   return ASSET_KIND_INFO[kind].lowercaseIds ? id.toLowerCase() : id;
 }
 
-/** Public URL the client fetches a given asset from. */
-export function assetPublicPath(kind: AssetKind, id: string): string {
-  return `${ASSET_KIND_INFO[kind].mount}/${encodeURIComponent(canonicalAssetId(kind, id))}.png`;
+/** Every format a kind accepts, primary first. */
+export function assetFileExtensions(kind: AssetKind): readonly AssetFileFormat[] {
+  return ASSET_KIND_INFO[kind].formats ?? ['png'];
+}
+
+/** Primary file extension (no dot) a kind's assets are served under. */
+export function assetFileExtension(kind: AssetKind): AssetFileFormat {
+  return assetFileExtensions(kind)[0];
+}
+
+/** True for kinds that hold audio rather than images. */
+export function isAudioAssetKind(kind: AssetKind): boolean {
+  return assetFileExtension(kind) !== 'png';
+}
+
+/**
+ * Public URL the client fetches a given asset from. `format` picks one of the
+ * kind's accepted formats; it defaults to the primary.
+ */
+export function assetPublicPath(kind: AssetKind, id: string, format: AssetFileFormat = assetFileExtension(kind)): string {
+  return `${ASSET_KIND_INFO[kind].mount}/${encodeURIComponent(canonicalAssetId(kind, id))}.${format}`;
 }
 
 /**

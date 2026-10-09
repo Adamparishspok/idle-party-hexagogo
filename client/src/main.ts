@@ -5,7 +5,10 @@ import './styles/screens/combat.css';
 import './styles/game-chrome.css';
 import { App } from './App';
 import { registerServiceWorker } from './network/PushNotifications';
+import { installUiSounds } from './audio/SoundEvents';
 
+// Before App so the first gesture anywhere (even on the login screen) unlocks audio.
+installUiSounds();
 new App();
 registerServiceWorker();
 

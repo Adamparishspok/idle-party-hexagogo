@@ -142,3 +142,30 @@ on top of tiles. Needs its own design pass before implementation.
 - `monster` portraits in the painted style.
 - Map tiles / parchment (largest effort; WorldQuest's map is one continuous
   painted island, not hex tiles — needs its own design discussion).
+
+## SFX
+
+Sound effects to source (Kenney packs are the first stop). Each id is a file at
+`data/sfx/{id}.ogg` (preferred) or `.mp3`; until one exists the game plays a
+synthesized placeholder, so these can land one at a time. Keep every sound
+short and soft-attacked — most are heard hundreds of times a session.
+
+- `ui-tap` — generic button press. A tiny wooden/soft click, under 80ms.
+- `ui-open` — a panel/modal opening. Light rising whoosh or paper unfurl, ~150ms.
+- `ui-close` — a panel/modal closing. The open sound's reverse, slightly snappier.
+- `tab-switch` — bottom-nav screen change. Rounded "tock", distinct from ui-tap.
+- `hit` — damage dealt or taken in combat. Short punchy thud/slash, ~120ms.
+- `hit-crit` — a big hit (≥30% of max HP). Heavier impact with a bright crack.
+- `miss` — a dodged attack. Blade whoosh through air.
+- `heal` — healing landed. Gentle rising sparkle/chime.
+- `skill` — a skill used. Magical power-up swoosh.
+- `victory` — battle won (combat screen only). Short bright fanfare, under 1s.
+- `defeat` — party wiped. Short descending, sad-not-harsh phrase, about 1s.
+- `level-up` — character level gained. The big celebratory jingle, about 1s.
+- `coin` — gold gained. Classic coin bling; heard often, so keep it quiet.
+- `loot` — item found. Treasure glint/sparkle.
+- `equip` — gear equipped/changed. Armour/metal clank.
+- `craft-complete` — a craft finished. Anvil ding + satisfied chime.
+- `chat-message` — incoming chat. Very subtle bloop.
+- `notification` — a notification arrived. Soft two-tone bell.
+- `error` — an action was rejected. Low, short "nope" buzz; never punishing.

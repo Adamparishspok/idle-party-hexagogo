@@ -237,7 +237,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Mobile-first responsive design
 - [x] Pixel/retro RPG visual style (Silkscreen + Pixelify Sans)
 - [x] Combat cards with portrait + name + HP bar; per-zone backgrounds; lunge/hit/dodge animations
-- [x] Image-everywhere convention (`<mount>/{id}.png` with placeholder fallback) across all 16 asset kinds — items, monsters, classes, rooms, room types, sets, shops, zones, NPCs, map parchment, combat/room backdrops, the splash logo, and the class/slot/nav icon sets — all declared once in a shared registry
+- [x] Image-everywhere convention (`<mount>/{id}.png` with placeholder fallback) across all 17 asset kinds (16 image kinds plus `sfx` audio) — items, monsters, classes, rooms, room types, sets, shops, zones, NPCs, map parchment, combat/room backdrops, the splash logo, and the class/slot/nav icon sets — all declared once in a shared registry
 - [x] Nav bar battle status indicators (pulse/flash on combat events)
 - [x] Server unavailable / offline screen with retry
 - [x] Desktop font scaling (larger fonts on desktop via media query)
@@ -250,6 +250,8 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] WorldQuest-style rebuild of every screen and popup on the component kit (combat, character, map chrome + rooms, social, craft, chat, notifications, settings, title flow)
 - [ ] Painted world map (still hex-based underneath) — see `ideas/ui-revamp-worldquest.md`
 - [ ] Painted art for the `ui` chrome kind and nav icons
+- [x] Sound effects (combat, buttons, rewards, alerts) with synthesized placeholders, volume/mute in Settings; real files drop into `data/sfx/{id}.ogg`
+- [ ] Real recorded sound effects for every `SFX_IDS` entry — see `ideas/ui-revamp-worldquest.md`
 - [x] ModalStack click-order z-index across all overlays
 
 ### World Manager
@@ -260,7 +262,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Quest editor (Quests tab; NPCs tab links quests to NPCs)
 - [x] Recipe editor (Recipes tab — author/edit crafting recipes without touching JSON)
 - [x] Skill tree editor (skills as versioned content — composable effect options, editable unlock levels, per-class slot schedules, item/set skill grants)
-- [x] CRM artwork upload pipeline (14 of the 16 asset kinds share one upload API; items / monsters / zones / tile types / map parchment also have an in-modal uploader)
+- [x] CRM artwork upload pipeline (15 of the 17 asset kinds — including `sfx` OGG/MP3 sound effects — share one upload API; items / monsters / zones / tile types / map parchment also have an in-modal uploader)
 - [ ] Set and shop artwork management (deferred — set art has no render site, and shop art is fetched by zone id rather than shop id)
 - [x] Asset coverage report (which content is still missing artwork, accounting for fallback chains, plus orphaned files)
 - [x] Game designer access only

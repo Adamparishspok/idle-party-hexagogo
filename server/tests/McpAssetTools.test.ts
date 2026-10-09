@@ -110,7 +110,10 @@ describe('listAssetKinds', () => {
       const info = result.kinds[kind];
       expect(info.kind).toBe(kind);
       expect(info.mount.startsWith('/')).toBe(true);
-      expect(info.urlTemplate).toBe(`${info.mount}/{id}.png`);
+      // Every image kind serves PNGs; only the sound kind serves OGG (then MP3).
+      const formats = kind === 'sfx' ? ['ogg', 'mp3'] : ['png'];
+      expect(info.formats).toEqual(formats);
+      expect(info.urlTemplate).toBe(`${info.mount}/{id}.${formats[0]}`);
       expect(info.idFormat.length).toBeGreaterThan(0);
       expect(['square', 'any']).toContain(info.shape);
       expect(Array.isArray(info.fallbacks)).toBe(true);

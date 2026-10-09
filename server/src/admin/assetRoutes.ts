@@ -1,6 +1,6 @@
 import type { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
-import { MANAGED_ASSET_KINDS, DEFERRED_ASSET_KINDS, ASSET_KIND_INFO, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
+import { MANAGED_ASSET_KINDS, DEFERRED_ASSET_KINDS, ASSET_KIND_INFO, isManagedAssetKind, isDeferredAssetKind, assetFileExtension, assetFileExtensions } from '@idle-party-rpg/shared';
 import type { ManagedAssetKind } from '@idle-party-rpg/shared';
 import type { ContentStore } from '../game/ContentStore.js';
 import type { AssetStore } from '../game/AssetStore.js';
@@ -41,7 +41,8 @@ export function describeAssetKinds() {
         dir: info.dir,
         idFormat: info.idFormat,
         shape: info.shape,
-        urlTemplate: `${info.mount}/{id}.png`,
+        formats: assetFileExtensions(kind),
+        urlTemplate: `${info.mount}/{id}.${assetFileExtension(kind)}`,
         fallbacks: info.fallbacks ?? [],
       }];
     })
@@ -144,7 +145,7 @@ export function registerAssetRoutes(router: Router, { contentStore, assetStore }
     }
   });
 
-  /** Upload (or replace) a PNG. Multipart field name: `artwork`. */
+  /** Upload (or replace) a PNG — or an OGG/MP3 for the `sfx` kind. Multipart field name: `artwork`. */
   router.post('/assets/:kind/:id', assetUpload.single('artwork'), async (req, res) => {
     const kind = resolveKind(req, res);
     if (!kind) return;
@@ -184,7 +185,7 @@ export function assetUploadErrorHandler(err: unknown, _req: Request, res: Respon
   if (!err) { next(); return; }
   if (err instanceof multer.MulterError) {
     const message = err.code === 'LIMIT_FILE_SIZE'
-      ? `Image is too large — the limit is ${MAX_ASSET_BYTES / 1024} KB.`
+      ? `File is too large — the limit is ${MAX_ASSET_BYTES / 1024} KB.`
       : `Upload failed: ${err.message}.`;
     res.status(400).json({ error: message });
     return;

@@ -152,8 +152,11 @@ Every kind of image the game serves is declared once in `ASSET_KIND_INFO` (`shar
 | `slot-icon` | Equipment-slot dogear glyphs | `EquipSlot` id | square |
 | `nav-icon` | Bottom-nav button glyphs | Nav destination id | square |
 | `ui` | Painted shell chrome (nav bar, nav button frame, active-tab banner, XP bar housing, HUD pill), layered over CSS fallbacks in `game-chrome.css` | fixed ids in `UI_CHROME_IDS` | any |
+| `sfx` | Sound effects (not images) — served from `data/sfx/` at `/sfx/{id}.ogg` (preferred) or `/sfx/{id}.mp3`, each over a synthesized placeholder in `client/src/audio/SfxSynth.ts` | fixed sound-event ids in `SFX_IDS` | any (n/a) |
 
-`shape: 'square'` rejects non-square uploads; `'any'` accepts any aspect ratio (the wide backdrops and the logo). NPCs may skip the folder entirely by pointing `NpcDefinition.artworkUrl` at any URL.
+`shape: 'square'` rejects non-square uploads; `'any'` accepts any aspect ratio (the wide backdrops and the logo).
+
+**File formats.** Every image kind is PNG. A row may set `formats` (primary first); only `sfx` does, with `['ogg', 'mp3']`. `assetPublicPath(kind, id, format?)` uses the primary unless told otherwise, and `assetFileExtensions(kind)` lists them all. `AssetStore` sniffs audio uploads (`OggS` → `.ogg`; `ID3` tag or MPEG frame sync → `.mp3`), stores them under the extension the bytes actually are, and deletes the id's file in the other format so a stale `.ogg` can't shadow a fresh `.mp3` upload (the client tries `.ogg` first). WAV and anything else is rejected with a 400 naming the accepted formats. Audio assets report `width`/`height` as 0. The admin `ArtworkSection` switches to an audio picker + `<audio>` preview for audio kinds. NPCs may skip the folder entirely by pointing `NpcDefinition.artworkUrl` at any URL.
 
 **⏸ Deferred kinds.** `set` and `shop` are in the registry — still mounted, still served, still type-checked — but listed in `DEFERRED_ASSET_KINDS` rather than `MANAGED_ASSET_KINDS`, so the assets API, the MCP tools, and the coverage report all skip them and the routes reject them with a 400 explaining why. Each is blocked on a client-side problem that would make managing its art misleading:
 

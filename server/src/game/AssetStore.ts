@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { ASSET_KIND_INFO, isValidAssetId, canonicalAssetId, assetPublicPath } from '@idle-party-rpg/shared';
-import type { AssetKind } from '@idle-party-rpg/shared';
+import { ASSET_KIND_INFO, isValidAssetId, canonicalAssetId, assetPublicPath, assetFileExtension, assetFileExtensions, isAudioAssetKind } from '@idle-party-rpg/shared';
+import type { AssetKind, AssetFileFormat } from '@idle-party-rpg/shared';
 
 /**
  * Swappable store for the game's imagery, satisfying the data-folder rule in
@@ -26,7 +26,9 @@ export interface AssetFileInfo {
   /** Public URL including a cache-busting version stamp. */
   url: string;
   bytes: number;
+  /** Pixel width. Always 0 for audio kinds (`sfx`), which have no dimensions. */
   width: number;
+  /** Pixel height. Always 0 for audio kinds. */
   height: number;
   /** ISO timestamp of the file's last write. */
   updatedAt: string;
@@ -68,6 +70,33 @@ export function inspectPng(buf: Buffer): PngHeader {
   return { width, height };
 }
 
+
+/**
+ * Work out which audio format the bytes really are. There's no cheap
+ * duration/dimension to pull out of audio, so this is purely a "is this really
+ * a sound file" gate, mirroring why `inspectPng` exists: the multipart mime
+ * type is caller-declared and can't be trusted.
+ *
+ * - OGG: every Ogg page starts with the capture pattern `OggS`.
+ * - MP3: either an ID3v2 tag (`ID3`) or a bare MPEG audio frame sync (11 set
+ *   bits) at offset 0.
+ *
+ * Returns the detected format so `write` can file the upload under the
+ * extension its bytes actually are, whatever the uploader called it.
+ */
+export function inspectAudio(buf: Buffer, accepted: readonly AssetFileFormat[]): AssetFileFormat {
+  const list = accepted.map(f => f.toUpperCase()).join(' or ');
+  if (buf.length < 4) throw new AssetValidationError(`Not a valid ${list} file — too small to contain a header.`);
+  let detected: AssetFileFormat | null = null;
+  if (buf.subarray(0, 4).toString('latin1') === 'OggS') detected = 'ogg';
+  else if (buf.subarray(0, 3).toString('latin1') === 'ID3') detected = 'mp3';
+  else if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) detected = 'mp3';
+  if (!detected || !accepted.includes(detected)) {
+    throw new AssetValidationError(`Not a valid ${list} file — sound effects must be ${list} (WAV and other formats are not accepted; convert first).`);
+  }
+  return detected;
+}
+
 export class AssetStore {
   /** Absolute path of a kind's folder. Resolved per call so tests can chdir. */
   private dirFor(kind: AssetKind): string {
@@ -81,33 +110,40 @@ export class AssetStore {
    * id now arrives from bearer-token MCP clients and not just from an admin
    * clicking a modal.
    */
-  private fileFor(kind: AssetKind, id: string): string {
+  private fileFor(kind: AssetKind, id: string, format: AssetFileFormat = assetFileExtension(kind)): string {
     if (!isValidAssetId(id)) {
       throw new AssetValidationError(`Invalid asset id "${id}" — letters, numbers, spaces, dots, dashes, and underscores only.`);
     }
     const canonical = canonicalAssetId(kind, id);
     const dir = this.dirFor(kind);
-    const file = path.resolve(dir, `${canonical}.png`);
-    if (file !== path.join(dir, `${canonical}.png`) || !file.startsWith(dir + path.sep)) {
+    const name = `${canonical}.${format}`;
+    const file = path.resolve(dir, name);
+    if (file !== path.join(dir, name) || !file.startsWith(dir + path.sep)) {
       throw new AssetValidationError(`Invalid asset id "${id}" — resolves outside the ${kind} folder.`);
     }
     return file;
   }
 
-  private urlFor(kind: AssetKind, id: string, version: number): string {
-    return `${assetPublicPath(kind, id)}?v=${Math.floor(version)}`;
+  private urlFor(kind: AssetKind, id: string, format: AssetFileFormat, version: number): string {
+    return `${assetPublicPath(kind, id, format)}?v=${Math.floor(version)}`;
   }
 
   /**
    * Ids present in a kind's folder. Cheap — a single readdir, no per-file stat.
-   * This is what the coverage report joins against.
+   * This is what the coverage report joins against. An id stored under more
+   * than one accepted format (sound effects) is listed once.
    */
   async listIds(kind: AssetKind): Promise<string[]> {
+    const exts = assetFileExtensions(kind).map(f => `.${f}`);
     try {
       const entries = await fs.readdir(this.dirFor(kind), { withFileTypes: true });
-      return entries
-        .filter(e => e.isFile() && e.name.toLowerCase().endsWith('.png'))
-        .map(e => e.name.slice(0, -'.png'.length));
+      const ids = new Set<string>();
+      for (const e of entries) {
+        if (!e.isFile()) continue;
+        const ext = exts.find(x => e.name.toLowerCase().endsWith(x));
+        if (ext) ids.add(e.name.slice(0, -ext.length));
+      }
+      return [...ids];
     } catch {
       // A kind with no folder yet simply has no art.
       return [];
@@ -121,11 +157,82 @@ export class AssetStore {
     return infos.filter((info): info is AssetFileInfo => info !== null);
   }
 
-  /** Info for one asset, or null when it doesn't exist. */
+  /**
+   * Info for one asset, or null when it doesn't exist. For multi-format kinds
+   * the formats are tried in the same order the client tries them, so the
+   * reported file is the one players actually hear.
+   */
   async stat(kind: AssetKind, id: string): Promise<AssetFileInfo | null> {
+    for (const format of assetFileExtensions(kind)) {
+      const info = await this.statFormat(kind, id, format);
+      if (info) return info;
+    }
+    return null;
+  }
+
+  /** True when a kind's folder holds art for this id. */
+  async has(kind: AssetKind, id: string): Promise<boolean> {
+    return (await this.stat(kind, id)) !== null;
+  }
+
+  /**
+   * Validate and store a file — a PNG for image kinds, an OGG or MP3 for the
+   * audio kind — replacing any existing asset for the id.
+   * Throws `AssetValidationError` for anything the caller can fix.
+   */
+  async write(kind: AssetKind, id: string, data: Buffer): Promise<AssetFileInfo> {
+    // Validate the id before touching the payload so a bad id is reported as such.
+    this.fileFor(kind, id);
+    const audio = isAudioAssetKind(kind);
+    if (data.length === 0) throw new AssetValidationError('Uploaded file is empty.');
+    if (data.length > MAX_ASSET_BYTES) {
+      const noun = audio ? 'Sound' : 'Image';
+      throw new AssetValidationError(`${noun} is ${Math.ceil(data.length / 1024)} KB — the limit is ${MAX_ASSET_BYTES / 1024} KB.`);
+    }
+    let format: AssetFileFormat = 'png';
+    if (audio) {
+      format = inspectAudio(data, assetFileExtensions(kind));
+    } else {
+      const { width, height } = inspectPng(data);
+      if (ASSET_KIND_INFO[kind].shape === 'square' && width !== height) {
+        throw new AssetValidationError(`${ASSET_KIND_INFO[kind].label} art must be square. Got ${width}x${height}.`);
+      }
+    }
+    const file = this.fileFor(kind, id, format);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, data);
+    // Drop the id's files in the kind's other formats: the client tries the
+    // primary format first, so a stale `.ogg` would otherwise shadow a fresh
+    // `.mp3` upload forever.
+    for (const other of assetFileExtensions(kind)) {
+      if (other === format) continue;
+      await fs.unlink(this.fileFor(kind, id, other)).catch(() => undefined);
+    }
+    const info = await this.statFormat(kind, id, format);
+    // statFormat() only returns null if the write vanished underneath us.
+    if (!info) throw new Error(`Failed to read back ${kind} artwork "${id}" after writing it.`);
+    return info;
+  }
+
+  /** Delete art for an id (in every accepted format). Returns whether a file was actually removed. */
+  async remove(kind: AssetKind, id: string): Promise<boolean> {
+    let removed = false;
+    for (const format of assetFileExtensions(kind)) {
+      const file = this.fileFor(kind, id, format);
+      try {
+        await fs.unlink(file);
+        removed = true;
+      } catch {
+        // Not stored in this format.
+      }
+    }
+    return removed;
+  }
+
+  private async statFormat(kind: AssetKind, id: string, format: AssetFileFormat): Promise<AssetFileInfo | null> {
     let file: string;
     try {
-      file = this.fileFor(kind, id);
+      file = this.fileFor(kind, id, format);
     } catch {
       // An unreadable id can't name an existing file.
       return null;
@@ -138,13 +245,19 @@ export class AssetStore {
       try {
         const header = Buffer.alloc(24);
         const { bytesRead } = await handle.read(header, 0, 24, 0);
-        const { width, height } = inspectPng(header.subarray(0, bytesRead));
+        let width = 0;
+        let height = 0;
+        if (format === 'png') {
+          ({ width, height } = inspectPng(header.subarray(0, bytesRead)));
+        } else if (inspectAudio(header.subarray(0, bytesRead), [format]) !== format) {
+          return null;
+        }
         return {
           // Report the spelling the file is actually stored under, which for
           // lowercase-folded kinds may differ from what the caller passed.
           id: canonicalAssetId(kind, id),
           kind,
-          url: this.urlFor(kind, id, stats.mtimeMs),
+          url: this.urlFor(kind, id, format, stats.mtimeMs),
           bytes: stats.size,
           width,
           height,
@@ -155,44 +268,6 @@ export class AssetStore {
       }
     } catch {
       return null;
-    }
-  }
-
-  /** True when a kind's folder holds art for this id. */
-  async has(kind: AssetKind, id: string): Promise<boolean> {
-    return (await this.stat(kind, id)) !== null;
-  }
-
-  /**
-   * Validate and store a PNG, replacing any existing art for the id.
-   * Throws `AssetValidationError` for anything the caller can fix.
-   */
-  async write(kind: AssetKind, id: string, png: Buffer): Promise<AssetFileInfo> {
-    const file = this.fileFor(kind, id);
-    if (png.length === 0) throw new AssetValidationError('Uploaded file is empty.');
-    if (png.length > MAX_ASSET_BYTES) {
-      throw new AssetValidationError(`Image is ${Math.ceil(png.length / 1024)} KB — the limit is ${MAX_ASSET_BYTES / 1024} KB.`);
-    }
-    const { width, height } = inspectPng(png);
-    if (ASSET_KIND_INFO[kind].shape === 'square' && width !== height) {
-      throw new AssetValidationError(`${ASSET_KIND_INFO[kind].label} art must be square. Got ${width}x${height}.`);
-    }
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, png);
-    const info = await this.stat(kind, id);
-    // stat() only returns null if the write vanished underneath us.
-    if (!info) throw new Error(`Failed to read back ${kind} artwork "${id}" after writing it.`);
-    return info;
-  }
-
-  /** Delete art for an id. Returns whether a file was actually removed. */
-  async remove(kind: AssetKind, id: string): Promise<boolean> {
-    const file = this.fileFor(kind, id);
-    try {
-      await fs.unlink(file);
-      return true;
-    } catch {
-      return false;
     }
   }
 }
