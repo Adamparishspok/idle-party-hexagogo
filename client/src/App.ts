@@ -23,6 +23,10 @@ import { PersistentXpBar } from './ui/PersistentXpBar';
 import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
 import { HomeView } from './ui/HomeView';
+import { BankView } from './ui/BankView';
+import { installGearErrorToasts } from './ui/GameToast';
+import { installItemTooltips } from './ui/ItemStats';
+import { derivedInputFromState, isKnownClass } from './ui/GearModel';
 import { WellRestedChip } from './ui/WellRestedChip';
 import { WelcomeBackModal } from './ui/WelcomeBackModal';
 import { chatFocusTracker } from './network/ChatFocusTracker';
@@ -497,6 +501,20 @@ export class App {
     socialScreen.setOnVisitHome((username) => home.requestEnter(username));
     home.setOnTravel(() => goToRoot('map'));
     mapScreen.setOnEnterHome(() => home.requestEnter());
+    const skills = () => this.worldCache.getSkillContent().skills;
+    const bank = new BankView(this.gameClient, skills);
+    mapScreen.setOnOpenBank(() => bank.show());
+    installGearErrorToasts(this.gameClient, (code) => bank.claimsError(code));
+    installItemTooltips(() => {
+      const state = this.gameClient.lastState;
+      const cls = state?.character?.className;
+      return {
+        level: state?.character?.level,
+        className: isKnownClass(cls) ? cls : null,
+        skills: skills(),
+        compareInput: derivedInputFromState(state),
+      };
+    });
     const hud = new TopHud(this.gameClient, this.worldCache, () => goToRoot('settings'), () => home.travelTo());
     hud.setSettingsActive(savedScreen === 'settings');
     new PersistentXpBar(this.gameClient, () => goToRoot('items'));

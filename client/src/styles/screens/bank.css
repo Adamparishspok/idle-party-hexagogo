@@ -1,0 +1,187 @@
+/* Bank: a wide parchment modal with a tab strip, the open tab and the backpack side by side
+   (stacked on phones). See docs/architecture/gear-stats-bank.md → Bank. */
+
+.bank-panel {
+  width: min(100%, 880px);
+}
+.bank-panel.is-detail {
+  width: min(100%, 440px);
+}
+.bank-gold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.bank-gold__value {
+  font-family: var(--display-font);
+  font-size: var(--t-heading);
+  line-height: 1;
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke);
+  font-variant-numeric: tabular-nums;
+}
+.bank-notice {
+  flex-shrink: 0;
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--red-700);
+  border-radius: var(--r-md);
+  background: rgba(224, 70, 58, 0.16);
+  font-size: var(--t-body);
+  text-align: center;
+  color: var(--red-700);
+}
+.bank-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.bank-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.bank-tabs {
+  flex: 1 1 320px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bank-tab {
+  flex: 0 0 auto;
+  min-width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  line-height: 1.1;
+}
+.bank-tab__count {
+  font-family: var(--ui-font);
+  font-size: var(--t-caption);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+.bank-buy-tab {
+  flex: 0 0 auto;
+  min-height: var(--tap-min);
+  gap: 6px;
+  padding: 0 var(--s-3);
+}
+.bank-buy-tab svg { width: 18px; height: 18px; }
+.bank-panes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-4);
+}
+.bank-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 2px solid var(--parch-500);
+  border-radius: var(--r-md);
+  background: rgba(255, 246, 214, 0.45);
+}
+.bank-pane__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.bank-pane__title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  font-weight: 700;
+  color: var(--parch-ink);
+}
+.bank-pane__count {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--parch-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.bank-pane__count.is-full { color: var(--red-700); }
+.bank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  justify-items: center;
+  gap: var(--s-3) var(--s-2);
+}
+.bank-grid .gc-item {
+  width: 60px;
+  height: 60px;
+}
+.bank-grid button.gc-item {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.bank-grid button.gc-item:active { transform: scale(0.92); }
+.bank-grid button.gc-item:focus-visible {
+  outline: 3px solid var(--gold-500);
+  outline-offset: 2px;
+}
+.bank-free { opacity: 0.4; }
+
+.bank-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.bank-hero__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.bank-hero__name {
+  margin: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  line-height: 1.15;
+  text-shadow: var(--text-stroke-sm);
+  overflow-wrap: anywhere;
+}
+.bank-hero__sub {
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.bank-qty { justify-content: center; }
+.bank-move {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+}
+.bank-move .gc-btn { min-height: var(--tap-min); }
+.bank-buy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  text-align: center;
+}
+.bank-buy__q {
+  margin: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  color: var(--parch-ink);
+}
+.bank-buy__lead {
+  margin: 0;
+  color: var(--parch-ink-soft);
+}
+
+@media (min-width: 768px) {
+  .bank-panes { grid-template-columns: 1fr 1fr; }
+  .bank-grid { grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); }
+  .bank-grid .gc-item { width: 68px; height: 68px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bank-grid button.gc-item { transition: none; }
+}

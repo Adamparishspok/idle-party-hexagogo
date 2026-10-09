@@ -186,6 +186,13 @@ export const SLOT_SHORT_LABELS: Record<string, string> = {
   foot: 'Feet', ring: 'Ring', necklace: 'Neck', back: 'Back', relic: 'Relic',
 };
 
+const tipItems = new Map<string, ItemDefinition>();
+
+/** Definitions of item frames rendered so far, for the shared hover/tap tooltip. */
+export function lookupTipItem(itemId: string): ItemDefinition | undefined {
+  return tipItems.get(itemId);
+}
+
 export interface KitItemOptions {
   /** Kit size modifier (`gc-item--sm` / `gc-item--lg`); default is 72px. */
   size?: 'sm' | 'lg';
@@ -207,6 +214,8 @@ export interface KitItemOptions {
   setDefs?: Record<string, SetDefinition>;
   /** Show a small slot badge (top-right) for this slot. */
   slot?: string;
+  /** Skip the shared item tooltip (e.g. the big art inside a detail view of the same item). */
+  noTip?: boolean;
 }
 
 function dataAttrString(attrs?: Record<string, string>): string {
@@ -264,10 +273,15 @@ export function renderKitItem(itemId: string, def: ItemDefinition | undefined, o
     inner += `<span class="gc-item__count">${opts.count}</span>`;
   }
 
-  const attrs = `class="${classes.join(' ')}" data-rarity="${escapeHtml(rarity)}"${dataAttrString(opts.dataAttrs)}`;
+  let tip = '';
+  if (def && !opts.noTip) {
+    tipItems.set(itemId, def);
+    tip = ` data-tip-item="${escapeHtml(itemId)}"`;
+  }
+  const attrs = `class="${classes.join(' ')}" data-rarity="${escapeHtml(rarity)}"${dataAttrString(opts.dataAttrs)}${tip}`;
   const label = escapeHtml(opts.label ?? name);
   if (opts.button) {
-    const title = opts.title ? ` title="${escapeHtml(opts.title)}"` : '';
+    const title = opts.title && !tip ? ` title="${escapeHtml(opts.title)}"` : '';
     return `<button type="button" ${attrs}${title} aria-label="${label}">${inner}</button>`;
   }
   if (opts.decorative) return `<span ${attrs} aria-hidden="true">${inner}</span>`;
@@ -287,6 +301,7 @@ export interface ItemFrameOptions {
   dataAttrs?: Record<string, string>;
   /** Render as a <span> (decorative) instead of a <button>. */
   decorative?: boolean;
+  noTip?: boolean;
 }
 
 /** Render an item as a kit `.gc-item` rarity frame (a button by default). */
@@ -301,6 +316,7 @@ export function renderItemFrame(itemId: string, def: ItemDefinition, options?: I
     dataAttrs: options?.dataAttrs,
     setDefs: options?.setDefs,
     slot: options?.slot,
+    noTip: options?.noTip,
     title: def.name,
     label: qty > 1 ? `${def.name} ×${qty}` : def.name,
   });

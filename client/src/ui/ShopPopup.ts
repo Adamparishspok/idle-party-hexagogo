@@ -42,6 +42,7 @@ export class ShopPopup {
    *  whose inputs match this skip the re-render entirely so item-artwork
    *  <img> elements aren't recreated and don't flicker. */
   private lastRenderKey: string = '';
+  private onOpenBank: (() => void) | null = null;
 
   constructor(gameClient: GameClient, worldCache: WorldCache) {
     this.gameClient = gameClient;
@@ -54,6 +55,11 @@ export class ShopPopup {
     });
     document.body.appendChild(this.overlay);
     wireFocusOnInteract(this.overlay);
+  }
+
+  /** Banker shops get an "Open your bank" button that calls `cb`. */
+  setOnOpenBank(cb: () => void): void {
+    this.onOpenBank = cb;
   }
 
   show(state: ServerStateMessage): void {
@@ -161,6 +167,7 @@ export class ShopPopup {
       gold: state.character?.gold ?? 0,
       inv: state.character?.inventory ?? {},
       eq: state.character?.equipment ?? {},
+      bank: !!state.bank,
     });
     if (key === this.lastRenderKey) return;
     this.lastRenderKey = key;
@@ -260,7 +267,15 @@ export class ShopPopup {
       </div>
       ${listHtml}
     `;
-    this.overlay.innerHTML = this.panel(shop, char.gold, body, '');
+    const bankBtn = shop.banker && state.bank && this.onOpenBank
+      ? '<button type="button" class="gc-btn gc-btn--gold gc-btn--lg shop-open-bank">Open your bank</button>'
+      : '';
+    this.overlay.innerHTML = this.panel(shop, char.gold, body, bankBtn);
+    this.overlay.querySelector('.shop-open-bank')?.addEventListener('click', () => {
+      const open = this.onOpenBank;
+      this.hide();
+      open?.();
+    });
 
     for (const btn of this.overlay.querySelectorAll('.shop-toggle-btn')) {
       btn.addEventListener('click', () => {
@@ -559,13 +574,14 @@ export class ShopPopup {
       itemDefs,
       setDefs,
       className: state.character?.className ?? null,
+      level: state.character?.level,
       skills: this.worldCache.getSkillContent().skills,
     });
     const rarity = def.rarity ?? 'common';
     return `
       <div class="gc-modal__body shop-detail">
         <div class="shop-detail__hero">
-          ${renderKitItem(itemId, def, { size: 'lg' })}
+          ${renderKitItem(itemId, def, { size: 'lg', noTip: true })}
           <div class="shop-detail__heading">
             <h2 class="shop-detail__name">${escapeHtml(def.name)}</h2>
             <span class="gc-tag gc-tag--rarity shop-detail__rarity" data-rarity="${escapeHtml(rarity)}">${escapeHtml(rarity)}</span>
