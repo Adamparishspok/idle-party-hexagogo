@@ -51,6 +51,8 @@ import {
   claimFromPouch,
   grantStarterBag,
   STARTER_BAG_ITEM,
+  normalizeBank,
+  toClientBankState,
 } from '@idle-party-rpg/shared';
 import type {
   HiredHenchman,
@@ -95,6 +97,8 @@ import type {
   BagSlots,
   InventoryErrorCode,
   ItemRouting,
+  PlayerBank,
+  ClientBankState,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -145,6 +149,7 @@ export class PlayerSession {
   private bags: BagSlots = normalizeBagSlots(undefined);
   private lostAndFound: Record<string, number> = {};
   private starterBagGranted = false;
+  private bank: PlayerBank = normalizeBank(undefined);
   /** Copies lost since the last `consumeLostItems` — batched into one notification per battle. */
   private pendingLost: Record<string, number> = {};
   /** Which chat thread the player is actively looking at right now, if any — ephemeral, not persisted. */
@@ -809,7 +814,21 @@ export class PlayerSession {
       offeredQuestIds: questBlock.offeredQuestIds,
       questResolutions: questBlock.questResolutions,
       dungeon: this.getDungeonState?.() ?? undefined,
+      bank: this.getBankState(),
     };
+  }
+
+  getBank(): PlayerBank { return this.bank; }
+
+  /** Travel-based: only while the party stands on an overworld room whose shop is a banker. */
+  isInBankerRoom(): boolean {
+    if (!this.character || this.getDungeonState?.()) return false;
+    return this.getCurrentShop()?.banker === true;
+  }
+
+  private getBankState(): ClientBankState | undefined {
+    if (!this.isInBankerRoom()) return undefined;
+    return toClientBankState(this.bank, this.content.getAllItems());
   }
 
   // ── Crafting ──────────────────────────────────────
@@ -985,6 +1004,11 @@ export class PlayerSession {
     const idx = this.chatHistory.findIndex(m => m.id === sinceId);
     if (idx === -1) return { messages: [], found: false };
     return { messages: this.chatHistory.slice(idx + 1), found: true };
+  }
+
+  /** The live backpack record, for pure rule functions that mutate it (bank transfers). */
+  getInventoryForUpdate(): Record<string, number> | null {
+    return this.character?.inventory ?? null;
   }
 
   /** Returns the count of an item in the unequipped inventory (0 if not present). */
@@ -1301,6 +1325,7 @@ export class PlayerSession {
     this.lostAndFound = {};
     this.pendingLost = {};
     this.starterBagGranted = false;
+    this.bank = normalizeBank(undefined);
 
     this.battleCount = 0;
     this.combatLog = [];
@@ -1388,6 +1413,7 @@ export class PlayerSession {
       wellRestedUntil: this.wellRestedUntil,
       lostAndFound: { ...this.lostAndFound },
       starterBagGranted: this.starterBagGranted,
+      bank: { tabs: this.bank.tabs.map(tab => ({ ...tab })) },
     };
   }
 
@@ -1504,6 +1530,7 @@ export class PlayerSession {
     session['lostAndFound'] = { ...(data.lostAndFound ?? {}) };
     session['pendingLost'] = {};
     session['starterBagGranted'] = data.starterBagGranted ?? false;
+    session['bank'] = normalizeBank(data.bank);
 
     // Restore craft queue (lazy completion happens on next tick)
     session['craftQueue'] = data.craftQueue

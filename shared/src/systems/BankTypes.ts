@@ -1,6 +1,7 @@
 import type { ItemDefinition } from './ItemTypes.js';
 import { MAX_STACK } from './ItemTypes.js';
 import { fitsInventoryChanges } from './BagTypes.js';
+import type { ShopDefinition } from './ShopTypes.js';
 
 // See docs/architecture/gear-stats-bank.md → Bank.
 
@@ -55,6 +56,18 @@ export const BANK_SLOTS_PER_TAB = 28;
 /** Gold for the 2nd, 3rd, … tab. */
 export const BANK_TAB_PRICES: readonly number[] = [1_000, 5_000, 25_000, 100_000, 500_000];
 export const MAX_BANK_TABS = BANK_BASE_TABS + BANK_TAB_PRICES.length;
+
+/** A fresh world's banker, on the starting room, also selling the seed bags. Live servers author their own. */
+export const SEED_BANKER_SHOP: ShopDefinition = {
+  id: 'hatchetmill_bank',
+  name: 'Hatchetmill Bank',
+  banker: true,
+  inventory: [
+    { itemId: 'small_pouch', price: 50 },
+    { itemId: 'cloth_bag', price: 120 },
+    { itemId: 'leather_pack', price: 300 },
+  ],
+};
 
 // --- Pure functions ---
 

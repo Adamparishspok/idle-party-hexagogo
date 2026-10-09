@@ -30,6 +30,12 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Keep spare items safe in your home\'s chest, and show off your best finds on trophy shelves that every visitor can see.',
       'Sit by your campfire to become Well Rested: each minute by the fire earns 12 minutes of +10% experience and gold. A glowing moon on your experience bar shows how long it lasts.',
       'Invite friends and party members over to sit by the fire together, or tap Visit Home on a player\'s card to drop in on them. If their home is somewhere else, you\'ll be told where and can travel there.',
+      'Gear can now carry Strength, Agility, Intellect and Stamina. Stamina adds health and your class\'s main attribute adds damage. Strength adds armor, Intellect adds resistance and stronger heals, and Agility gives a chance to land critical hits and dodge attacks.',
+      'Your character without attribute gear keeps the same health and damage as before, and now gets a little armor, resistance, critical chance or dodge from their class.',
+      'Your backpack now holds 20 different items, and bags add more room. Every character gets a free Traveler\'s Satchel with 12 extra slots, and you can carry up to four bags.',
+      'When your backpack is full, new loot goes to Lost & Found instead of disappearing. Claim it from anywhere once you have room. If Lost & Found fills up too, you\'ll get a notification about anything lost.',
+      'Already carrying more than your backpack holds? You keep everything. New loot just goes to Lost & Found until you make room.',
+      'Banks! Visit a banker to store items in tabs of 28 slots. Your first tab is free and you can buy more. You can only use your bank while standing in a banker\'s room.',
     ],
   },
   {

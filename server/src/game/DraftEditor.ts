@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { VersionStore, ContentSnapshot } from './VersionStore.js';
 import type { ContentStore } from './ContentStore.js';
-import { validateItemDefinition, STARTER_BAG_DELETE_ERROR } from './ContentStore.js';
+import { validateItemDefinition, validateShopDefinition, STARTER_BAG_DELETE_ERROR } from './ContentStore.js';
 import type {
   MonsterDefinition,
   ItemDefinition,
@@ -244,6 +244,8 @@ export class DraftEditor {
   // --- Shop CRUD ---
 
   private upsertShopCore(snapshot: ContentSnapshot, shop: ShopDefinition): string | null {
+    const shapeError = validateShopDefinition(shop);
+    if (shapeError) return shapeError;
     if (!snapshot.shops) snapshot.shops = [];
     const idx = snapshot.shops.findIndex(s => s.id === shop.id);
     if (idx >= 0) snapshot.shops[idx] = shop; else snapshot.shops.push(shop);
@@ -254,7 +256,8 @@ export class DraftEditor {
     const draft = await this.loadDraft(versionId);
     if ('error' in draft) return { success: false, status: draft.status, error: draft.error };
     const { snapshot } = draft;
-    this.upsertShopCore(snapshot, shop);
+    const err = this.upsertShopCore(snapshot, shop);
+    if (err) return { success: false, status: 400, error: err };
     await this.persist(versionId, snapshot);
     return { success: true, snapshot, entries: snapshot.shops ?? [] };
   }

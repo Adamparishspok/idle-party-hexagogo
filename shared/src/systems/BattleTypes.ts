@@ -19,7 +19,7 @@ import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
 import type { RoomEntryFailureKind } from './RoomRequirements.js';
-import type { BankErrorCode } from './BankTypes.js';
+import type { BankErrorCode, ClientBankMessage, ClientBankState } from './BankTypes.js';
 import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
 import type { DerivedStats } from './AttributeTypes.js';
 
@@ -215,6 +215,8 @@ export interface ServerStateMessage {
   };
   /** Active dungeon run state (floor progress) — present only while the party is inside a dungeon. */
   dungeon?: DungeonRunInfo;
+  /** The player's bank — present only while the party stands in a banker's room. */
+  bank?: ClientBankState;
   /** Server version identifier — changes on restart/deploy, triggers client reload on mismatch. */
   serverVersion: string;
 }
@@ -472,4 +474,5 @@ export type ClientMessage =
   | ClientSocialMessage
   | ClientNotificationMessage
   | ClientHousingMessage
-  | ClientInventoryMessage;
+  | ClientInventoryMessage
+  | ClientBankMessage;

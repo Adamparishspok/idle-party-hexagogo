@@ -19,6 +19,7 @@ import { BrowserPushNotificationDriver } from './social/BrowserPushNotificationD
 import { EmailNotificationDriver } from './social/EmailNotificationDriver.js';
 import { PartyBattleManager } from './PartyBattleManager.js';
 import { HousingService } from './housing/HousingService.js';
+import { BankService } from './bank/BankService.js';
 import type { ContentStore } from './ContentStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 
@@ -40,6 +41,7 @@ export class PlayerManager {
   readonly notify: NotificationService;
   readonly partyBattles: PartyBattleManager;
   readonly housing: HousingService;
+  readonly bank: BankService;
   private getAllUsernames: () => string[];
   private readonly serverVersion = Date.now().toString();
 
@@ -91,6 +93,10 @@ export class PlayerManager {
       isBlocked: (a, b) => this.isTradeBlocked(a, b),
       pushState: (username) => this.sendStateToPlayer(username),
       notify: (username, eventKey, message) => this.notify.notify(username, eventKey, message),
+    });
+    this.bank = new BankService({
+      getSession: (username) => this.sessions.get(username),
+      pushState: (username) => this.sendStateToPlayer(username),
     });
   }
 

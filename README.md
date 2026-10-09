@@ -189,7 +189,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 ### Characters & Parties
 - [x] Party entity with movement
 - [x] Individual character creation (one per player, class selection on first login)
-- [x] Character stats (HP + base damage scale linearly per class — no STR/INT/etc., no stat allocation on level-up)
+- [x] Character stats (HP + base damage scale linearly per class, no stat allocation on level-up; gear adds Strength/Agility/Intellect/Stamina, which derive HP, damage, armor, resist, crit, dodge and healing)
 - [x] XP and leveling system (`floor(18000 * L^1.2 * 1.06^L)` XP to next level)
 - [x] Inventory tab (merged Char + Items — hero card, equipped gear, skill loadout, stat card, inventory grid)
 - [x] Class system (5 classes: Knight, Archer, Priest, Mage, Bard — weak solo, strong together)
@@ -233,6 +233,8 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Item/equipment system (4 items, 4 equip slots, inventory with stacking)
 - [x] Trading between players (asynchronous multi-item trades, no same-room requirement, persists across server restarts, per-trade confirm nonce)
 - [x] Item gifting (mailbox-based, accept/deny, declined gifts return to sender)
+- [x] Backpack capacity, bag slots, free starter bag and a Lost & Found pouch for overflow loot (server; client UI pending)
+- [x] Bank at banker rooms (tabs bought with gold, travel-based access) (server; client UI pending)
 
 ### Crafting
 - [x] Crafting framework (per-player FIFO queue, materials reserved at queue time, offline progression, save/restore)

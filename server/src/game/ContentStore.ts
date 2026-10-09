@@ -13,7 +13,7 @@ import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
 import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
-import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
 const MONSTERS_FILE = path.join(DATA_DIR, 'monsters.json');
@@ -37,6 +37,11 @@ const DESIGN_NOTES_FILE = path.join(DATA_DIR, 'design-notes.json');
 /** Shape checks for an authored item's attributes and bag fields. Returns an error message, or null. */
 export function validateItemDefinition(item: ItemDefinition): string | null {
   return validateAttributes(item.attributes) ?? validateBagItem(item);
+}
+
+export function validateShopDefinition(shop: ShopDefinition): string | null {
+  if (shop.banker !== undefined && typeof shop.banker !== 'boolean') return 'banker must be true or false.';
+  return null;
 }
 
 export const STARTER_BAG_DELETE_ERROR = `Cannot delete: "${STARTER_BAG_ITEM.id}" is the starter bag every character receives.`;
@@ -534,9 +539,13 @@ export class ContentStore {
 
   // --- Shop CRUD ---
 
-  async addOrUpdateShop(shop: ShopDefinition): Promise<void> {
+  /** Returns a validation error (and stores nothing), or null once saved. */
+  async addOrUpdateShop(shop: ShopDefinition): Promise<string | null> {
+    const error = validateShopDefinition(shop);
+    if (error) return error;
     this.shops.set(shop.id, shop);
     await this.save();
+    return null;
   }
 
   async deleteShop(id: string): Promise<{ success: boolean; error?: string }> {
@@ -1231,6 +1240,8 @@ export class ContentStore {
       this.houses.set(h.id, h);
     }
 
+    this.shops.set(SEED_BANKER_SHOP.id, { ...SEED_BANKER_SHOP, inventory: SEED_BANKER_SHOP.inventory.map(i => ({ ...i })) });
+
     // Dungeons
     for (const d of Object.values(SEED_DUNGEONS)) {
       this.dungeons.set(d.id, d);
@@ -1275,7 +1286,7 @@ export class ContentStore {
       defaultMapId: DEFAULT_MAP_ID,
       tiles: [
         // Hatchetmill
-        { id: crypto.randomUUID(), mapId: DEFAULT_MAP_ID, col: 2, row: 2, type: TileType.Plains, zone: 'hatchetmill', name: 'Town Square' },
+        { id: crypto.randomUUID(), mapId: DEFAULT_MAP_ID, col: 2, row: 2, type: TileType.Plains, zone: 'hatchetmill', name: 'Town Square', shopId: SEED_BANKER_SHOP.id },
         { id: crypto.randomUUID(), mapId: DEFAULT_MAP_ID, col: 1, row: 2, type: TileType.Town, zone: 'hatchetmill', name: 'Blacksmith' },
         { id: crypto.randomUUID(), mapId: DEFAULT_MAP_ID, col: 3, row: 2, type: TileType.Town, zone: 'hatchetmill', name: 'General Store' },
         { id: crypto.randomUUID(), mapId: DEFAULT_MAP_ID, col: 2, row: 1, type: TileType.Town, zone: 'hatchetmill', name: "Healer's Hut" },

@@ -791,7 +791,11 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       res.json({ success: true, shops: toRecord(result.entries) });
     } else {
       const content = getContentStore();
-      await content.addOrUpdateShop(shop);
+      const shapeError = await content.addOrUpdateShop(shop);
+      if (shapeError) {
+        res.status(400).json({ error: shapeError });
+        return;
+      }
       res.json({ success: true, shops: content.getAllShops() });
     }
   });

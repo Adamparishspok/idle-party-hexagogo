@@ -658,6 +658,7 @@ export {
   BANK_SLOTS_PER_TAB,
   BANK_TAB_PRICES,
   MAX_BANK_TABS,
+  SEED_BANKER_SHOP,
   emptyBank,
   normalizeBank,
   nextBankTabPrice,

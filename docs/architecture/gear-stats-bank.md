@@ -22,7 +22,7 @@ The contract also makes these additive changes to existing types:
 - `ShopDefinition.banker?` and `ShopSummary.isBanker`.
 - `ServerErrorCode` now includes `InventoryErrorCode | BankErrorCode`.
 
-No server or client behaviour has changed yet. See the build plan at the end.
+The server side (phases A–C) is implemented; the client UI (D–F) is not yet. See the build plan and the server notes at the end.
 
 ## 1. Attributes and derived stats
 
@@ -364,3 +364,17 @@ The contract is merged first. Then:
 - **G.** Items/Sets/Shops tab inputs, MCP cheat sheet, `validate_draft` checks and seed bags/banker. G is independent of D–F.
 
 **Ship:** patch notes entry and `GAME_VERSION` bump with the player-facing PR. Update `content.md` (items/shops), `persistence.md`, `client.md` and the README roadmap.
+
+## 9. Server implementation notes
+
+Where the server code lives and the places it refines the plan above:
+
+- **Stats.** `PlayerSession.getDerivedStats()` wraps `computeDerivedStats`. `getCombatInfo` fills `maxHp`, `baseDamage`, `equipBonuses` (via `derivedToEquipmentBonuses`), `critChance`, `dodgeChance` and `healingMultiplier`. In `CombatEngine`, crit adds to Pierce, dodge is the target's `dodgeChance` plus Nimble (normal attacks and direct-damage monster skills), and `getHealPowerMultiplier` multiplies Devotion by `healingMultiplier`. The new `PartyCombatant` fields are optional, so henchmen and hand-built combatants behave as before. `player_profile` also carries `derivedStats` for the View Player sheet.
+- **Capacity.** `PlayerSession.addToInventory` is the player-initiated add: it refuses anything `fitsInventoryChanges` rejects. `receiveItems` is the unattended add (`routeIncomingItems`) and writes the pouch/lost log lines. Equip and unequip simulate the swap on copies and refuse with `inventory_full`. Trades check both sides' net changes inside `TradeSystem.confirmTrade` (optional `fitsInventory` callback). Rollbacks use `restoreToInventory`, which ignores capacity, so a rollback never loses items.
+- **Crafting.** `processCompletions` takes an optional `deliver` callback. The session routes finished crafts through `receiveItems`, so overflow goes to Lost & Found before anything is lost. Cancelling a queued craft still refunds ingredients straight to the backpack, ignoring capacity (grandfathered like any other overflow).
+- **Lost items.** Losses accumulate per session (`consumeLostItems`). `PartyBattleManager.handleBattleEnd` flushes each member once per battle into `PlayerManager.notifyItemsLost`, which sends one `items_lost` notification. Craft losses are flushed by the next battle. The welcome-back message gains `itemsToLostAndFound` and `itemsLost`.
+- **Starter bag.** It is granted on `setClass`, on admin character creation, on restore when `starterBagGranted` is absent or false, and again after a master reset (which clears bags, the pouch and the bank). A save without a character gets it when the class is picked.
+- **Content.** `ContentStore` adds `STARTER_BAG_ITEM` at boot and after `replaceAll` when its id is missing, and refuses to delete it (live and draft). `validateItemDefinition` (attributes + bag shape) and `validateShopDefinition` (`banker` must be boolean) run on live and draft upserts. Fresh worlds seed `SEED_BAG_ITEMS` and `SEED_BANKER_SHOP` (on the start room, selling the bags).
+- **Bank.** `server/src/game/bank/BankService.ts` handles the four messages and re-checks `PlayerSession.isInBankerRoom()` on every request: the current room's shop has `banker: true` and the party isn't in a dungeon. Refusals send `{ type: 'error', code, message }`. `state.bank` is present only while that check passes.
+- **Inventory messages.** `equip_bag`, `unequip_bag`, `claim_lost_found` and `discard_lost_found` reply with `{ type: 'error', code, message }` on failure and always push state. `claim_lost_found` returns `inventory_full` when nothing could move.
+

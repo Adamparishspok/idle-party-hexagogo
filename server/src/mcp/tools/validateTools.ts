@@ -162,6 +162,9 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
         }
       });
     }
+    if (shop.banker !== undefined && typeof shop.banker !== 'boolean') {
+      problems.push(`Shop '${shop.id}' banker must be true or false.`);
+    }
     // keep-when-absent: an absent `houses` key means unknown, not empty.
     if (snapshot.houses !== undefined) {
       (shop.houseIds ?? []).forEach((hid, index) => {
@@ -286,6 +289,11 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
         problems.push(`Item '${item.id}' grantedSkillIds references unknown skill '${skillId}' (index ${index}).`);
       }
     });
+  }
+
+  const bankerShopIds = new Set((snapshot.shops ?? []).filter(s => s.banker === true).map(s => s.id));
+  if (!snapshot.world.tiles.some(t => t.shopId && bankerShopIds.has(t.shopId))) {
+    problems.push('Warning: no banker shop is placed on any room, so players have no bank.');
   }
 
   // --- World start tiles ---

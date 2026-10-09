@@ -1,4 +1,4 @@
-import type { HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse } from '@idle-party-rpg/shared';
+import type { PlayerBank, HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse } from '@idle-party-rpg/shared';
 
 /** Progress baseline taken when a player's last connection closes; diffed on return. */
 export interface AwaySnapshot {
@@ -93,6 +93,8 @@ export interface PlayerSaveData {
   lostAndFound?: Record<string, number>;
   /** The one-time starter bag was given. Absent → grant on load. */
   starterBagGranted?: boolean;
+  /** Bank tabs. Absent → one empty tab (`normalizeBank`). */
+  bank?: PlayerBank;
 }
 
 /**

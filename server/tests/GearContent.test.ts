@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { STARTER_BAG_ITEM, SEED_BAG_ITEMS } from '@idle-party-rpg/shared';
-import type { ItemDefinition } from '@idle-party-rpg/shared';
+import { STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, toShopSummary } from '@idle-party-rpg/shared';
+import type { ItemDefinition, ShopDefinition } from '@idle-party-rpg/shared';
 
 // ContentStore/VersionStore resolve data dirs from process.cwd() at import time. Mirrors DraftEditor.test.ts.
 type ContentStoreCtor = typeof import('../src/game/ContentStore.js').ContentStore;
@@ -150,5 +150,35 @@ describe('MCP authoring of gear', () => {
     expect(items).toContain('bagSlots');
     expect(items).toContain('attributes');
     expect(JSON.stringify(await getContentSchema({ type: 'sets' }))).toContain('attributes');
+  });
+});
+
+describe('banker shops', () => {
+  it('seeds a banker on the starting room of a fresh world', async () => {
+    const store = new ContentStore();
+    await store.load();
+    const world = store.getWorld();
+    const start = world.tiles.find(t => t.mapId === world.defaultMapId && t.col === world.startTile.col && t.row === world.startTile.row)!;
+    expect(start.shopId).toBe(SEED_BANKER_SHOP.id);
+    const shop = store.getShop(start.shopId!)!;
+    expect(toShopSummary(shop).isBanker).toBe(true);
+    for (const entry of shop.inventory) expect(store.getItem(entry.itemId)).toBeDefined();
+  });
+
+  it('rejects a non-boolean banker flag, live and in a draft', async () => {
+    const { contentStore, draftEditor, versionId } = await draftSetup();
+    const bad = { id: 'b', name: 'B', inventory: [], banker: 'yes' } as unknown as ShopDefinition;
+    expect(await contentStore.addOrUpdateShop(bad)).toBeTypeOf('string');
+    expect((await draftEditor.upsertShop(versionId, bad)).success).toBe(false);
+    expect(await contentStore.addOrUpdateShop({ id: 'b', name: 'B', inventory: [], banker: true })).toBeNull();
+  });
+
+  it('validate_draft warns when no banker is placed on any room', async () => {
+    const { contentStore, versionStore, deps } = await draftSetup();
+    const snapshot = contentStore.toSnapshot();
+    snapshot.world.tiles = snapshot.world.tiles.map(t => (t.shopId === SEED_BANKER_SHOP.id ? { ...t, shopId: undefined } : t));
+    const version = await versionStore.createDraft('no bank', null, snapshot);
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems?.some(p => p.startsWith('Warning: no banker'))).toBe(true);
   });
 });

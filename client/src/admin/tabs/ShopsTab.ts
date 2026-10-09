@@ -103,6 +103,10 @@ export class ShopsTab implements Tab {
       <input type="hidden" id="shf-id" value="${escapeHtml(s.id)}">
       <div class="admin-form-grid">
         <label>Name<input type="text" id="shf-name" value="${escapeHtml(s.name)}"></label>
+        <label class="admin-form-checkbox">
+          <input type="checkbox" id="shf-banker" ${s.banker ? 'checked' : ''}>
+          Banker (players in this shop's room can use their bank)
+        </label>
       </div>
       <fieldset class="admin-form-fieldset">
         <legend>Inventory</legend>
@@ -283,10 +287,12 @@ export class ShopsTab implements Tab {
       if (cb.checked) houseIds.push(cb.value);
     });
 
+    const banker = (root.querySelector('#shf-banker') as HTMLInputElement | null)?.checked ?? false;
     const shopDef: ShopDefinition = {
       id, name, inventory,
       henchmanIds: henchmanIds.length > 0 ? henchmanIds : undefined,
       houseIds: houseIds.length > 0 ? houseIds : undefined,
+      banker: banker || undefined,
     };
     try {
       const data = await putAdmin<{ shops: Record<string, ShopDefinition> }>(
