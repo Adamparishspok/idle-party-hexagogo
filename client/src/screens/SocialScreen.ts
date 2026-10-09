@@ -321,7 +321,7 @@ export class SocialScreen implements Screen {
       actions.push(act('trade', 'Trade'));
     }
     actions.push(act('gift', 'Send Gift'));
-    actions.push(act('visit_home', 'Visit Home', 'steel'));
+    if (entry?.hasHouse) actions.push(act('visit_home', 'Visit Home', 'steel'));
     actions.push(isBlocked ? act('unblock', 'Unblock', 'steel') : act('block', 'Block', 'red'));
 
     const modal = openSocModal({

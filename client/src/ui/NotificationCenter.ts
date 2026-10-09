@@ -31,18 +31,9 @@ function categoryIcon(category: NotificationCategory): string {
   </span>`;
 }
 
-export type ClientNavigationTarget = NotificationNavigationTarget | { kind: 'home'; owner: string };
+export type ClientNavigationTarget = NotificationNavigationTarget;
 
-const HOME_INVITE_OWNER_KEYS = ['owner', 'ownerUsername', 'fromUsername'] as const;
-
-/** Shared resolution plus client-only targets the shared resolver doesn't know yet (home invites). */
 export function resolveClientNavigation(entry: Pick<NotificationEntry, 'category' | 'eventKey' | 'payload'>): ClientNavigationTarget {
-  if (entry.eventKey === 'home_invite') {
-    for (const key of HOME_INVITE_OWNER_KEYS) {
-      const owner = entry.payload?.[key];
-      if (typeof owner === 'string' && owner) return { kind: 'home', owner };
-    }
-  }
   return resolveNotificationNavigation(entry);
 }
 

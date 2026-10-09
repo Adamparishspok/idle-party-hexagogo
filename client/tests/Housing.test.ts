@@ -52,7 +52,7 @@ function mockClient() {
     lastState = s;
     for (const l of listeners) l(s);
   };
-  const serverError = (m: string) => { for (const l of errorListeners) l(m); };
+  const serverError = (m: string, code?: string) => { for (const l of errorListeners) l(m, code); };
   return { client, sends, push, serverError, setLast: (s: ServerStateMessage) => { lastState = s; } };
 }
 
@@ -128,7 +128,7 @@ describe('ShopPopup Houses tab', () => {
     const m = open(shopState());
     $<HTMLButtonElement>('.shop-house-buy')!.click();
     $<HTMLButtonElement>('.shop-house-confirm-btn')!.click();
-    m.serverError('You must be at an estate agent.');
+    m.serverError('You must be at an estate agent.', 'house_not_for_sale');
     expect($('.shop-modal__notice')?.textContent).toBe('You must be at an estate agent.');
   });
 });
@@ -356,7 +356,7 @@ describe('HomeView', () => {
     const view = new HomeView(document.getElementById('screen-container')!, m.client);
     view.requestEnter('zed');
     expect(m.sends.sendEnterHome).toHaveBeenCalledWith('zed');
-    m.serverError("You aren't invited to zed's home.");
+    m.serverError("You aren't invited to zed's home.", 'home_access_denied');
     expect($('.home-toast')?.textContent).toBe("You aren't invited to zed's home.");
   });
 
@@ -444,7 +444,7 @@ describe('Visit Home', () => {
       social: {
         party: { id: 'p1', members: [{ username: 'alice', role: 'owner', gridPosition: 4 } as GamePartyMember], henchmen: [] },
         onlinePlayers: ['alice', 'bob'],
-        allPlayers: [{ username: 'bob', level: 3 }],
+        allPlayers: [{ username: 'bob', level: 3, hasHouse: true }],
         friends: ['bob'],
       } as unknown as ClientSocialState,
     } as unknown as ServerStateMessage;
@@ -464,14 +464,16 @@ describe('Visit Home', () => {
     screen.onActivate();
     screen.showUserPopup('bob', document.body);
     $<HTMLButtonElement>('[data-popup-action="visit_home"]')!.click();
+    (state.social as unknown as { allPlayers: { username: string; hasHouse?: boolean }[] }).allPlayers[0].hasHouse = false;
+    document.querySelectorAll('.soc-modal').forEach(el => el.remove());
+    screen.showUserPopup('bob', document.body);
+    expect($('[data-popup-action="visit_home"]')).toBeNull();
     expect(sendEnterHome).toHaveBeenCalledWith('bob');
   });
 
   it('routes a home invite notification to that home', () => {
     expect(resolveClientNavigation({ category: 'friend', eventKey: 'home_invite', payload: { owner: 'bob' } }))
       .toEqual({ kind: 'home', owner: 'bob' });
-    expect(resolveClientNavigation({ category: 'party', eventKey: 'home_invite', payload: { ownerUsername: 'cara' } }))
-      .toEqual({ kind: 'home', owner: 'cara' });
     expect(resolveClientNavigation({ category: 'system', eventKey: 'home_invite', payload: {} }))
       .toEqual({ kind: 'none' });
     expect(resolveClientNavigation({ category: 'dm', eventKey: 'dm_received', payload: { fromUsername: 'bob' } }))

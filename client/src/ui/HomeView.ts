@@ -90,7 +90,7 @@ export class HomeView {
     });
 
     gameClient.subscribe((s) => this.onState(s));
-    gameClient.onServerError((message) => this.onServerError(message));
+    gameClient.onServerError((message, code) => this.onServerError(message, code));
     if (gameClient.lastState) this.onState(gameClient.lastState);
   }
 
@@ -121,8 +121,9 @@ export class HomeView {
     if (this.sheet) this.renderSheet();
   }
 
-  private onServerError(message: string): void {
-    if (Date.now() > this.pendingUntil) return;
+  private onServerError(message: string, code?: string): void {
+    const housing = !!code && (code.startsWith('house_') || code.startsWith('home_'));
+    if (!housing && (code || Date.now() > this.pendingUntil)) return;
     this.pendingUntil = 0;
     if (this.isOpen()) {
       this.setNotice(message);

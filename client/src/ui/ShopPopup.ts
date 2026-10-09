@@ -84,9 +84,11 @@ export class ShopPopup {
 
     // A hire refusal arrives as an `error`, not a state change; only claim one while a hire is outstanding.
     this.unsubscribeError?.();
-    this.unsubscribeError = this.gameClient.onServerError((message) => {
+    this.unsubscribeError = this.gameClient.onServerError((message, code) => {
       if (this.overlay.style.display === 'none') return;
-      if (!this.pendingHireId && !this.pendingHouse) return;
+      const houseRefusal = !!this.pendingHouse && !!code?.startsWith('house_');
+      const hireRefusal = !!this.pendingHireId && !code;
+      if (!houseRefusal && !hireRefusal) return;
       this.pendingHireId = null;
       this.pendingHouse = null;
       this.setNotice(message);

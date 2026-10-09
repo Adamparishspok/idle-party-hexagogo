@@ -1,4 +1,5 @@
 import { escapeHtml } from './ItemIcon';
+import { artworkUrl } from './assets';
 
 interface HouseArtSource {
   houseId?: string;
@@ -8,11 +9,11 @@ interface HouseArtSource {
 }
 
 export function houseExteriorUrl(houseId: string): string {
-  return `/house-artwork/${encodeURIComponent(houseId)}.png`;
+  return artworkUrl('house', encodeURIComponent(houseId));
 }
 
 export function houseInteriorUrl(houseId: string): string {
-  return `/house-interior-artwork/${encodeURIComponent(houseId)}.png`;
+  return artworkUrl('house-interior', encodeURIComponent(houseId));
 }
 
 /** Exterior art → the content's artworkUrl → the emoji showing through underneath. */
