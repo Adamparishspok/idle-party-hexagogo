@@ -35,17 +35,30 @@ The shell is styled after WorldQuest — painted fantasy mobile chrome. Plan, sl
 
 - **Top HUD** (`TopHud.ts`) — gold pill on the left, current zone + room name centered, settings gear on the right beside the notification bell. Hidden at nav depth > 1 (the back header owns the top edge), as is the bell.
 - **XP bar** (`PersistentXpBar.ts`) — teal fill with `xp / next XP` centered, round level badge on the left end, and the class portrait perched above it (tap → Character). Sits at z-index 999, under the nav, so the active tab's banner can overhang it.
-- **Perch** — overlay buttons resting on a plinth above the XP bar, overhanging screen content (`.screen-scroll` regions get `--perch-height` of bottom padding so their last rows can scroll clear).
+- **Perch** — the Quests and Chat buttons resting on a plinth above the XP bar, overhanging screen content (`.screen-scroll` regions get `--perch-height` of bottom padding so their last rows can scroll clear).
 
 ## Bottom nav structure
 
 Five framed buttons in the bar, plus perched buttons above it:
 
 - **Social**, **Character** (the merged Char+Items tab, id `items`), **Map** (center), **Combat**, **Craft** — bar tabs. The active one rises on a purple banner with a gold frame. Social is `mode: 'submenu'`: tapping opens a fly-out with Party (default, badge `party-invites`), Guild, Leaderboard (badge `friend-requests`).
-- **Chat** — `mode: 'overlay'`, `placement: 'perch'`. Toggles the global `ChatPopout` rather than swapping screens. Unread state lights up its badge.
+- **Quests** and **Chat** perch on the plinth, Quests on the left. The pair is offset so Chat stays dead center — screen perch rows (combat controls, the map's Room button) clear `50% + 36px` and stay put.
+  - **Quests** — `mode: 'action'` (fires `onAction`, keeps no state). Opens the Quest Log; App owns the one `QuestLog` instance and passes it to `SettingsScreen`, so the perch and Settings → Quest Log never open two copies. Badge (`questBadgeFor`): a pulsing gold `!` when any active quest is ready to turn in, otherwise a steel count of active quests, otherwise nothing; the button's `aria-label` carries the same state. Icon is an inline SVG scroll, replaced by `/nav-icons/quests.png` once that loads (`navImgOverSvg` in `App.ts`).
+  - **Chat** — `mode: 'overlay'`. Toggles the global `ChatPopout` rather than swapping screens. Unread state lights up its badge.
 - **Settings** is no longer a nav tab — the HUD gear opens it (still a root screen via `switchTo`), and the gear lights gold while it's showing.
 
 Labels are screen-reader only (`aria-label` + visually hidden `.nav-label`); icons carry the meaning. Nav icons render as `<img>` tags from `/nav-icons/{id}.png` with a `placehold.co` fallback (`navImg(id, label)` helper in `App.ts`); Chat uses an inline SVG.
+
+Nav buttons are excluded from the global tap sound: screen tabs play `tab-switch`, submenus `ui-tap`, and overlay/action buttons are voiced by `ModalStack`'s `ui-open`/`ui-close` when their window opens.
+
+## First-session tour
+
+`client/src/ui/Tour.ts` (styles `client/src/styles/screens/tour.css`) is a coach-mark tour for brand-new players: combat, Map, Character, the Quests button, Social. Each step is a `.gc-parchment` callout (`role="dialog"`, `aria-labelledby` the outlined title, focus on the gold Next/Got it button, Tab cycles inside, Escape skips) with an arrow pointing at its target through a spotlight cutout — a gold-ringed box whose huge spread shadow dims everything else. The full-screen layer swallows taps while the tour runs and routes through `ModalStack`.
+
+- **Targets** are CSS selectors tried in order (combat spotlights the battlefield when the Combat screen is showing, else its nav tab). A step with no target on screen (absent, `hidden`, or inside `display: none`) is skipped, and the "N of M" counter counts only present steps. Resize and orientation changes reposition on the next frame; the callout goes below or above the target, whichever has room, or overlaps a target too tall for either.
+- **Start**: `App.enterGame` calls `startTourWhenClear`, which polls until no `.gc-modal` has been in the DOM for two consecutive checks (so a modal opened at game entry, like a welcome-back dialog, goes first), and gives up as soon as the player isn't new (`isNewPlayer`: character level ≤ 2) or the tour is done.
+- **Completion** is per device in `localStorage['idleparty.tourDone']` (finish or skip both set it; storage errors read as not done). Settings → **Replay Tour** starts it again regardless.
+- Reduced motion drops the spotlight glide and the callout pop-in.
 
 ## Per-player game state
 
@@ -185,7 +198,7 @@ Notification channel/category preferences are a modal opened from a new "Notific
 
 ## Quest Log
 
-`client/src/ui/QuestLog.ts` is a modal opened from Settings → **Quest Log**. It reads only what every state push already carries — `activeQuests`, `completedQuests`, `weeklyCompletions`, `questDefinitions`, `questResolutions`, `unlocked` — plus `WorldCache.getAllNpcs()` / `getRoomsWithNpc()`. Active quests show by default, ordered by `QuestLogModel.sortActiveQuests`: ready to turn in first, then in progress, then accepted, oldest accepted first within each. Each card shows status and scope pills, description, objectives with progress, rewards, and "Turn in to: {npc} — {room}, {zone}" for every NPC that lists the quest (rooms only when explored; `turnInLocations`). Completed quests sit behind a "Completed (N)" toggle that starts collapsed every time the log opens; rows fold weekly repeats into one (`×N`) and show "Available again {date}" from the server's `weeklyCompletions` clock. A quest deleted from content shows as "Unknown quest". The log re-renders only when its HTML changes, keeping scroll position and the toggle. Quest text helpers (`objectiveText`, `rewardsText`, `statusLabel`, `scopeBadgeHtml`) live in `client/src/ui/QuestText.ts`, shared with `NpcTalkPopup`, and both use the shared `.quest-card` / `.quest-pill` styles.
+`client/src/ui/QuestLog.ts` is a modal opened from the perched **Quests** button or Settings → **Quest Log** (one shared instance). It reads only what every state push already carries — `activeQuests`, `completedQuests`, `weeklyCompletions`, `questDefinitions`, `questResolutions`, `unlocked` — plus `WorldCache.getAllNpcs()` / `getRoomsWithNpc()`. Active quests show by default, ordered by `QuestLogModel.sortActiveQuests`: ready to turn in first, then in progress, then accepted, oldest accepted first within each. Each card shows status and scope pills, description, objectives with progress, rewards, and "Turn in to: {npc} — {room}, {zone}" for every NPC that lists the quest (rooms only when explored; `turnInLocations`). Completed quests sit behind a "Completed (N)" toggle that starts collapsed every time the log opens; rows fold weekly repeats into one (`×N`) and show "Available again {date}" from the server's `weeklyCompletions` clock. A quest deleted from content shows as "Unknown quest". The log re-renders only when its HTML changes, keeping scroll position and the toggle. Quest text helpers (`objectiveText`, `rewardsText`, `statusLabel`, `scopeBadgeHtml`) live in `client/src/ui/QuestText.ts`, shared with `NpcTalkPopup`, and both use the shared `.quest-card` / `.quest-pill` styles.
 
 **Toasts.** Live pushes (`GameClient.onNotification`) spawn slide-in toast cards with a 6s draining lifetime bar. Tapping a toast marks it read and navigates; its "×" only hides the toast.
 

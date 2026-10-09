@@ -24,6 +24,8 @@ import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 import { wireGameSounds } from './audio/SoundEvents';
+import { QuestLog } from './ui/QuestLog';
+import { Tour, isNewPlayer, isTourDone, startTourWhenClear } from './ui/Tour';
 
 const CONNECTION_ERROR = 'Could not connect to server';
 
@@ -32,6 +34,18 @@ const CHAT_ICON = `<svg class="nav-icon-svg" viewBox="0 0 32 32" aria-hidden="tr
   <path d="M5 6h22a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H14l-6 5v-5H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
     fill="#efe3c4" stroke="#3a2c1c" stroke-width="2" stroke-linejoin="round"/>
   <circle cx="10" cy="14" r="1.8" fill="#3a2c1c"/><circle cx="16" cy="14" r="1.8" fill="#3a2c1c"/><circle cx="22" cy="14" r="1.8" fill="#3a2c1c"/>
+</svg>`;
+
+/** Rolled quest scroll for the perched Quests button; `/nav-icons/quests.png` replaces it when present. */
+const QUEST_ICON = `<svg class="nav-icon-svg" viewBox="0 0 32 32" aria-hidden="true">
+  <path d="M8 7h17v17a3 3 0 0 1-3 3H7" fill="#e9d29a" stroke="#3a2c1c" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M10 7h13v15" fill="none" stroke="#fff3cf" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+  <path d="M12 12h9M12 16h9M12 20h6" stroke="#8a6a3c" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="5" y="4" width="22" height="5" rx="2.5" fill="#c99a52" stroke="#3a2c1c" stroke-width="2"/>
+  <path d="M7 5.5h18" stroke="#f1d69c" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="3" y="24" width="12" height="5" rx="2.5" fill="#c99a52" stroke="#3a2c1c" stroke-width="2"/>
+  <circle cx="22" cy="24" r="3.4" fill="#c0392b" stroke="#3a2c1c" stroke-width="1.6"/>
+  <circle cx="21" cy="23" r="1" fill="#f08a7a"/>
 </svg>`;
 
 export class App {
@@ -358,8 +372,15 @@ export class App {
     const charItemsScreen = new CharItemsScreen('screen-items', this.gameClient, this.worldCache);
     const socialScreen = new SocialScreen('screen-social', this.gameClient, this.chatStore, this.worldCache);
     const craftingScreen = new CraftingScreen('screen-craft', this.gameClient);
-    const settingsScreen = new SettingsScreen('screen-settings', this.gameClient, this.worldCache, (id) =>
-      this.screenManager.push(id),
+    const questLog = new QuestLog(this.gameClient, this.worldCache);
+    const tour = new Tour();
+    const settingsScreen = new SettingsScreen(
+      'screen-settings',
+      this.gameClient,
+      this.worldCache,
+      (id) => this.screenManager.push(id),
+      questLog,
+      () => tour.start(),
     );
     const patchNotesScreen = new PatchNotesScreen('screen-patch-notes');
 
@@ -420,9 +441,9 @@ export class App {
         + ` onload="this.style.opacity='1'"`
         + ` onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src='${placeholder}';}else{this.style.display='none';}" />`;
     };
-    // Five framed buttons in the bar with Map at the center (WorldQuest
-    // layout); Chat perches above the bar since it's an overlay toggle, not
-    // a destination. Settings lives on the top HUD's gear.
+    const navImgOverSvg = (id: string, label: string, svg: string) =>
+      svg + `<img class="nav-icon-img nav-icon-img--over" src="/nav-icons/${id}.png" alt="${label}" style="opacity:0"`
+        + ` onload="this.style.opacity='1';this.previousElementSibling?.remove()" onerror="this.remove()" />`;
     const nav = new BottomNav(
       [
         // Social opens a fly-out submenu with the three sub-views; the
@@ -442,6 +463,7 @@ export class App {
         { id: 'map', label: 'Map', icon: navImg('map', 'Map') },
         { id: 'combat', label: 'Combat', icon: navImg('combat', 'Fight') },
         { id: 'craft', label: 'Craft', icon: navImg('craft', 'Craft') },
+        { id: 'quests', label: 'Quests', icon: navImgOverSvg('quests', 'Quests', QUEST_ICON), mode: 'action', placement: 'perch' },
         { id: 'chat', label: 'Chat', icon: CHAT_ICON, mode: 'overlay', placement: 'perch' },
       ],
       savedScreen,
@@ -465,6 +487,9 @@ export class App {
           socialScreen.setSubTab(itemId);
           goToRoot('social');
         }
+      },
+      (tabId) => {
+        if (tabId === 'quests') questLog.open();
       },
     );
 
@@ -521,5 +546,7 @@ export class App {
 
     // Switch to saved screen (or combat by default)
     this.screenManager.switchTo(savedScreen);
+
+    startTourWhenClear(tour, () => isNewPlayer(this.gameClient.lastState) && !isTourDone());
   }
 }

@@ -247,7 +247,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Quest types (kill, collect, visit)
 - [x] Quest rewards (XP, gold, item)
 - [x] Quest scope (solo party only OR party-shared), prerequisites, weekly-repeatable
-- [x] Quest log (Settings → Quest Log: active quests with ready-to-turn-in first and where to turn them in; completed quests behind a toggle)
+- [x] Quest log (perched Quests button with a ready ! / active count badge, or Settings → Quest Log: active quests with ready-to-turn-in first and where to turn them in; completed quests behind a toggle)
 - [ ] Quest chains / storylines
 
 ### Dungeons
@@ -290,7 +290,8 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Dungeon entry popup + in-combat dungeon banner (floor progress + Leave Dungeon)
 - [x] Global chat pop-out (floating/draggable/resizable on desktop, docked bottom-sheet on mobile)
 - [x] Persistent XP bar above the bottom nav, visible on every screen
-- [x] WorldQuest-style shell: framed stone nav with raised active tab, perched Chat button, top HUD (gold, zone/room, settings), XP bar with portrait + level badge
+- [x] WorldQuest-style shell: framed stone nav with raised active tab, perched Quests + Chat buttons, top HUD (gold, zone/room, settings), XP bar with portrait + level badge
+- [x] First-session coach-mark tour for new players (replayable from Settings)
 - [x] WorldQuest-style rebuild of every screen and popup on the component kit (combat, character, map chrome + rooms, social, craft, chat, notifications, settings, title flow)
 - [ ] Painted world map (still hex-based underneath) — see `ideas/ui-revamp-worldquest.md`
 - [ ] Painted art for the `ui` chrome kind and nav icons

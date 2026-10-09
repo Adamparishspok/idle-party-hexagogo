@@ -17,7 +17,7 @@ import {
 
 const UNKNOWN_QUEST = 'Unknown quest';
 
-/** Settings → Quest Log modal: active quests (ready first) above a collapsed completed history. */
+/** Quest Log modal (perched Quests button or Settings): active quests (ready first) above a collapsed completed history. */
 export class QuestLog {
   private overlay: HTMLElement | null = null;
   private body: HTMLElement | null = null;

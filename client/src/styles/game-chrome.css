@@ -499,6 +499,7 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
 /* ── Perch: overlay buttons resting on a plinth above the XP bar ── */
 
 .nav-perch {
+  --perch-gap: 8px;
   position: absolute;
   left: 0;
   right: 0;
@@ -507,8 +508,10 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 10px;
-  padding-bottom: 4px;
+  gap: var(--perch-gap);
+  /* Chat stays dead center, where screen perch rows (combat, map) already clear it; Quests sits to its left. */
+  padding-right: calc(var(--tap-min) + var(--perch-gap));
+  padding-bottom: 2px;
   pointer-events: none;
 }
 .nav-perch:empty {
@@ -519,8 +522,8 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   content: '';
   position: absolute;
   bottom: 0;
-  left: 50%;
-  width: 96px;
+  left: calc(50% - (var(--tap-min) + var(--perch-gap)) / 2);
+  width: 124px;
   height: 20px;
   transform: translateX(-50%);
   clip-path: polygon(12% 0, 88% 0, 100% 100%, 0 100%);
@@ -528,7 +531,12 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   z-index: -1;
 }
 .nav-tab-perch {
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
   pointer-events: auto;
+}
+.nav-tab-perch:active .nav-frame {
+  transform: translateY(2px);
 }
 .nav-tab-perch .nav-frame {
   width: 46px;
@@ -546,6 +554,39 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
 .nav-tab-perch .nav-badge {
   top: -2px;
   right: -2px;
+}
+.nav-badge--count,
+.nav-badge--ready {
+  width: auto;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 20px;
+  text-align: center;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  font-variant-numeric: tabular-nums;
+}
+.nav-badge--count {
+  background: radial-gradient(circle at 50% 35%, #2e3242 0%, var(--gc-iron-950) 80%);
+  border-color: var(--gc-steel-300);
+}
+.nav-badge--ready {
+  background: radial-gradient(circle at 35% 30%, #fff3b8, var(--gold-500) 55%, var(--gc-gold-700));
+  border-color: var(--ink-900);
+  font-size: var(--t-small);
+}
+.nav-tab-perch .nav-badge--count,
+.nav-tab-perch .nav-badge--ready {
+  top: -6px;
+  right: -6px;
+}
+.nav-icon-img--over {
+  position: absolute;
+  inset: 0;
 }
 
 /* Scroll regions get room to scroll their last rows clear of the perch. */
@@ -579,6 +620,17 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
     width: 60px;
     height: 60px;
   }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-badge--ready.visible {
+    animation: nav-badge-ready-pop 1.8s ease-in-out infinite;
+  }
+}
+@keyframes nav-badge-ready-pop {
+  0%, 70%, 100% { transform: scale(1); }
+  80% { transform: scale(1.18); }
+  90% { transform: scale(0.96); }
 }
 
 @media (prefers-reduced-motion: reduce) {

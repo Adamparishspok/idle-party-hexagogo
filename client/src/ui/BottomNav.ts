@@ -1,7 +1,17 @@
 import type { GameClient } from '../network/GameClient';
+import type { QuestProgressEntry } from '@idle-party-rpg/shared';
 import { sound } from '../audio/SoundManager';
+import { readyQuestIds } from './RoomActions';
 
-export type NavMode = 'screen' | 'overlay' | 'submenu';
+export type NavMode = 'screen' | 'overlay' | 'submenu' | 'action';
+
+export type QuestBadge = { kind: 'ready' } | { kind: 'count'; count: number } | null;
+
+export function questBadgeFor(activeQuests: readonly QuestProgressEntry[] = []): QuestBadge {
+  if (readyQuestIds(activeQuests).size > 0) return { kind: 'ready' };
+  if (activeQuests.length > 0) return { kind: 'count', count: activeQuests.length };
+  return null;
+}
 
 export interface NavSubmenuItem {
   id: string;
@@ -19,20 +29,21 @@ export interface NavTabConfig {
    * - `overlay`: toggles a UI overlay without changing the active screen (Chat).
    * - `submenu`: opens a fly-out submenu above the tab. Each submenu item can
    *   route to a screen (with optional sub-tab id) via `onSubmenuPick`.
+   * - `action`: fires `onAction` and keeps no state of its own (Quests).
    */
   mode?: NavMode;
   /** Submenu items shown when this tab is clicked (only when mode === 'submenu'). */
   submenu?: NavSubmenuItem[];
   /**
    * - `bar` (default): one of the big framed buttons in the stone bar.
-   * - `perch`: a smaller button perched on the plinth above the bar (Chat).
+   * - `perch`: a smaller button perched on the plinth above the bar (Quests, Chat).
    */
   placement?: 'bar' | 'perch';
 }
 
 /**
  * Bottom nav: a stone bar of framed icon buttons (the active one rises on a
- * banner), a plinth of perched buttons above it for overlay toggles (Chat),
+ * banner), a plinth of perched buttons above it (Quests, Chat),
  * and fly-out submenus (Social). Labels are screen-reader only — the icons
  * carry the meaning, as in most mobile games.
  */
@@ -58,6 +69,7 @@ export class BottomNav {
     gameClient: GameClient,
     private onOverlayToggle?: (tabId: string, currentlyActive: boolean) => void,
     private onSubmenuPick?: (tabId: string, itemId: string) => void,
+    private onAction?: (tabId: string) => void,
   ) {
     this.activeId = defaultTab;
     this.container = document.getElementById('bottom-nav')!;
@@ -107,7 +119,7 @@ export class BottomNav {
     const mode: NavMode = tab.mode ?? 'screen';
     // Nav buttons are excluded from the global tap sound (SoundEvents) so each
     // mode can speak for itself: screens get the tab "tock", a submenu gets a
-    // tap, and overlays (Chat) are voiced by ModalStack's open/close.
+    // tap, and overlays (Chat) and actions (Quests) are voiced by ModalStack's open/close.
     if (mode === 'screen') sound.play('tab-switch');
     else if (mode === 'submenu') sound.play('ui-tap');
 
@@ -123,6 +135,11 @@ export class BottomNav {
     }
 
     this.closeSubmenu();
+
+    if (mode === 'action') {
+      this.onAction?.(tab.id);
+      return;
+    }
 
     if (mode === 'overlay') {
       const wasActive = this.overlayActiveIds.has(tab.id);
@@ -291,7 +308,26 @@ export class BottomNav {
         if (badge) badge.classList.toggle('visible', hasMailbox || tradeNeedsAction);
       }
 
+      this.updateQuestBadge(questBadgeFor(state.activeQuests));
+
       lastVisual = visual;
     });
   }
+
+  private updateQuestBadge(questBadge: QuestBadge): void {
+    const tab = this.tabButtons.get('quests');
+    const badge = tab?.querySelector<HTMLElement>('.nav-badge');
+    if (!tab || !badge) return;
+    badge.classList.toggle('visible', questBadge !== null);
+    badge.classList.toggle('nav-badge--ready', questBadge?.kind === 'ready');
+    badge.classList.toggle('nav-badge--count', questBadge?.kind === 'count');
+    badge.textContent = questBadge?.kind === 'ready' ? '!' : questBadge?.kind === 'count' ? String(questBadge.count) : '';
+    tab.setAttribute('aria-label', questButtonLabel(questBadge));
+  }
+}
+
+function questButtonLabel(questBadge: QuestBadge): string {
+  if (questBadge?.kind === 'ready') return 'Quests, ready to turn in';
+  if (questBadge?.kind === 'count') return `Quests, ${questBadge.count} active`;
+  return 'Quests';
 }
