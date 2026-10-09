@@ -362,7 +362,7 @@ export class App {
     const charItemsScreen = new CharItemsScreen('screen-items', this.gameClient, this.worldCache);
     const socialScreen = new SocialScreen('screen-social', this.gameClient, this.chatStore, this.worldCache);
     const craftingScreen = new CraftingScreen('screen-craft', this.gameClient);
-    const settingsScreen = new SettingsScreen('screen-settings', this.gameClient);
+    const settingsScreen = new SettingsScreen('screen-settings', this.gameClient, this.worldCache);
 
     // Wire map username click to social screen popup
     mapScreen.setOnUserClick((username, anchor, tileCol, tileRow) => {

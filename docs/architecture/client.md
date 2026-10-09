@@ -27,8 +27,10 @@ Each player has a `PlayerSession` with character state, unlocks, combat log, and
 `client/src/ui/ThreeWorldMap.ts` renders the world map with **three.js (WebGL)** plus a sibling HTML overlay. The split:
 
 - **WebGL canvas** owns the static layers only — parchment background, drop shadow, baked tile composite. These are uploaded as textures and the per-frame work collapses to a camera-matrix update; pan/zoom are essentially free GPU operations.
-- **`.three-map-overlay` HTML div** sits on top of the canvas and hosts every *dynamic* element — party sprite, other-player flags, count badges, hover highlight, path preview. The overlay carries a single `transform: translate(W/2, H/2) scale(zoom) translate(-camX, -camY)` mirroring the three.js camera, so a single style update moves every child together when the user pans/zooms (no per-child JS). Children are absolutely positioned in world coords (`left:Xpx; top:Ypx`) and centered via `translate(-50%, -50%)`.
-- **Tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element (no map transform).
+- **`.three-map-overlay` HTML div** sits on top of the canvas and hosts every *dynamic* element — party sprite, room-action markers, other-player flags, count badges, hover highlight, path preview. The overlay carries a single `transform: translate(W/2, H/2) scale(zoom) translate(-camX, -camY)` mirroring the three.js camera, so a single style update moves every child together when the user pans/zooms (no per-child JS). Children are absolutely positioned in world coords (`left:Xpx; top:Ypx`) and centered via `translate(-50%, -50%)`.
+- **Tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element (no map transform), desktop only (touch moves always pan). For an explored room it lists `{zone}: {room}`, one line per room action, then `👥 N players here` — a count, never names; names are revealed only by clicking the room. Unexplored rooms show `{zone}: Unexplored Room` and nothing else.
+
+**Hex slots**: each room's overlay children keep to fixed slots so they never stack — other-party flag top-centre, player-count badge top-right (anchored at its left edge so it grows outward), 🗝️ delving key top-left, room-action marker bottom-centre, party sprite in the middle (24px with a see-through fill so the room shows through). Markers and badges counter-scale as the map zooms out: `updateOverlayTransform` sets `--map-zoom` on the overlay and the CSS scales them by `clamp(1, 0.75 / zoom, 1.8)`, so they stay legible at `MIN_ZOOM`.
 
 **Render-on-demand**: there's no always-on RAF loop. `requestRender()` schedules a single render on the next animation frame, coalescing multiple state pushes into one. An anim loop runs only while the spring-back is active (overdrag → bounce). Party movement and the party pulse live entirely in CSS (`transition: left/top 400ms ease-in-out` on `.three-map-party` matches `MOVE_DURATION`; pulse is a CSS keyframe), so they don't drive any JS or WebGL work. Idle map screens cost effectively zero.
 
@@ -40,17 +42,27 @@ Each player has a `PlayerSession` with character state, unlocks, combat log, and
 
 **Parchment**: a fixed 8000×8000 plane at z=0 with the tiled parchment texture. Each frame its world position is set to `camWorld × (1 − 0.3)` so it follows the camera at 70% rate — i.e. apparent shift on screen is only 30% of the world's, giving the "deeper" parallax feel. The texture is **per-map** (`/parchment-artwork/{mapId}.png`, uploaded in the admin Maps tab): `loadParchment(mapId)` loads it on init and reloads on map switch, discarding stale loads if the map changes mid-fetch.
 
+## Room actions
+
+`client/src/ui/RoomActions.ts` is the single vocabulary for what a room offers, shared by the map markers, the tooltip, both RoomView states and the room status panel. `getRoomActions(room, lookups, readyQuestIds)` returns, in order: the NPC (its own emoji; detail "Quest ready to turn in" plus a gold `?` pip when one of its `questIds` is an active quest with status `ready`), the shop (🪙 if it sells items, 🤝 if it only hires henchmen, detail "Henchmen for hire" when it does both), the dungeon entrance (🗝️), and one travel point per map transition (🌀, named after the destination room, else its map, else "a passage"). Ids that don't resolve are skipped. Lookups come from `WorldCache` (`getNpc`, `getShop` → `ShopSummary` from `/api/world`, `getDungeon`, `getTileByGuid`, `getMaps`), so remote rooms need nothing beyond the login payload.
+
+**Explored rooms only**: markers, tooltip lines and the remote popup's list appear only on rooms `worldCache.isUnlocked` (the same rule that reveals a room's name). The map draws one marker per explored room with at least one action — up to three icons on a dark pill, then `+N`; several exits collapse into a single 🌀. `ThreeWorldMap.updateMarkersOverlay` rebuilds markers only when the grid is rebuilt (unlocks, map switch, content reload) or the ready-quest set changes, not every tick.
+
+## Room status panel
+
+`client/src/ui/RoomStatusPanel.ts`, owned by `MapScreen`, shows what the party's current room offers as chips that run the same handlers as the RoomView buttons (`MapScreen.runAction` → `talkTo` / `openShop` / `enterDungeon` / `enterTransition`, with the same in-dungeon and owner/leader checks). Extra chips: `👥 N` when players outside your party share the room (opens the current-room RoomView, where names are listed), and a non-interactive `🗝️ {dungeon} · Floor x/y` while delving. Desktop (≥768px) is a labelled card top-left with a `{zone} · {room}` header; mobile is icon-only round chips bottom-left, clear of the zoom controls, move toast and notification bell, and hidden when there is nothing to show. The DOM is replaced only when the content key changes, and taps are stopped (`pointerdown`/`mousedown`/`click`/`touchstart`) so they don't pan or click the map — `mouseup` is deliberately left alone so a map drag released over the card still ends.
+
 ## RoomView (replaces TileInfoModal)
 
 Clicking a tile opens `client/src/ui/RoomView.ts` with three states:
 
-- **Current room (you're here)** — near-full-screen, background image (`/room-bg-artwork/{zoneId}-{col}-{row}.png` with `/room-bg-artwork/{zoneId}.png` fallback), party-grouped player list (your party in a gold-bordered box, then one bordered box per other party), shop/talk affordances, click any player to open the user popup.
-- **Remote room (discovered)** — smaller centered popup with name/type, the same party-grouped player list (when other parties' players are on the tile), and a "Go to room" button.
+- **Current room (you're here)** — near-full-screen, background image (`/room-bg-artwork/{zoneId}-{col}-{row}.png` with `/room-bg-artwork/{zoneId}.png` fallback), party-grouped player list (your party in a gold-bordered box, then one bordered box per other party), one button per room action (the shop button shows `/shop-artwork/{shopId}.png`), click any player to open the user popup. While the party is walking a route (`state.party.path` non-empty) a **Stop here** button sends a move to this room: the server clears the route if the party is still on it, or walks it back if it has already moved on.
+- **Remote room (discovered)** — smaller centered popup with name, an "In this room" list of the room's actions (explored rooms only, informational), the same party-grouped player list (when other parties' players are on the tile), and a "Go to room" button. The popup scrolls when a room holds many players.
 - **Undiscovered** — same small popup with an "unexplored" hint.
 
 Grouping logic lives in `RoomView.groupPlayersByParty` and depends on `partyId` arriving on each `OtherPlayerState`. Each rendered tile passes through `renderPartyBox(members, label, partyClass)`.
 
-Travelling from a remote-room view to your party arriving at that tile triggers an arrival expand animation (`.room-view-arrival` class with timed CSS transition). Shop, NPC, and dungeon affordances on the current-room view are gated on `playerOnTile && state?.shopDefinition` / `tileDef?.npcId` / `tileDef?.dungeonId` respectively — wired in `MapScreen.setOnTileClick`.
+Travelling from a remote-room view to your party arriving at that tile triggers an arrival expand animation (`.room-view-arrival` class with timed CSS transition). `MapScreen.showRoom` sets `roomView.actions` before showing: for the current room, `MapScreen.currentRoomActions` (shop only when `state.shopDefinition` is present, named from it; dungeon and travel dropped while `state.dungeon` is set); for a remote explored room, `getRoomActions` on its tile. Every button goes through one `onAction` callback into `MapScreen.runAction`.
 
 ## Dungeons (client)
 
@@ -58,7 +70,7 @@ When the current room is linked to a dungeon (`tileDef.dungeonId`, looked up via
 
 ## Multi-map travel (client)
 
-The client renders only the map the party is on. `ServerStateMessage.currentMapId` drives `WorldCache.setCurrentMap`; when it changes, `ThreeWorldMap` rebuilds its grid from the new map's tiles, recenters the camera, snaps the party sprite (no tween across the discontinuity), and filters the other-player flag overlay to that map (`OtherPlayerState.mapId`). When the current room has `transitions`, `RoomView` shows one "Enter {destination}" button per exit (destination names resolved via `WorldCache.getTileByGuid`); tapping one sends `enter_transition` with that target `tileId` (owner/leader-gated, blocked inside a dungeon). No confirm popup: transitions may be gated (see `docs/architecture/content.md` → Room entry requirements), but the check is server-authoritative and a refusal comes back as a `move_blocked` message that surfaces in the same map toast as a blocked move. The client cannot preview gates — party members' levels, equipment, and completed quests are not in `GamePartyMember`, and gate items/quests the player has never encountered have no name in `itemDefinitions` — so transition buttons stay enabled, matching `DungeonEntryPopup`'s descriptive-only precedent. See `docs/architecture/content.md` → Multi-map for the server side. (A zoomed-out overworld/map-select for players is out of scope — issue #168.)
+The client renders only the map the party is on. `ServerStateMessage.currentMapId` drives `WorldCache.setCurrentMap`; when it changes, `ThreeWorldMap` rebuilds its grid from the new map's tiles, recenters the camera, snaps the party sprite (no tween across the discontinuity), and filters the other-player flag overlay to that map (`OtherPlayerState.mapId`). When the current room has `transitions`, `RoomView` shows one 🌀 "Travel to {destination}" button per exit (destination names resolved via `WorldCache.getTileByGuid`); tapping one sends `enter_transition` with that target `tileId` (owner/leader-gated, blocked inside a dungeon). No confirm popup: transitions may be gated (see `docs/architecture/content.md` → Room entry requirements), but the check is server-authoritative and a refusal comes back as a `move_blocked` message that surfaces in the same map toast as a blocked move. The client cannot preview gates — party members' levels, equipment, and completed quests are not in `GamePartyMember`, and gate items/quests the player has never encountered have no name in `itemDefinitions` — so transition buttons stay enabled, matching `DungeonEntryPopup`'s descriptive-only precedent. See `docs/architecture/content.md` → Multi-map for the server side. (A zoomed-out overworld/map-select for players is out of scope — issue #168.)
 
 ## Inventory screen (merged Char + Items)
 
@@ -82,7 +94,11 @@ Whenever the popout is open with `dm` selected as the send channel, it reports t
 
 `client/src/ui/NotificationCenter.ts` is mounted into `#notification-center-root` (another fixed root outside `#app`, alongside `#chat-popout-root`), so — like `ChatPopout` — it survives every screen switch. A bell button fixed at top-right shows an unread-count badge; clicking it opens a dropdown (via `ModalStack`) listing the inbox newest-first. Each row's main area marks it read on click and, for party/friend-request/DM notifications, navigates to the relevant screen; a small "×" per row dismisses (permanently removes) it, and the header has "Mark all read" plus a confirm-gated "Clear all". Live pushes (`GameClient.onNotification`) also spawn an auto-dismissing toast in a separate fixed stack, sharing the same mark-read/navigate click behavior, independent of whether the dropdown is open. Full details in [`notifications.md`](notifications.md).
 
-Notification channel/category preferences are a modal opened from a new "Notifications" button on `SettingsScreen` (`client/src/ui/NotificationPreferences.ts`) — a category × channel checkbox grid following the same visual language as the existing Player Options popup.
+Notification channel/category preferences are a modal opened from a new "Notifications" button on `SettingsScreen` (`client/src/ui/NotificationPreferences.ts`) — a category × channel checkbox grid in the same `.player-options-*` modal shell as the Quest Log.
+
+## Quest Log
+
+`client/src/ui/QuestLog.ts` is a modal opened from Settings → **Quest Log**. It reads only what every state push already carries — `activeQuests`, `completedQuests`, `weeklyCompletions`, `questDefinitions`, `questResolutions`, `unlocked` — plus `WorldCache.getAllNpcs()` / `getRoomsWithNpc()`. Active quests show by default, ordered by `QuestLogModel.sortActiveQuests`: ready to turn in first, then in progress, then accepted, oldest accepted first within each. Each card shows status and scope pills, description, objectives with progress, rewards, and "Turn in to: {npc} — {room}, {zone}" for every NPC that lists the quest (rooms only when explored; `turnInLocations`). Completed quests sit behind a "Completed (N)" toggle that starts collapsed every time the log opens; rows fold weekly repeats into one (`×N`) and show "Available again {date}" from the server's `weeklyCompletions` clock. A quest deleted from content shows as "Unknown quest". The log re-renders only when its HTML changes, keeping scroll position and the toggle. Quest text helpers (`objectiveText`, `rewardsText`, `statusLabel`, `scopeBadgeHtml`) live in `client/src/ui/QuestText.ts`, shared with `NpcTalkPopup`, and both use the shared `.quest-card` / `.quest-pill` styles.
 
 ## Combat cards
 
@@ -94,7 +110,7 @@ Per-turn animations (`updateCombatAnimations`) toggle `.attacking` / `.hit` / `.
 
 ## ModalStack
 
-`client/src/ui/ModalStack.ts` manages click-order z-index across overlays. `bringToFront(el)` is called when a modal opens (and on `mousedown` so click-to-focus works like native windows); `release(el)` on close. `wireFocusOnInteract(el)` attaches the focus-on-click handler in one call. Every overlay in the app (RoomView, ChatPopout, PlayerOptions, player popup, monster popup, the notification dropdown, etc.) routes through it.
+`client/src/ui/ModalStack.ts` manages click-order z-index across overlays. `bringToFront(el)` is called when a modal opens (and on `mousedown` so click-to-focus works like native windows); `release(el)` on close. `wireFocusOnInteract(el)` attaches the focus-on-click handler in one call. Every overlay in the app (RoomView, ChatPopout, the Quest Log and Notifications modals, player popup, monster popup, the notification dropdown, etc.) routes through it.
 
 ## PWA (installability + service worker)
 
@@ -110,7 +126,7 @@ The kinds themselves live in `ASSET_KIND_INFO` (`shared/src/assets/AssetKinds.ts
 
 ## Browser tab resume
 
-On `visibilitychange` → visible, the client sends `request_state` for an immediate server response (no waiting for the next battle cycle). The party position snaps instantly; the camera pans smoothly (500ms).
+On `visibilitychange` → visible, the client sends `request_state` for an immediate server response (no waiting for the next battle cycle). The party position snaps instantly and the camera re-centres on it.
 
 ## Event-driven systems
 
@@ -126,11 +142,11 @@ Hex distance heuristic with cross-track tie-breaker.
 
 ## Other players on map
 
-Each state message includes `otherPlayers: { username, col, row, mapId?, zone, className?, partyId?, inDungeon?, dungeonName? }[]`. Players on a different map than the viewer are filtered out (so co-located `col,row` on another map don't render). `ThreeWorldMap` renders party flags per occupied tile in the same zone (deterministic color hash so distinct parties read distinctly), and a "+N" badge on the player's own tile so other-room players aren't hidden behind the party bubble. Positions update on each player's own battle cycle. `partyId` flows through to `TileClickInfo.playersHere` so `RoomView` can group co-located players into one box per party. A party delving a dungeon stays parked at the entrance tile; `inDungeon`/`dungeonName` drive a 🗝️ marker on that tile's flag (`.three-map-dungeon-key`) and a "🗝️ Delving {name}" tag on the party's box in the room popup, so it reads as "inside" rather than "standing around."
+Each state message includes `otherPlayers: { username, col, row, mapId?, zone, className?, partyId?, inDungeon?, dungeonName? }[]`. Players on a different map than the viewer are filtered out (so co-located `col,row` on another map don't render). `ThreeWorldMap` renders a flag per occupied tile in the same zone (colour hashed from the tile, so neighbouring stacks read distinctly) with a `×N` badge when more than one player stands there, and a `+N` badge on the player's own tile counting players outside your party so they aren't hidden behind the party sprite. `groupOtherPlayers` is the one counting rule (same zone, not in my party) shared by the flags, the tooltip count and the room status panel (`countOthersAt`). Positions update on each player's own battle cycle. `partyId` flows through to `TileClickInfo.playersHere` so `RoomView` can group co-located players into one box per party. A party delving a dungeon stays parked at the entrance tile; `inDungeon`/`dungeonName` drive a 🗝️ marker on that tile's flag (`.three-map-dungeon-key`) and a "🗝️ Delving {name}" tag on the party's box in the room popup, so it reads as "inside" rather than "standing around."
 
 ## Zoom controls
 
-Mobile-friendly +/− zoom buttons on the map screen, wired to `CanvasWorldMap.adjustZoom()`.
+Mobile-friendly +/− zoom buttons on the map screen, wired to `ThreeWorldMap.adjustZoom()`.
 
 ## Desktop font scaling
 

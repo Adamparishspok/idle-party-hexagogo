@@ -4,10 +4,10 @@ import type {
   ServerStateMessage,
   QuestDefinition,
   QuestProgressEntry,
-  QuestObjective,
-  QuestReward,
 } from '@idle-party-rpg/shared';
-import { canAcceptQuest, getObjectiveTarget } from '@idle-party-rpg/shared';
+import { canAcceptQuest } from '@idle-party-rpg/shared';
+import { escapeHtml } from './ItemIcon';
+import { objectiveText, rewardsText, scopeBadgeHtml, statusLabel, type QuestResolutions } from './QuestText';
 
 export class NpcTalkPopup {
   private overlay: HTMLElement;
@@ -53,27 +53,14 @@ export class NpcTalkPopup {
     this.completionMessages = [];
   }
 
-  private resolveMonster(id: string): string {
-    return this.lastResolutions?.monsters[id] ?? id;
-  }
-  private resolveItem(id: string): string {
-    return this.lastResolutions?.items[id] ?? id;
-  }
-  private resolveTile(id: string): string {
-    const t = this.lastResolutions?.tiles[id];
-    return t ? `${t.name} (${t.col},${t.row})` : 'a specific room';
-  }
-
-  private lastResolutions: ServerStateMessage['questResolutions'] | undefined;
-
   private render(state: ServerStateMessage | null): void {
     const npc = this.currentNpc;
     if (!npc) return;
-    this.lastResolutions = state?.questResolutions;
+    const resolutions = state?.questResolutions;
 
     const portrait = npc.artworkUrl
-      ? `<img class="npc-talk-portrait-img" src="${this.escape(npc.artworkUrl)}" alt="">`
-      : `<div class="npc-talk-portrait-emoji">${this.escape(npc.emoji)}</div>`;
+      ? `<img class="npc-talk-portrait-img" src="${escapeHtml(npc.artworkUrl)}" alt="">`
+      : `<div class="npc-talk-portrait-emoji">${escapeHtml(npc.emoji)}</div>`;
 
     const offered = state?.offeredQuestIds ?? [];
     const defs = state?.questDefinitions ?? {};
@@ -99,10 +86,10 @@ export class NpcTalkPopup {
 
     const completionHtml = this.completionMessages.length > 0
       ? this.completionMessages.map(m => `
-          <div class="npc-talk-completion" data-quest-id="${this.escape(m.questId)}">
-            <div class="npc-talk-completion-label">Quest complete: ${this.escape(m.questName)}</div>
-            <div class="npc-talk-completion-text">"${this.escape(m.text)}"</div>
-            <button class="npc-talk-completion-dismiss" data-dismiss-completion="${this.escape(m.questId)}" type="button">OK</button>
+          <div class="npc-talk-completion" data-quest-id="${escapeHtml(m.questId)}">
+            <div class="npc-talk-completion-label">Quest complete: ${escapeHtml(m.questName)}</div>
+            <div class="npc-talk-completion-text">"${escapeHtml(m.text)}"</div>
+            <button class="npc-talk-completion-dismiss" data-dismiss-completion="${escapeHtml(m.questId)}" type="button">OK</button>
           </div>
         `).join('')
       : '';
@@ -125,7 +112,7 @@ export class NpcTalkPopup {
           playerLevel,
           activeQuestIds: new Set(activeMap.keys()),
           completedQuestIds: completedSet,
-          weeklyCompletions: {},
+          weeklyCompletions: state?.weeklyCompletions ?? {},
         });
         if (!reason) availableQuests.push(def);
       }
@@ -134,21 +121,21 @@ export class NpcTalkPopup {
     const readyHtml = readyQuests.length > 0
       ? `<div class="npc-quest-section npc-quest-ready">
            <div class="npc-quest-section-title">Ready to Turn In</div>
-           ${readyQuests.map(q => this.renderReady(q.def)).join('')}
+           ${readyQuests.map(q => this.renderReady(q.def, resolutions)).join('')}
          </div>`
       : '';
 
     const inProgressHtml = inProgressQuests.length > 0
       ? `<div class="npc-quest-section">
            <div class="npc-quest-section-title">In Progress</div>
-           ${inProgressQuests.map(q => this.renderInProgress(q.def, q.progress)).join('')}
+           ${inProgressQuests.map(q => this.renderInProgress(q.def, q.progress, resolutions)).join('')}
          </div>`
       : '';
 
     const availableHtml = availableQuests.length > 0
       ? `<div class="npc-quest-section">
            <div class="npc-quest-section-title">Available</div>
-           ${availableQuests.map(q => this.renderAvailable(q)).join('')}
+           ${availableQuests.map(q => this.renderAvailable(q, resolutions)).join('')}
          </div>`
       : '';
 
@@ -160,9 +147,9 @@ export class NpcTalkPopup {
       <div class="npc-talk-modal">
         <div class="npc-talk-header">
           ${portrait}
-          <div class="npc-talk-name">${this.escape(npc.name)}</div>
+          <div class="npc-talk-name">${escapeHtml(npc.name)}</div>
         </div>
-        <div class="npc-talk-greeting">"${this.escape(npc.greeting)}"</div>
+        <div class="npc-talk-greeting">"${escapeHtml(npc.greeting)}"</div>
         ${completionHtml}
         ${readyHtml}
         ${inProgressHtml}
@@ -198,89 +185,51 @@ export class NpcTalkPopup {
     }
   }
 
-  private renderAvailable(def: QuestDefinition): string {
+  private renderAvailable(def: QuestDefinition, resolutions: QuestResolutions): string {
     return `
-      <div class="npc-quest-card npc-quest-card-available">
-        <div class="npc-quest-card-header">
-          <span class="npc-quest-card-name">${this.escape(def.name)}</span>
-          ${this.scopeBadge(def.scope)}
+      <div class="quest-card">
+        <div class="quest-card-header">
+          <span class="quest-card-name">${escapeHtml(def.name)}</span>
+          ${scopeBadgeHtml(def.scope)}
         </div>
-        <div class="npc-quest-card-desc">${this.escape(def.description)}</div>
-        <div class="npc-quest-card-objectives">
-          ${def.objectives.map(o => `<div class="npc-quest-objective">• ${this.objectiveText(o, 0)}</div>`).join('')}
+        <div class="quest-card-desc">${escapeHtml(def.description)}</div>
+        <div class="quest-card-objectives">
+          ${def.objectives.map(o => `<div class="quest-objective">• ${objectiveText(o, 0, resolutions)}</div>`).join('')}
         </div>
-        <div class="npc-quest-card-rewards">Rewards: ${def.rewards.map(r => this.rewardText(r)).join(', ') || 'none'}</div>
-        <div class="npc-quest-card-actions">
-          <button class="npc-talk-btn" data-quest-accept="${this.escape(def.id)}">Accept</button>
+        <div class="quest-card-rewards">Rewards: ${rewardsText(def.rewards, resolutions)}</div>
+        <div class="quest-card-actions">
+          <button class="npc-talk-btn" data-quest-accept="${escapeHtml(def.id)}">Accept</button>
         </div>
       </div>
     `;
   }
 
-  private renderInProgress(def: QuestDefinition, progress: QuestProgressEntry): string {
+  private renderInProgress(def: QuestDefinition, progress: QuestProgressEntry, resolutions: QuestResolutions): string {
     return `
-      <div class="npc-quest-card">
-        <div class="npc-quest-card-header">
-          <span class="npc-quest-card-name">${this.escape(def.name)}</span>
-          <span class="npc-quest-status-pill npc-quest-status-${progress.status}">${this.statusLabel(progress.status)}</span>
+      <div class="quest-card">
+        <div class="quest-card-header">
+          <span class="quest-card-name">${escapeHtml(def.name)}</span>
+          <span class="quest-pill quest-status-${progress.status}">${statusLabel(progress.status)}</span>
         </div>
-        <div class="npc-quest-card-objectives">
-          ${def.objectives.map((o, i) => `<div class="npc-quest-objective">• ${this.objectiveText(o, progress.progress[i] ?? 0)}</div>`).join('')}
+        <div class="quest-card-objectives">
+          ${def.objectives.map((o, i) => `<div class="quest-objective">• ${objectiveText(o, progress.progress[i] ?? 0, resolutions)}</div>`).join('')}
         </div>
       </div>
     `;
   }
 
-  private renderReady(def: QuestDefinition): string {
+  private renderReady(def: QuestDefinition, resolutions: QuestResolutions): string {
     return `
-      <div class="npc-quest-card npc-quest-card-ready">
-        <div class="npc-quest-card-header">
-          <span class="npc-quest-card-name">${this.escape(def.name)}</span>
-          <span class="npc-quest-status-pill npc-quest-status-ready">Ready</span>
+      <div class="quest-card quest-card-ready">
+        <div class="quest-card-header">
+          <span class="quest-card-name">${escapeHtml(def.name)}</span>
+          <span class="quest-pill quest-status-ready">Ready</span>
         </div>
-        <div class="npc-quest-card-rewards">Rewards: ${def.rewards.map(r => this.rewardText(r)).join(', ') || 'none'}</div>
-        <div class="npc-quest-card-actions">
-          <button class="npc-talk-btn npc-talk-btn-primary" data-quest-turnin="${this.escape(def.id)}">Turn In</button>
+        <div class="quest-card-rewards">Rewards: ${rewardsText(def.rewards, resolutions)}</div>
+        <div class="quest-card-actions">
+          <button class="npc-talk-btn npc-talk-btn-primary" data-quest-turnin="${escapeHtml(def.id)}">Turn In</button>
         </div>
       </div>
     `;
-  }
-
-  private objectiveText(obj: QuestObjective, progress: number): string {
-    const target = getObjectiveTarget(obj);
-    const cap = Math.min(progress, target);
-    if (obj.kind === 'kill') {
-      return `Kill ${this.escape(this.resolveMonster(obj.monsterId))} (${cap}/${target})`;
-    }
-    if (obj.kind === 'collect') {
-      return `Collect ${this.escape(this.resolveItem(obj.itemId))} (${cap}/${target})`;
-    }
-    const place = this.escape(this.resolveTile(obj.tileId));
-    return cap >= 1 ? `Visit ${place} — done` : `Visit ${place}`;
-  }
-
-  private rewardText(reward: QuestReward): string {
-    if (reward.kind === 'xp') return `${reward.amount} XP`;
-    if (reward.kind === 'gold') return `${reward.amount} Gold`;
-    return `${reward.quantity}× ${this.escape(this.resolveItem(reward.itemId))}`;
-  }
-
-  private scopeBadge(scope: 'solo' | 'party_shared'): string {
-    return scope === 'solo'
-      ? `<span class="npc-quest-scope-pill npc-quest-scope-solo">Solo</span>`
-      : `<span class="npc-quest-scope-pill npc-quest-scope-party">Party</span>`;
-  }
-
-  private statusLabel(status: string): string {
-    switch (status) {
-      case 'accepted': return 'Accepted';
-      case 'in_progress': return 'In Progress';
-      case 'ready': return 'Ready';
-      default: return status;
-    }
-  }
-
-  private escape(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 }

@@ -453,6 +453,7 @@ export class PlayerSession {
   private buildQuestState(): {
     activeQuests: QuestProgressEntry[];
     completedQuests: CompletedQuestEntry[];
+    weeklyCompletions: Record<string, string>;
     questDefinitions: Record<string, QuestDefinition>;
     offeredQuestIds: string[];
     questResolutions: {
@@ -514,6 +515,7 @@ export class PlayerSession {
     return {
       activeQuests: activeProgress,
       completedQuests: this.quests.getCompleted(),
+      weeklyCompletions: this.quests.getWeeklyCompletions(),
       questDefinitions: defs,
       offeredQuestIds,
       questResolutions: { monsters: monsterNames, items: itemNames, tiles: tileLookups },
@@ -649,6 +651,7 @@ export class PlayerSession {
       crafting: this.getCraftingState(),
       activeQuests: questBlock.activeQuests,
       completedQuests: questBlock.completedQuests,
+      weeklyCompletions: questBlock.weeklyCompletions,
       questDefinitions: questBlock.questDefinitions,
       offeredQuestIds: questBlock.offeredQuestIds,
       questResolutions: questBlock.questResolutions,

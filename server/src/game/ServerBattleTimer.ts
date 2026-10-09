@@ -110,8 +110,7 @@ export class ServerBattleTimer {
     if (canMove) {
       // Pause for celebration, then move, then next battle after move completes
       this.resultTimeout = setTimeout(() => {
-        this.party.moveToNextTile();
-        this.onMove?.();
+        if (this.party.moveToNextTile()) this.onMove?.();
         this.currentVisual = 'none';
         this.onStateChange?.(this.state); // broadcast updated position
         this.moveTimeout = setTimeout(() => this.triggerBattle(), MOVE_DURATION);
@@ -181,8 +180,7 @@ export class ServerBattleTimer {
     if (canMove) {
       this.setState('result');
       this.resultTimeout = setTimeout(() => {
-        this.party.moveToNextTile();
-        this.onMove?.();
+        if (this.party.moveToNextTile()) this.onMove?.();
         this.onStateChange?.(this.state);
         this.moveTimeout = setTimeout(() => this.triggerBattle(), MOVE_DURATION);
       }, RESULT_PAUSE);
