@@ -1,12 +1,25 @@
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
+import type { ServerStateMessage } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import { RoomView } from '../ui/RoomView';
 import { ShopPopup } from '../ui/ShopPopup';
 import { ThreeWorldMap } from '../ui/ThreeWorldMap';
 import { NpcTalkPopup } from '../ui/NpcTalkPopup';
 import { DungeonEntryPopup } from '../ui/DungeonEntryPopup';
+import '../styles/screens/map.css';
 
+const ICON_PLUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
+const ICON_MINUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
+const ICON_LOCATE = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+const ICON_ROOM = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11 12 3.5l8.5 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10v10h4.5v-6h3v6H18V10" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>';
+
+/**
+ * Map screen chrome around the world map: kit zoom / recenter buttons on the
+ * right, a "Room" button in the perch row that opens the current room (gold
+ * when there's a shop, NPC, dungeon, or passage there), and the blocked-move
+ * toast. The map itself is ThreeWorldMap; rooms open in RoomView.
+ */
 export class MapScreen implements Screen {
   private container: HTMLElement;
   private gameContainer: HTMLElement;
@@ -14,7 +27,8 @@ export class MapScreen implements Screen {
   private worldCache: WorldCache;
   private map: ThreeWorldMap | null = null;
   private unsubscribeState?: () => void;
-  private zoomControls?: HTMLElement;
+  private controls?: HTMLElement;
+  private roomBtn?: HTMLButtonElement;
   private roomView?: RoomView;
   private shopPopup?: ShopPopup;
   private npcTalkPopup?: NpcTalkPopup;
@@ -90,18 +104,19 @@ export class MapScreen implements Screen {
   }
 
   private showMoveToast(message: string): void {
-    const existing = this.container.querySelector('.map-toast');
+    const existing = this.container.querySelector('.wm-toast');
     if (existing) existing.remove();
     if (this.moveToastTimeout) clearTimeout(this.moveToastTimeout);
 
     const toast = document.createElement('div');
-    toast.className = 'map-toast';
+    toast.className = 'wm-toast';
+    toast.setAttribute('role', 'status');
     toast.textContent = message;
     this.container.appendChild(toast);
 
     this.moveToastTimeout = setTimeout(() => {
       toast.remove();
-    }, 2000);
+    }, 2600);
   }
 
   onActivate(): void {
@@ -111,6 +126,7 @@ export class MapScreen implements Screen {
       this.map.resume();
       if (this.gameClient.lastState) {
         this.map.applyServerState(this.gameClient.lastState, true);
+        this.updateRoomButton(this.gameClient.lastState);
       }
     }
 
@@ -176,6 +192,11 @@ export class MapScreen implements Screen {
       this.roomView!.transitions = (playerOnTile && !state?.dungeon && tileDef?.transitions)
         ? tileDef.transitions.map(t => ({ tileId: t.tileId, name: this.resolveTransitionName(t) }))
         : [];
+      // The player isn't in `otherPlayers`, so hand the room view their own
+      // portrait for the "Your party" card.
+      this.roomView!.self = state?.username
+        ? { username: state.username, className: state.character?.className, level: state.character?.level }
+        : null;
       this.roomView!.show(tileInfo);
     });
 
@@ -183,30 +204,51 @@ export class MapScreen implements Screen {
       this.map.applyServerState(this.gameClient.lastState, true);
     }
 
-    this.createZoomControls();
+    this.createControls();
+    if (this.gameClient.lastState) this.updateRoomButton(this.gameClient.lastState);
     this.subscribeToState();
   }
 
-  private createZoomControls(): void {
-    if (this.zoomControls) return;
+  private createControls(): void {
+    if (this.controls) return;
 
-    this.zoomControls = document.createElement('div');
-    this.zoomControls.className = 'map-zoom-controls';
-    this.zoomControls.innerHTML = `
-      <button class="map-zoom-btn map-zoom-in">+</button>
-      <button class="map-zoom-btn map-zoom-out">&minus;</button>
+    this.controls = document.createElement('div');
+    this.controls.className = 'wm-controls';
+    this.controls.innerHTML = `
+      <div class="wm-zoom">
+        <button type="button" class="gc-btn gc-btn--steel gc-btn--icon wm-zoom__btn wm-zoom-in" aria-label="Zoom in">${ICON_PLUS}</button>
+        <button type="button" class="gc-btn gc-btn--steel gc-btn--icon wm-zoom__btn wm-zoom-out" aria-label="Zoom out">${ICON_MINUS}</button>
+        <button type="button" class="gc-btn gc-btn--steel gc-btn--icon wm-zoom__btn wm-locate" aria-label="Center on your party">${ICON_LOCATE}</button>
+      </div>
+      <div class="wm-perch">
+        <button type="button" class="gc-btn gc-btn--steel wm-room-btn" aria-label="Open your current room">${ICON_ROOM}<span>Room</span></button>
+      </div>
     `;
-    this.container.appendChild(this.zoomControls);
+    this.container.appendChild(this.controls);
 
-    this.zoomControls.querySelector('.map-zoom-in')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.map?.adjustZoom(0.2);
-    });
+    const on = (sel: string, fn: () => void) => {
+      this.controls!.querySelector(sel)!.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fn();
+      });
+    };
+    on('.wm-zoom-in', () => this.map?.adjustZoom(0.2));
+    on('.wm-zoom-out', () => this.map?.adjustZoom(-0.2));
+    on('.wm-locate', () => this.map?.recenterOnPlayer());
+    on('.wm-room-btn', () => this.map?.openCurrentRoom());
+    this.roomBtn = this.controls.querySelector('.wm-room-btn') as HTMLButtonElement;
+  }
 
-    this.zoomControls.querySelector('.map-zoom-out')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.map?.adjustZoom(-0.2);
-    });
+  /** Light the Room button gold when the current room has something to do. */
+  private updateRoomButton(state: ServerStateMessage): void {
+    if (!this.roomBtn) return;
+    const tileDef = this.worldCache.getTile(state.party.col, state.party.row);
+    const hasAction = !!state.shopDefinition
+      || !!tileDef?.npcId
+      || (!state.dungeon && (!!tileDef?.dungeonId || (tileDef?.transitions?.length ?? 0) > 0));
+    this.roomBtn.classList.toggle('gc-btn--gold', hasAction);
+    this.roomBtn.classList.toggle('gc-btn--steel', !hasAction);
+    this.roomBtn.classList.toggle('has-action', hasAction);
   }
 
   private subscribeToState(): void {
@@ -218,6 +260,7 @@ export class MapScreen implements Screen {
         const snap = this.gameClient.isInitialState;
         this.map.applyServerState(state, snap);
       }
+      this.updateRoomButton(state);
     });
   }
 }

@@ -6,9 +6,9 @@
  *     background, drop shadow, baked tile composite (tile fills + artwork
  *     + outlines + zone overlay + zone borders). These are uploaded as
  *     textures and the per-frame work collapses to a camera-matrix update.
- *   • An HTML overlay (`.three-map-overlay`) sits on top of the canvas
- *     and hosts every *dynamic* element — party sprite, other-player
- *     flags + count badges, hover highlight, path preview. The overlay
+ *   • An HTML overlay (`.wm-overlay`) sits on top of the canvas
+ *     and hosts every *dynamic* element — party marker, other-party
+ *     portrait markers + pips, hover highlight, path preview. The overlay
  *     carries a single `transform: translate scale translate` mirroring
  *     the three.js camera, so a single style update moves all children
  *     together when the user pans/zooms.
@@ -64,10 +64,17 @@ export interface TileClickInfo {
 }
 
 // ─── Render constants ─────────────────────────────────────────
-// Party sprite colors live in CSS — see `.three-map-party-inner` and its
-// data-visual variants (default green, fighting orange, defeat red).
+// Party marker look (portrait frame, fighting/defeat states) lives in CSS —
+// see `.wm-marker--party[data-visual]` in styles/screens/map.css.
 
 const PARCHMENT_FALLBACK_COLOR = '#3a2a1a';
+
+/** Key glyph for the "party inside this room's dungeon" marker pip. */
+const KEY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M11.5 11.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>';
+
+function escapeMarkerText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 const MIN_TILES_VISIBLE = 15;
 const MIN_ZOOM = 0.4;
@@ -158,6 +165,20 @@ export class ThreeWorldMap {
   private pathEl: HTMLDivElement;
   private flagsEl: HTMLDivElement;
   private tooltipEl: HTMLDivElement;
+  private tooltipZoneEl: HTMLElement;
+  private tooltipRoomEl: HTMLElement;
+  private partyBodyEl: HTMLElement;
+  private partyNameEl: HTMLElement;
+  private partyInitialEl: HTMLElement;
+  private partyImgEl: HTMLImageElement;
+  private partyLevelEl: HTMLElement;
+  private partyCountEl: HTMLElement;
+  /** Class whose portrait the party marker currently shows. */
+  private partyClassName = '';
+  /** Zoom the marker counter-scale was last written for. */
+  private markerZoom = 0;
+  /** Last HTML written to the other-parties layer (identical rewrites are skipped). */
+  private lastOthersHtml = '';
 
   // three.js core.
   private renderer: THREE.WebGLRenderer;
@@ -214,7 +235,7 @@ export class ThreeWorldMap {
   private currentBattleVisual: BattleVisual = 'none';
 
   // Party rendering. Movement is animated by a CSS transition on the
-  // `.three-map-party` element (`left`/`top`); we just push the target.
+  // `.wm-marker--party` element (`left`/`top`); we just push the target.
   private partyRendered = false;
   private partyTargetCol = 0;
   private partyTargetRow = 0;
@@ -272,42 +293,71 @@ export class ThreeWorldMap {
 
     // ── DOM scaffolding ──────────────────────────────────────
     this.canvas = document.createElement('canvas');
-    this.canvas.className = 'three-world-map';
+    this.canvas.className = 'wm-canvas';
     this.container.appendChild(this.canvas);
 
     this.overlay = document.createElement('div');
-    this.overlay.className = 'three-map-overlay';
+    this.overlay.className = 'wm-overlay';
     this.container.appendChild(this.overlay);
 
-    this.partyEl = document.createElement('div');
-    this.partyEl.className = 'three-map-party';
-    const partyInner = document.createElement('div');
-    partyInner.className = 'three-map-party-inner';
-    this.partyEl.appendChild(partyInner);
-    this.partyEl.style.display = 'none';
-    this.overlay.appendChild(this.partyEl);
+    // Layer order (bottom → top): hover hex, path preview, other parties,
+    // the player's own party marker — so your portrait always wins an overlap.
 
     // Hover highlight — an SVG hex outline. Stroke color flips between
-    // white/red via the data-traversable attribute (see CSS).
+    // gold/red via the data-traversable attribute (see CSS).
     this.hoverEl = document.createElement('div');
-    this.hoverEl.className = 'three-map-hover';
+    this.hoverEl.className = 'wm-hover';
     this.hoverEl.innerHTML =
       `<svg viewBox="-40 -35 80 70" width="80" height="70" preserveAspectRatio="xMidYMid meet">
-        <polygon points="40,0 20,34.64 -20,34.64 -40,0 -20,-34.64 20,-34.64" fill="none" stroke="currentColor" stroke-width="3" />
+        <polygon class="wm-hover__shadow" points="40,0 20,34.64 -20,34.64 -40,0 -20,-34.64 20,-34.64" />
+        <polygon class="wm-hover__edge" points="40,0 20,34.64 -20,34.64 -40,0 -20,-34.64 20,-34.64" />
       </svg>`;
     this.hoverEl.style.display = 'none';
     this.overlay.appendChild(this.hoverEl);
 
     this.pathEl = document.createElement('div');
-    this.pathEl.className = 'three-map-path';
+    this.pathEl.className = 'wm-path';
     this.overlay.appendChild(this.pathEl);
 
     this.flagsEl = document.createElement('div');
-    this.flagsEl.className = 'three-map-flags';
+    this.flagsEl.className = 'wm-others';
     this.overlay.appendChild(this.flagsEl);
 
+    // Party marker: the player's class portrait in a gold octagon frame with
+    // a level pip, outlined name above, and a "+N" pip when other players
+    // share the room. The outer element carries the world position (and the
+    // CSS move tween); the body counter-scales to a fixed on-screen size.
+    this.partyEl = document.createElement('div');
+    this.partyEl.className = 'wm-marker wm-marker--party';
+    this.partyEl.innerHTML = `
+      <div class="wm-marker__body">
+        <span class="wm-marker__name"></span>
+        <span class="wm-marker__frame">
+          <span class="wm-marker__initial" aria-hidden="true"></span>
+          <img class="wm-marker__img" alt="" />
+        </span>
+        <span class="wm-marker__level" hidden></span>
+        <span class="wm-marker__count" hidden></span>
+        <span class="wm-marker__key" title="A party is in the dungeon">${KEY_SVG}</span>
+        <span class="wm-marker__fight" aria-hidden="true"></span>
+      </div>`;
+    this.partyBodyEl = this.partyEl.querySelector('.wm-marker__body') as HTMLElement;
+    this.partyNameEl = this.partyEl.querySelector('.wm-marker__name') as HTMLElement;
+    this.partyInitialEl = this.partyEl.querySelector('.wm-marker__initial') as HTMLElement;
+    this.partyImgEl = this.partyEl.querySelector('.wm-marker__img') as HTMLImageElement;
+    this.partyLevelEl = this.partyEl.querySelector('.wm-marker__level') as HTMLElement;
+    this.partyCountEl = this.partyEl.querySelector('.wm-marker__count') as HTMLElement;
+    // Missing class art: hide the img so the initial on the frame shows.
+    this.partyImgEl.addEventListener('error', () => { this.partyImgEl.style.visibility = 'hidden'; });
+    this.partyImgEl.addEventListener('load', () => { this.partyImgEl.style.visibility = ''; });
+    this.partyEl.style.display = 'none';
+    this.overlay.appendChild(this.partyEl);
+
     this.tooltipEl = document.createElement('div');
-    this.tooltipEl.className = 'canvas-map-tooltip';
+    this.tooltipEl.className = 'wm-tooltip';
+    this.tooltipEl.innerHTML = '<span class="wm-tooltip__zone"></span><span class="wm-tooltip__room"></span>';
+    this.tooltipZoneEl = this.tooltipEl.querySelector('.wm-tooltip__zone') as HTMLElement;
+    this.tooltipRoomEl = this.tooltipEl.querySelector('.wm-tooltip__room') as HTMLElement;
     this.tooltipEl.style.display = 'none';
     this.container.appendChild(this.tooltipEl);
 
@@ -435,10 +485,20 @@ export class ThreeWorldMap {
 
     // State change → update overlays + redraw.
     this.updatePartyOverlay();
+    this.updatePartyIdentity(state);
     this.updatePathOverlay();
     this.updateFlagsOverlay();
     this.updateBattleVisualClass();
     this.requestRender();
+  }
+
+  /**
+   * Open the room view for the tile the party stands on — same payload as
+   * tapping that tile. Used by the map's "Room" button.
+   */
+  openCurrentRoom(): void {
+    const tile = this.grid.getTile(offsetToCube({ col: this.playerCol, row: this.playerRow }));
+    if (tile) this.emitTileClick(tile);
   }
 
   rebuildFromCache(): void {
@@ -868,12 +928,13 @@ export class ThreeWorldMap {
     // Unexplored traversable tiles still get a tooltip — matches the room
     // popup, which labels them "{zone}: Unexplored Room".
     const roomName = isUnlocked && def?.name ? def.name : 'Unexplored Room';
-    const label = `${zoneName}: ${roomName}`;
 
-    this.tooltipEl.textContent = label;
-    this.tooltipEl.style.left = `${this.mousePixelX + 12}px`;
-    this.tooltipEl.style.top = `${this.mousePixelY - 32}px`;
-    this.tooltipEl.style.display = 'block';
+    this.tooltipZoneEl.textContent = zoneName;
+    this.tooltipRoomEl.textContent = roomName;
+    this.tooltipEl.classList.toggle('is-unexplored', !(isUnlocked && def?.name));
+    this.tooltipEl.style.left = `${this.mousePixelX + 16}px`;
+    this.tooltipEl.style.top = `${this.mousePixelY - 8}px`;
+    this.tooltipEl.style.display = 'flex';
   }
 
   private hideTooltip(): void {
@@ -884,9 +945,37 @@ export class ThreeWorldMap {
     const rect = this.canvas.getBoundingClientRect();
     const px = clientX - rect.left;
     const py = clientY - rect.top;
-    const tile = this.getTileAtScreenPx(px, py);
+    // Markers stand above their room's center, so a tap on a portrait would
+    // otherwise land on the room north of it. Resolve marker hits first.
+    const tile = this.getMarkerTileAt(clientX, clientY) ?? this.getTileAtScreenPx(px, py);
     if (!tile) return;
+    this.emitTileClick(tile);
+  }
 
+  /** Room whose map marker (own party first, then others) covers this client point. */
+  private getMarkerTileAt(clientX: number, clientY: number): HexTile | null {
+    const hit = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+    };
+    if (this.partyEl.style.display !== 'none') {
+      const frame = this.partyBodyEl.querySelector('.wm-marker__frame');
+      if (frame && hit(frame)) {
+        return this.grid.getTile(offsetToCube({ col: this.partyTargetCol, row: this.partyTargetRow })) ?? null;
+      }
+    }
+    const others = Array.from(this.flagsEl.querySelectorAll<HTMLElement>('.wm-marker'));
+    for (let i = others.length - 1; i >= 0; i--) {
+      const frame = others[i].querySelector('.wm-marker__frame');
+      if (!frame || !hit(frame)) continue;
+      const col = Number(others[i].dataset.col);
+      const row = Number(others[i].dataset.row);
+      return this.grid.getTile(offsetToCube({ col, row })) ?? null;
+    }
+    return null;
+  }
+
+  private emitTileClick(tile: HexTile): void {
     if (!tile.isTraversable) return;
 
     const offset = cubeToOffset(tile.coord);
@@ -1475,6 +1564,13 @@ export class ThreeWorldMap {
     const ch = this.canvasCssHeight();
     this.overlay.style.transform =
       `translate(${cw / 2}px, ${ch / 2}px) scale(${this.zoom}) translate(${-this.camWorldX}px, ${-this.camWorldY}px)`;
+    // Markers are portraits, not terrain: counter-scale them so they keep a
+    // fixed, readable on-screen size (and their name text stays ≥13px) at
+    // every zoom. Only written when the zoom actually changes.
+    if (this.zoom !== this.markerZoom) {
+      this.markerZoom = this.zoom;
+      this.overlay.style.setProperty('--wm-marker-scale', String(1 / this.zoom));
+    }
   }
 
   private updatePartyOverlay(): void {
@@ -1490,6 +1586,30 @@ export class ThreeWorldMap {
     // transition so the next move tweens. Reset on the following frame.
     if (this.partyEl.dataset.snap === '1') {
       requestAnimationFrame(() => { this.partyEl.dataset.snap = '0'; });
+    }
+  }
+
+  /** Name, level pip, and class portrait on the party marker. */
+  private updatePartyIdentity(state: ServerStateMessage): void {
+    const name = state.username ?? '';
+    if (this.partyNameEl.textContent !== name) {
+      this.partyNameEl.textContent = name;
+      this.partyInitialEl.textContent = name.charAt(0).toUpperCase();
+    }
+    const level = state.character?.level;
+    this.partyLevelEl.hidden = level === undefined;
+    if (level !== undefined) this.partyLevelEl.textContent = String(level);
+
+    const className = state.character?.className ?? '';
+    if (className !== this.partyClassName) {
+      this.partyClassName = className;
+      if (className) {
+        this.partyImgEl.style.visibility = 'hidden';
+        this.partyImgEl.src = artworkUrl('class', className.toLowerCase());
+      } else {
+        this.partyImgEl.removeAttribute('src');
+        this.partyImgEl.style.visibility = 'hidden';
+      }
     }
   }
 
@@ -1520,70 +1640,82 @@ export class ThreeWorldMap {
       const step = this.serverPath[i];
       const p = cubeToPixel(offsetToCube({ col: step.col, row: step.row }));
       const isDest = i === this.serverPath.length - 1;
-      if (isDest) {
-        html.push(`<div class="three-map-path-dest" style="left:${p.x}px;top:${p.y}px"></div>`);
-      } else {
-        html.push(`<div class="three-map-path-step" style="left:${p.x}px;top:${p.y}px"></div>`);
-      }
+      const cls = isDest ? 'wm-path__dest' : 'wm-path__step';
+      html.push(`<div class="${cls}" style="left:${p.x}px;top:${p.y}px"></div>`);
     }
     this.pathEl.innerHTML = html.join('');
   }
 
+  /**
+   * Other parties: one marker per occupied room in the current zone — the
+   * first player's class portrait in a steel frame, tinted by a per-room hue
+   * so neighbouring groups read apart, with a count pip when several players
+   * share the room and a key pip when they're inside the room's dungeon.
+   * Other players in the party's own room surface as a "+N" pip on the
+   * party marker instead.
+   */
   private updateFlagsOverlay(): void {
-    if (!this.currentZone) {
-      this.flagsEl.innerHTML = '';
-      return;
-    }
-
-    const partySet = new Set(this.partyMemberUsernames);
-    const tileGroups = new Map<string, { col: number; row: number; count: number; inDungeon: boolean }>();
-    for (const other of this.lastOtherPlayers) {
-      if (other.zone !== this.currentZone) continue;
-      if (partySet.has(other.username)) continue;
-      const key = `${other.col},${other.row}`;
-      const existing = tileGroups.get(key);
-      if (existing) {
-        existing.count++;
-        if (other.inDungeon) existing.inDungeon = true;
-      } else {
-        tileGroups.set(key, { col: other.col, row: other.row, count: 1, inDungeon: !!other.inDungeon });
-      }
-    }
-
+    let ownCount = 0;
+    let ownInDungeon = false;
     const html: string[] = [];
-    for (const group of tileGroups.values()) {
-      const p = cubeToPixel(offsetToCube({ col: group.col, row: group.row }));
-      const isOwnTile = group.col === this.playerCol && group.row === this.playerRow;
-      const hue = this.hashHue(`${group.col},${group.row}`);
-      if (isOwnTile) {
-        html.push(
-          `<div class="three-map-badge" style="left:${p.x + HEX_SIZE * 0.55}px;top:${p.y + HEX_SIZE * 0.55}px">+${group.count}</div>`,
-        );
-      } else {
-        const flagColor = `hsl(${hue}, 70%, 55%)`;
-        html.push(
-          `<div class="three-map-flag" style="left:${p.x}px;top:${p.y - HEX_SIZE * 0.3}px">
-            <svg viewBox="0 0 24 32" width="24" height="32">
-              <line x1="12" y1="2" x2="12" y2="26" stroke="#3a2a1a" stroke-width="1.5" stroke-linecap="round"/>
-              <polygon points="12,2 24,7 12,12" fill="${flagColor}" stroke="rgba(0,0,0,0.6)" stroke-width="1"/>
-            </svg>
-          </div>`,
-        );
-        if (group.count > 1) {
-          html.push(
-            `<div class="three-map-badge" style="left:${p.x + HEX_SIZE * 0.55}px;top:${p.y + HEX_SIZE * 0.55}px">×${group.count}</div>`,
-          );
+
+    if (this.currentZone) {
+      const partySet = new Set(this.partyMemberUsernames);
+      const tileGroups = new Map<string, { col: number; row: number; count: number; inDungeon: boolean; lead: OtherPlayerState }>();
+      for (const other of this.lastOtherPlayers) {
+        if (other.zone !== this.currentZone) continue;
+        if (partySet.has(other.username)) continue;
+        const key = `${other.col},${other.row}`;
+        const existing = tileGroups.get(key);
+        if (existing) {
+          existing.count++;
+          if (other.inDungeon) existing.inDungeon = true;
+        } else {
+          tileGroups.set(key, { col: other.col, row: other.row, count: 1, inDungeon: !!other.inDungeon, lead: other });
         }
       }
-      // A party delving a dungeon parks at its entrance — mark the tile so other
-      // players can tell they're inside, not just standing around.
-      if (group.inDungeon) {
+
+      for (const group of tileGroups.values()) {
+        if (group.col === this.playerCol && group.row === this.playerRow) {
+          ownCount = group.count;
+          ownInDungeon = group.inDungeon;
+          continue;
+        }
+        const p = cubeToPixel(offsetToCube({ col: group.col, row: group.row }));
+        const hue = this.hashHue(`${group.col},${group.row}`);
+        const lead = group.lead;
+        const initial = escapeMarkerText(lead.username.charAt(0).toUpperCase());
+        const img = lead.className
+          ? `<img class="wm-marker__img" src="${artworkUrl('class', encodeURIComponent(lead.className.toLowerCase()))}" alt="" onerror="this.style.visibility='hidden'" />`
+          : '';
+        const count = group.count > 1 ? `<span class="wm-marker__count">${group.count}</span>` : '';
+        // A party delving a dungeon parks at its entrance — mark the room so
+        // other players can tell they're inside, not just standing around.
+        const key = group.inDungeon
+          ? `<span class="wm-marker__key" title="A party is in the dungeon">${KEY_SVG}</span>`
+          : '';
         html.push(
-          `<div class="three-map-dungeon-key" title="A party is in the dungeon" style="left:${p.x - HEX_SIZE * 0.5}px;top:${p.y - HEX_SIZE * 0.45}px">🗝️</div>`,
+          `<div class="wm-marker wm-marker--other" data-col="${group.col}" data-row="${group.row}" style="left:${p.x}px;top:${p.y}px;--wm-hue:${hue}">
+            <div class="wm-marker__body">
+              <span class="wm-marker__frame"><span class="wm-marker__initial" aria-hidden="true">${initial}</span>${img}</span>
+              ${count}${key}
+            </div>
+          </div>`,
         );
       }
     }
-    this.flagsEl.innerHTML = html.join('');
+
+    this.partyCountEl.hidden = ownCount === 0;
+    this.partyCountEl.textContent = ownCount > 0 ? `+${ownCount}` : '';
+    this.partyEl.classList.toggle('has-dungeon-party', ownInDungeon);
+
+    // State pushes arrive every tick; rewriting identical markup would
+    // recreate the portrait <img>s and flicker them.
+    const next = html.join('');
+    if (next !== this.lastOthersHtml) {
+      this.lastOthersHtml = next;
+      this.flagsEl.innerHTML = next;
+    }
   }
 
   // ─── Misc helpers ─────────────────────────────────────────
