@@ -1,5 +1,21 @@
 export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
+    version: '2026.10.08.1',
+    notes: [
+      'Explored rooms now show what you can do there. Small icons on the map mark people to talk to, shops, dungeon entrances and passages to other places.',
+      'Hover over an explored room to see the people, shops, dungeons and passages there, and how many players are in it. Tapping a room you have explored lists them too.',
+      'A new room panel on the map shows what your current room offers. Tap an icon to talk, shop, enter a dungeon or travel without opening the room first.',
+      'People with a quest ready to hand in are marked on the map.',
+      'Your party marker no longer hides the room you are standing in, and the count of other players sharing your room is easier to read.',
+      'Tap your own room while traveling to stop there. If you have already moved on, your party heads back to it.',
+      'New Quest Log in Settings. It lists the quests you have taken on, puts the ones ready to hand in at the top, and tells you who to return to.',
+      'Completed quests are tucked away in the Quest Log until you choose to show them.',
+      'Weekly quests no longer show as available while they are still on cooldown.',
+      'Removed the "Quest hints" option, which did not do anything.',
+      'The Craft tab now scrolls, so you can reach every recipe.',
+    ],
+  },
+  {
     version: '2026.09.30.3',
     notes: [
       'Your party can now hire more than one henchman, as long as each is someone different. They fill any seats your party has free.',

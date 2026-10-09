@@ -8,7 +8,10 @@ function injectCraftingStyles(): void {
   const style = document.createElement('style');
   style.id = 'crafting-screen-styles';
   style.textContent = `
-    .craft-screen { padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+    .craft-screen {
+      flex: 1; min-height: 0; overflow-y: auto;
+      padding: 12px; display: flex; flex-direction: column; gap: 14px;
+    }
     .craft-skill-header {
       display: flex; flex-direction: column; gap: 4px;
       padding: 10px 12px;
@@ -96,6 +99,7 @@ function escapeHtml(s: string): string {
 
 export class CraftingScreen implements Screen {
   private container: HTMLElement;
+  private scroller: HTMLElement;
   private gameClient: GameClient;
   private isActive = false;
   private unsubscribe?: () => void;
@@ -106,6 +110,7 @@ export class CraftingScreen implements Screen {
   private lastItemDefs: Record<string, ItemDefinition> = {};
   private lastClassName: string | null = null;
   private lastLevel = 0;
+  private lastHtml = '';
 
   constructor(containerId: string, gameClient: GameClient) {
     const el = document.getElementById(containerId);
@@ -113,6 +118,9 @@ export class CraftingScreen implements Screen {
     this.container = el;
     this.gameClient = gameClient;
     injectCraftingStyles();
+    this.scroller = document.createElement('div');
+    this.scroller.className = 'craft-screen';
+    this.container.replaceChildren(this.scroller);
   }
 
   onActivate(): void {
@@ -167,37 +175,43 @@ export class CraftingScreen implements Screen {
   }
 
   private render(): void {
-    const c = this.lastState;
-    if (!c) {
-      this.container.innerHTML = `<div class="craft-screen"><div class="craft-locked"><h3>No character</h3><p>Pick a class first.</p></div></div>`;
-      return;
-    }
-    this.container.innerHTML = `
-      <div class="craft-screen">
-        ${this.renderSkillHeader(c)}
-        <section class="craft-section">
-          <h3>Queue (${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE})</h3>
-          ${this.renderQueue(c)}
-        </section>
-        <section class="craft-section">
-          <h3>Recipes</h3>
-          ${this.renderRecipes(c)}
-        </section>
-      </div>
-    `;
+    const html = this.renderHtml();
+    if (html === this.lastHtml) return;
+    this.lastHtml = html;
 
-    this.container.querySelectorAll<HTMLButtonElement>('.craft-queue-btn').forEach(btn => {
+    this.scroller.innerHTML = html;
+    this.updateProgressBar();
+
+    this.scroller.querySelectorAll<HTMLButtonElement>('.craft-queue-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.dataset.recipeId;
         if (id) this.gameClient.sendCraftQueue(id);
       });
     });
-    this.container.querySelectorAll<HTMLButtonElement>('.craft-cancel-btn').forEach(btn => {
+    this.scroller.querySelectorAll<HTMLButtonElement>('.craft-cancel-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.index);
         if (Number.isFinite(idx)) this.gameClient.sendCraftCancel(idx);
       });
     });
+  }
+
+  private renderHtml(): string {
+    const c = this.lastState;
+    if (!c) {
+      return `<div class="craft-locked"><h3>No character</h3><p>Pick a class first.</p></div>`;
+    }
+    return `
+      ${this.renderSkillHeader(c)}
+      <section class="craft-section">
+        <h3>Queue (${c.queue.jobs.length} / ${MAX_CRAFT_QUEUE})</h3>
+        ${this.renderQueue(c)}
+      </section>
+      <section class="craft-section">
+        <h3>Recipes</h3>
+        ${this.renderRecipes(c)}
+      </section>
+    `;
   }
 
   private renderSkillHeader(c: ClientCraftingState): string {
@@ -228,14 +242,10 @@ export class CraftingScreen implements Screen {
       const isActive = idx === 0 && c.activeProgress;
       let progressBlock = '';
       let statusText = '';
-      if (isActive && c.activeProgress) {
-        const ap = c.activeProgress;
-        const pct = ap.durationMs > 0 ? Math.min(100, (ap.elapsedMs / ap.durationMs) * 100) : 0;
-        const remaining = Math.max(0, ap.remainingMs / 1000);
-        statusText = `${fmtSeconds(remaining)} remaining`;
+      if (isActive) {
         progressBlock = `
           <div class="craft-progress">
-            <div class="craft-progress-fill" data-active="1" style="width:${pct}%"></div>
+            <div class="craft-progress-fill" data-active="1"></div>
           </div>
         `;
       } else if (recipe) {

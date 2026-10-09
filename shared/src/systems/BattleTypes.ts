@@ -27,7 +27,7 @@ export type PartyState = 'idle' | 'moving' | 'in_battle';
 export const RESULT_PAUSE = 600;      // ms to show victory/defeat before movement
 export const MOVE_DURATION = 400;     // ms for tile movement (client animation)
 export const RUN_AVAILABLE_ROUNDS = 5; // rounds before "Run" becomes available
-export const GAME_VERSION = '2026.09.30.3'; // Keep in sync with PATCH_NOTES in client
+export const GAME_VERSION = '2026.10.08.1'; // Keep in sync with PATCH_NOTES in client
 
 // --- Protocol types (server → client, client → server) ---
 
@@ -181,6 +181,8 @@ export interface ServerStateMessage {
   activeQuests?: import('./QuestTypes.js').QuestProgressEntry[];
   /** Completed quest history (most recent at the end). */
   completedQuests?: import('./QuestTypes.js').CompletedQuestEntry[];
+  /** Last turn-in time per weekly quest — the server's cooldown clock, fed to `canAcceptQuest`. */
+  weeklyCompletions?: Record<string, string>;
   /** Quest definitions the player is currently aware of (active + offered by NPC at current room). */
   questDefinitions?: Record<string, import('./QuestTypes.js').QuestDefinition>;
   /** Quest IDs offered by an NPC at the player's current room (for popup display). */

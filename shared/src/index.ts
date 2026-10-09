@@ -307,7 +307,9 @@ export type {
 export type {
   ShopItem,
   ShopDefinition,
+  ShopSummary,
 } from './systems/ShopTypes.js';
+export { toShopSummary } from './systems/ShopTypes.js';
 
 export type {
   HenchmanDefinition,

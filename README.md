@@ -171,6 +171,9 @@ Publishing a draft creates an **immutable snapshot** of all content at that poin
 - [x] Multiple regions/zones with border transitions
 - [x] Multi-map / interior maps (rooms link to a room on another map via a transition; one HexGrid per map; admin authoring) — overworld map-select still to come (#168)
 - [x] Room entry requirements (gate a room or a map transition on an equipped item, a minimum level, and/or completed quests — every party member must qualify)
+- [x] Room actions on explored rooms (map markers for NPCs, shops, dungeon entrances and travel points; hover tooltip lists them plus a player count; quest-ready NPCs marked)
+- [x] Room status panel for the current room (desktop card / mobile chips that talk, shop, enter or travel directly)
+- [x] Stop here — tap your own room mid-route to stop (or walk back if you've already left it)
 
 ### Combat
 Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both sides. Party combat is shared — all members fight the same monsters together on a 3x3 grid with position-based targeting. Combat ends when all monsters die (victory) or all players reach 0 HP (defeat). Encounters are zone-aware — each zone defines its own encounter table.
@@ -244,6 +247,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Quest types (kill, collect, visit)
 - [x] Quest rewards (XP, gold, item)
 - [x] Quest scope (solo party only OR party-shared), prerequisites, weekly-repeatable
+- [x] Quest log (Settings → Quest Log: active quests with ready-to-turn-in first and where to turn them in; completed quests behind a toggle)
 - [ ] Quest chains / storylines
 
 ### Dungeons
@@ -271,7 +275,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 ### UI
 - [x] Login screen with email input + username choice screen
 - [x] Map tab with hex rendering (three.js WebGL canvas + HTML overlay, lazy-created on first Map visit)
-- [x] Other players visible on map (per-tile flags within same zone, +N badge for other-room players on your tile)
+- [x] Other players visible on map (per-tile flags within same zone, readable +N/×N counts that scale with zoom, see-through party marker)
 - [x] Browser tab resume (instant state request, party snaps, camera pans smoothly)
 - [x] Bottom navigation: Combat, Map, Char (merged Char+Items), Craft, Social (submenu), Settings, Chat (overlay)
 - [x] Mobile-first responsive design
@@ -282,7 +286,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Server unavailable / offline screen with retry
 - [x] Desktop font scaling (larger fonts on desktop via media query)
 - [x] Mobile zoom controls (+/- buttons on map) + 2-finger pinch zoom
-- [x] RoomView (replaces TileInfoModal) — three states: current room (full-screen with background art, shop/talk/dungeon affordances), remote discovered (small popup with Go button), undiscovered (minimal)
+- [x] RoomView (replaces TileInfoModal) — three states: current room (full-screen with background art, one button per room action, Stop here while travelling), remote discovered (small popup listing the room's actions, Go button), undiscovered (minimal)
 - [x] Dungeon entry popup + in-combat dungeon banner (floor progress + Leave Dungeon)
 - [x] Global chat pop-out (floating/draggable/resizable on desktop, docked bottom-sheet on mobile)
 - [x] Persistent XP bar above the bottom nav, visible on every screen

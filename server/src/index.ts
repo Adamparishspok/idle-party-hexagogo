@@ -30,7 +30,7 @@ import swaggerUi from 'swagger-ui-express';
 import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
 import type { ClassName, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
-import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO } from '@idle-party-rpg/shared';
+import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
 import { getVapidPublicKey } from './game/social/BrowserPushNotificationDriver.js';
 import { isEmailConfigured } from './auth/EmailService.js';
@@ -154,7 +154,10 @@ app.get('/api/world', requireAuth, (req, res) => {
     return;
   }
   const worldData = session.getWorldData();
-  res.json({ ...worldData, tileTypes: gameLoop.contentStore.getAllTileTypes() });
+  const shops = Object.fromEntries(
+    Object.values(gameLoop.contentStore.getAllShops()).map(shop => [shop.id, toShopSummary(shop)]),
+  );
+  res.json({ ...worldData, tileTypes: gameLoop.contentStore.getAllTileTypes(), shops });
 });
 
 // NPC definitions (full catalog — small payload, sent once at login)

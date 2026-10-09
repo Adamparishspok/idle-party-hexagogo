@@ -1,37 +1,28 @@
 import type { TileClickInfo } from './ThreeWorldMap';
-import type { NpcDefinition, DungeonDefinition } from '@idle-party-rpg/shared';
 import { classIconHtml } from '@idle-party-rpg/shared';
-import { renderAssetImg } from './assets';
+import { ROOM_ICONS, actionLabel } from './RoomActions';
+import type { RoomAction } from './RoomActions';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
+import { renderAssetImg } from './assets';
 
 /**
  * RoomView replaces the old TileInfoModal with three states:
  *   - **Current room (you're here)** — near-full-screen, background image,
- *     parties grouped, shop / NPC affordances.
- *   - **Remote room (discovered)** — smaller centered popup, hints at what's
+ *     parties grouped, one button per room action.
+ *   - **Remote room (discovered)** — smaller centered popup, lists what's
  *     there, primary action is "Go to room".
  *   - **Undiscovered room** — the smaller popup with minimal info.
- *
- * `showWithTransition` plays an "arrival" expand animation when called after
- * a remote-room popup was open, so travel completion has weight.
  */
 export class RoomView {
   private overlay: HTMLElement;
   private modal: HTMLElement;
   private onMove: (col: number, row: number) => void;
   private onUserClick?: (username: string, anchor: HTMLElement, tileCol: number, tileRow: number) => void;
-  private onShopClick?: () => void;
-  private onNpcTalk?: (npc: NpcDefinition) => void;
-  private onEnterDungeon?: (dungeon: DungeonDefinition) => void;
-  private onEnterTransition?: (tileId: string) => void;
-  /** Whether the player's current tile has a shop. Set externally before showing. */
-  hasShop = false;
-  /** NPC on the player's current tile (if any). Set externally before showing. */
-  npc: NpcDefinition | null = null;
-  /** Dungeon linked to the player's current tile (if any). Set externally before showing. */
-  dungeon: DungeonDefinition | null = null;
-  /** Map transitions on the player's current tile. Set externally before showing. */
-  transitions: { tileId: string; name: string }[] = [];
+  private onAction?: (action: RoomAction) => void;
+  /** What the room offers. Set externally before showing; buttons on the current room, a list on a remote one. */
+  actions: RoomAction[] = [];
+  /** Whether the party is walking a route. Set externally before showing. */
+  isTraveling = false;
   /** GUID of the room being shown — the per-room artwork override id. Set externally before showing. */
   roomId: string | null = null;
   /** Last shown remote-room key — used to drive the arrival transition. */
@@ -41,17 +32,11 @@ export class RoomView {
     parent: HTMLElement,
     onMove: (col: number, row: number) => void,
     onUserClick?: (username: string, anchor: HTMLElement, tileCol: number, tileRow: number) => void,
-    onShopClick?: () => void,
-    onNpcTalk?: (npc: NpcDefinition) => void,
-    onEnterDungeon?: (dungeon: DungeonDefinition) => void,
-    onEnterTransition?: (tileId: string) => void,
+    onAction?: (action: RoomAction) => void,
   ) {
     this.onMove = onMove;
     this.onUserClick = onUserClick;
-    this.onShopClick = onShopClick;
-    this.onNpcTalk = onNpcTalk;
-    this.onEnterDungeon = onEnterDungeon;
-    this.onEnterTransition = onEnterTransition;
+    this.onAction = onAction;
 
     this.overlay = document.createElement('div');
     this.overlay.className = 'room-view-overlay';
@@ -130,21 +115,19 @@ export class RoomView {
       ? `<div class="room-party-other-label">Other parties here</div>${otherBoxes}`
       : '';
 
-    const shopButton = this.hasShop
-      ? `<button class="room-view-action room-view-action-shop">${renderAssetImg('shop', info.zoneId, { className: 'room-view-action-icon', label: 'Shop' })}<span>Shop</span></button>`
+    const actions = this.actions;
+    const stopButton = this.isTraveling
+      ? `<button class="room-view-action room-view-action-stop">Stop here</button>`
       : '';
-
-    const talkButton = this.npc
-      ? `<button class="room-view-action room-view-action-talk"><span class="room-view-action-icon room-view-action-icon-emoji">${this.escapeHtml(this.npc.emoji)}</span><span>Talk to ${this.escapeHtml(this.npc.name)}</span></button>`
-      : '';
-
-    const dungeonButton = this.dungeon
-      ? `<button class="room-view-action room-view-action-dungeon"><span class="room-view-action-icon room-view-action-icon-emoji">🗝️</span><span>Enter ${this.escapeHtml(this.dungeon.name)}</span></button>`
-      : '';
-
-    const transitionButtons = this.transitions
-      .map(t => `<button class="room-view-action room-view-action-transition" data-transition-tile="${this.escapeHtml(t.tileId)}"><span class="room-view-action-icon room-view-action-icon-emoji">🕳️</span><span>Enter ${this.escapeHtml(t.name)}</span></button>`)
-      .join('');
+    const actionButtons = actions.map((action, i) => {
+      const title = action.detail ? ` title="${this.escapeHtml(action.detail)}"` : '';
+      const pip = action.questReady ? ' quest-ready-pip' : '';
+      const icon = action.kind === 'shop'
+        ? renderAssetImg('shop', action.targetId, { className: 'room-view-action-icon', label: action.name })
+        : `<span class="room-view-action-icon room-view-action-icon-emoji${pip}">${this.escapeHtml(action.icon)}</span>`;
+      return `<button class="room-view-action room-view-action-${action.kind}" data-action-index="${i}"${title}>`
+        + `${icon}<span>${this.escapeHtml(actionLabel(action))}</span></button>`;
+    }).join('');
 
     this.modal.innerHTML = `
       <div class="room-view-bg" style="${bgStyle}"></div>
@@ -161,38 +144,24 @@ export class RoomView {
           ${otherSection}
         </div>
         <div class="room-view-actions">
-          ${transitionButtons}
-          ${dungeonButton}
-          ${talkButton}
-          ${shopButton}
+          ${stopButton}
+          ${actionButtons}
         </div>
       </div>
     `;
 
     this.modal.querySelector('.room-view-close')!.addEventListener('click', () => this.hide());
 
-    this.modal.querySelector('.room-view-action-shop')?.addEventListener('click', () => {
+    this.modal.querySelector('.room-view-action-stop')?.addEventListener('click', () => {
+      this.onMove(info.col, info.row);
       this.hide();
-      this.onShopClick?.();
     });
 
-    this.modal.querySelector('.room-view-action-talk')?.addEventListener('click', () => {
-      const npc = this.npc;
-      this.hide();
-      if (npc) this.onNpcTalk?.(npc);
-    });
-
-    this.modal.querySelector('.room-view-action-dungeon')?.addEventListener('click', () => {
-      const dungeon = this.dungeon;
-      this.hide();
-      if (dungeon) this.onEnterDungeon?.(dungeon);
-    });
-
-    for (const el of this.modal.querySelectorAll('.room-view-action-transition')) {
+    for (const el of this.modal.querySelectorAll('[data-action-index]')) {
       el.addEventListener('click', () => {
-        const tileId = el.getAttribute('data-transition-tile');
+        const action = actions[Number(el.getAttribute('data-action-index'))];
         this.hide();
-        if (tileId) this.onEnterTransition?.(tileId);
+        if (action) this.onAction?.(action);
       });
     }
 
@@ -225,16 +194,12 @@ export class RoomView {
       ? `<div class="room-view-meta room-view-meta-dim">Unexplored — travel here to learn more.</div>`
       : '';
 
-    const shopHint = this.hasShop
-      ? `<div class="room-view-meta">🪙 A shop awaits you here</div>`
-      : '';
-
     this.modal.innerHTML = `
       <button class="room-view-close" aria-label="Close">×</button>
       <div class="room-view-zone">${this.escapeHtml(info.zoneName)}</div>
       <div class="room-view-name">${this.escapeHtml(info.roomName || 'Unexplored Room')}</div>
+      ${info.isUnlocked ? this.renderContentsList(this.actions) : ''}
       ${partiesBlock}
-      ${shopHint}
       ${undiscoveredNote}
       <div class="room-view-actions">
         ${info.isTraversable ? `<button class="room-view-action room-view-action-go">Go to room</button>` : ''}
@@ -305,6 +270,25 @@ export class RoomView {
     return { mine, mineDungeonName, others };
   }
 
+  private renderContentsList(actions: RoomAction[]): string {
+    if (actions.length === 0) return '';
+    const items = actions.map(action => {
+      const pip = action.questReady ? ' quest-ready-pip' : '';
+      const detail = action.detail
+        ? `<span class="room-view-contents-detail">${this.escapeHtml(action.detail)}</span>`
+        : '';
+      return `<li class="room-view-contents-item">`
+        + `<span class="room-view-contents-icon${pip}">${this.escapeHtml(action.icon)}</span>`
+        + `<span class="room-view-contents-name">${this.escapeHtml(action.name)}</span>${detail}</li>`;
+    }).join('');
+    return `
+      <div class="room-view-contents">
+        <div class="room-view-contents-label">In this room</div>
+        <ul class="room-view-contents-list">${items}</ul>
+      </div>
+    `;
+  }
+
   /** Render a single party box with optional header label and dungeon tag. */
   private renderPartyBox(
     members: { username: string; className?: string }[],
@@ -320,7 +304,7 @@ export class RoomView {
       </div>
     `).join('');
     const dungeonTag = dungeonName
-      ? `<div class="room-party-dungeon-tag">🗝️ Delving ${this.escapeHtml(dungeonName)}</div>`
+      ? `<div class="room-party-dungeon-tag">${ROOM_ICONS.dungeon} Delving ${this.escapeHtml(dungeonName)}</div>`
       : '';
     const labelHtml = label ? `<div class="room-party-group-label">${this.escapeHtml(label)}</div>` : '';
     return `
