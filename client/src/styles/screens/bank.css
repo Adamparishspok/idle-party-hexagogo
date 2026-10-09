@@ -190,3 +190,16 @@
 .bank-modal.is-settled .gc-modal__panel {
   animation: none;
 }
+
+.bank-panel.can-drag [data-bank-item],
+.bank-panel.can-drag [data-pack-item] {
+  cursor: grab;
+}
+.bank-modal.is-dragging .bank-pane,
+.bank-modal.is-dragging .bank-tab {
+  transition: box-shadow var(--dur-fast, 120ms) ease-out, background-color var(--dur-fast, 120ms) ease-out;
+}
+.bank-pane.is-drop-target,
+.bank-tab.is-drop-target {
+  box-shadow: 0 0 0 3px var(--gold-500), 0 0 14px rgba(255, 196, 64, 0.55);
+}

@@ -13,7 +13,7 @@ import {
 import { statsSheetModel, renderStatsSheet } from '../src/ui/StatsSheet';
 import { GearPicker } from '../src/ui/GearPicker';
 import { BagPanel, capacityWarning } from '../src/ui/BagPanel';
-import { BankView } from '../src/ui/BankView';
+import { BankView, resolveBankDrop } from '../src/ui/BankView';
 import { hideItemTooltip, installItemTooltips, renderItemTooltip } from '../src/ui/ItemStats';
 import { renderKitItem } from '../src/ui/ItemIcon';
 import { installGearErrorToasts } from '../src/ui/GameToast';
@@ -469,6 +469,67 @@ describe('BankView', () => {
     serverError('', 'bank_tab_full');
     expect($('.bank-notice')!.textContent).toBe('That bank tab is full.');
     expect($('.gs-toast')).toBeNull();
+  });
+});
+
+describe('resolveBankDrop', () => {
+  const bank = bankState([{ ore: 5 }, {}]);
+
+  it('deposits the whole backpack stack into the tab it lands on', () => {
+    expect(resolveBankDrop({ from: 'pack', itemId: 'ore' }, { to: 'tab', tab: 1 }, bank, { ore: 3 }))
+      .toEqual({ kind: 'deposit', itemId: 'ore', qty: 3, tab: 1 });
+    expect(resolveBankDrop({ from: 'pack', itemId: 'ore' }, { to: 'pack' }, bank, { ore: 3 })).toBeNull();
+    expect(resolveBankDrop({ from: 'pack', itemId: 'cap' }, { to: 'tab', tab: 0 }, bank, { ore: 3 })).toBeNull();
+  });
+
+  it('withdraws or moves the whole bank stack', () => {
+    expect(resolveBankDrop({ from: 'bank', tab: 0, itemId: 'ore' }, { to: 'pack' }, bank, {}))
+      .toEqual({ kind: 'withdraw', tab: 0, itemId: 'ore', qty: 5 });
+    expect(resolveBankDrop({ from: 'bank', tab: 0, itemId: 'ore' }, { to: 'tab', tab: 1 }, bank, {}))
+      .toEqual({ kind: 'move', from: 0, to: 1, itemId: 'ore', qty: 5 });
+    expect(resolveBankDrop({ from: 'bank', tab: 0, itemId: 'ore' }, { to: 'tab', tab: 0 }, bank, {})).toBeNull();
+  });
+});
+
+describe('BankView drag and drop', () => {
+  function drag(type: string, el: Element) {
+    el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+  }
+
+  function mountFine(state: ServerStateMessage) {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(pointer: fine)' }));
+    const mock = mockClient();
+    mock.push(state);
+    const bank = new BankView(mock.client);
+    bank.show();
+    return { ...mock, bank };
+  }
+
+  it('makes items draggable only with a mouse', () => {
+    mountFine(makeState({ inventory: { ore: 2 }, bank: bankState([{ cap: 1 }]) }));
+    expect(($('[data-pack-item="ore"]') as HTMLElement).draggable).toBe(true);
+    expect(($('[data-bank-item="cap"]') as HTMLElement).draggable).toBe(true);
+  });
+
+  it('deposits on drop into the open tab and moves onto another tab chip', () => {
+    const { sends } = mountFine(makeState({ inventory: { ore: 2 }, bank: bankState([{ cap: 1 }, {}]) }));
+    drag('dragstart', $('[data-pack-item="ore"]')!);
+    drag('drop', $('.bank-pane--vault')!);
+    expect(sends.sendBankDeposit).toHaveBeenCalledWith('ore', 2, 0);
+    drag('dragstart', $('[data-bank-item="cap"]')!);
+    drag('drop', $('[data-bank-tab="1"]')!);
+    expect(sends.sendBankMove).toHaveBeenCalledWith(0, 1, 'cap', 1);
+  });
+
+  it('withdraws on drop into the backpack and holds re-renders mid-drag', () => {
+    const { sends, push } = mountFine(makeState({ inventory: {}, bank: bankState([{ cap: 1 }]) }));
+    const source = $('[data-bank-item="cap"]')!;
+    drag('dragstart', source);
+    push(makeState({ inventory: { ore: 1 }, bank: bankState([{ cap: 1 }]) }));
+    expect(source.isConnected).toBe(true);
+    drag('drop', $('.bank-pane--pack')!);
+    expect(sends.sendBankWithdraw).toHaveBeenCalledWith(0, 'cap', 1);
+    expect($('.bank-pane--pack [data-pack-item="ore"]')).not.toBeNull();
   });
 });
 

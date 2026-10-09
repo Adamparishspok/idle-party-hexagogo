@@ -25,6 +25,36 @@ export function canDepositHere(bank: ClientBankState, tab: number, itemId: strin
   return canDepositToTab({ tabs: bank.tabs }, tab, itemId, qty);
 }
 
+export type BankDragSource = { from: 'pack'; itemId: string } | { from: 'bank'; tab: number; itemId: string };
+export type BankDropTarget = { to: 'pack' } | { to: 'tab'; tab: number };
+export type BankDrop =
+  | { kind: 'deposit'; itemId: string; qty: number; tab: number }
+  | { kind: 'withdraw'; tab: number; itemId: string; qty: number }
+  | { kind: 'move'; from: number; to: number; itemId: string; qty: number };
+
+/** What dropping a whole stack does; null when the drop is a no-op. */
+export function resolveBankDrop(
+  source: BankDragSource,
+  target: BankDropTarget,
+  bank: ClientBankState,
+  inventory: Record<string, number>,
+): BankDrop | null {
+  if (source.from === 'pack') {
+    const qty = inventory[source.itemId] ?? 0;
+    if (target.to !== 'tab' || qty <= 0) return null;
+    return { kind: 'deposit', itemId: source.itemId, qty, tab: target.tab };
+  }
+  const qty = bank.tabs[source.tab]?.[source.itemId] ?? 0;
+  if (qty <= 0) return null;
+  if (target.to === 'pack') return { kind: 'withdraw', tab: source.tab, itemId: source.itemId, qty };
+  if (target.tab === source.tab) return null;
+  return { kind: 'move', from: source.tab, to: target.tab, itemId: source.itemId, qty };
+}
+
+function canDrag(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: fine)').matches;
+}
+
 /**
  * The player's bank, open only while the party stands in a banker's room
  * (`state.bank` is present). See docs/architecture/gear-stats-bank.md → Bank.
@@ -36,6 +66,8 @@ export class BankView {
   private open = false;
   private tab = 0;
   private view: View = { kind: 'main' };
+  private drag: BankDragSource | null = null;
+  private renderDeferred = false;
   private renderKey = '';
   private notice: string | null = null;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -52,6 +84,11 @@ export class BankView {
     this.overlay.className = 'gc-modal bank-modal';
     this.overlay.style.display = 'none';
     this.overlay.addEventListener('click', (e) => this.onClick(e));
+    this.overlay.addEventListener('dragstart', (e) => this.onDragStart(e));
+    this.overlay.addEventListener('dragover', (e) => this.onDragOver(e));
+    this.overlay.addEventListener('dragleave', (e) => this.onDragLeave(e));
+    this.overlay.addEventListener('drop', (e) => this.onDrop(e));
+    this.overlay.addEventListener('dragend', () => this.endDrag());
     document.body.appendChild(this.overlay);
     wireFocusOnInteract(this.overlay);
 
@@ -96,6 +133,9 @@ export class BankView {
     this.overlay.style.display = 'none';
     this.overlay.innerHTML = '';
     this.overlay.classList.remove('is-settled');
+    this.overlay.classList.remove('is-dragging');
+    this.drag = null;
+    this.renderDeferred = false;
     document.removeEventListener('keydown', this.onKey);
     release(this.overlay);
   }
@@ -103,6 +143,7 @@ export class BankView {
   private onState(state: ServerStateMessage): void {
     if (!this.open) return;
     if (!state.bank) { this.close(); return; }
+    if (this.drag) { this.renderDeferred = true; return; }
     this.render(state);
   }
 
@@ -220,6 +261,9 @@ export class BankView {
           ${packGrid}
         </section>
       </div>`);
+    if (!canDrag()) return;
+    for (const el of this.overlay.querySelectorAll<HTMLElement>('[data-bank-item], [data-pack-item]')) el.draggable = true;
+    this.overlay.querySelector('.bank-panel')?.classList.add('can-drag');
   }
 
   private stepper(qty: number, max: number): string {
@@ -328,6 +372,70 @@ export class BankView {
         if (view.kind === 'deposit') this.gameClient.sendBankDeposit(view.itemId, view.qty, this.tab);
         this.goTo({ kind: 'main' });
         return;
+    }
+  }
+
+  private onDragStart(e: DragEvent): void {
+    const target = e.target as HTMLElement;
+    const bankItem = target.closest<HTMLElement>('[data-bank-item]')?.dataset.bankItem;
+    const packItem = target.closest<HTMLElement>('[data-pack-item]')?.dataset.packItem;
+    if (bankItem) this.drag = { from: 'bank', tab: this.tab, itemId: bankItem };
+    else if (packItem) this.drag = { from: 'pack', itemId: packItem };
+    else return;
+    e.dataTransfer?.setData('text/plain', bankItem ?? packItem ?? '');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    this.overlay.classList.add('is-dragging');
+  }
+
+  private dropTarget(el: EventTarget | null): { target: BankDropTarget; zone: HTMLElement } | null {
+    const node = el as HTMLElement | null;
+    const tabEl = node?.closest<HTMLElement>('[data-bank-tab]');
+    if (tabEl) return { target: { to: 'tab', tab: Number(tabEl.dataset.bankTab) }, zone: tabEl };
+    const vault = node?.closest<HTMLElement>('.bank-pane--vault');
+    if (vault) return { target: { to: 'tab', tab: this.tab }, zone: vault };
+    const pack = node?.closest<HTMLElement>('.bank-pane--pack');
+    if (pack) return { target: { to: 'pack' }, zone: pack };
+    return null;
+  }
+
+  private onDragOver(e: DragEvent): void {
+    const state = this.gameClient.lastState;
+    const hit = this.drag && state?.bank ? this.dropTarget(e.target) : null;
+    if (!hit || !resolveBankDrop(this.drag!, hit.target, state!.bank!, state!.character?.inventory ?? {})) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    for (const el of this.overlay.querySelectorAll('.is-drop-target')) if (el !== hit.zone) el.classList.remove('is-drop-target');
+    hit.zone.classList.add('is-drop-target');
+  }
+
+  private onDragLeave(e: DragEvent): void {
+    const zone = this.dropTarget(e.target)?.zone;
+    if (zone && !zone.contains(e.relatedTarget as Node | null)) zone.classList.remove('is-drop-target');
+  }
+
+  private onDrop(e: DragEvent): void {
+    e.preventDefault();
+    const state = this.gameClient.lastState;
+    const hit = this.dropTarget(e.target);
+    const drop = this.drag && hit && state?.bank
+      ? resolveBankDrop(this.drag, hit.target, state.bank, state.character?.inventory ?? {})
+      : null;
+    this.endDrag();
+    if (!drop) return;
+    if (drop.kind === 'deposit') this.gameClient.sendBankDeposit(drop.itemId, drop.qty, drop.tab);
+    else if (drop.kind === 'withdraw') this.gameClient.sendBankWithdraw(drop.tab, drop.itemId, drop.qty);
+    else this.gameClient.sendBankMove(drop.from, drop.to, drop.itemId, drop.qty);
+  }
+
+  private endDrag(): void {
+    if (!this.drag) return;
+    this.drag = null;
+    this.overlay.classList.remove('is-dragging');
+    for (const el of this.overlay.querySelectorAll('.is-drop-target')) el.classList.remove('is-drop-target');
+    if (this.renderDeferred) {
+      this.renderDeferred = false;
+      const state = this.gameClient.lastState;
+      if (state && this.open) this.onState(state);
     }
   }
 }

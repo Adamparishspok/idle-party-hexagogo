@@ -307,7 +307,7 @@ Derived stats are never saved. `toSaveData`/`fromSaveData` get the four fields. 
   - The backpack grid shows empty slot cells up to capacity, so fullness is visible.
   - Over-capacity legacy backpacks show "Over capacity — new items go to Lost & Found".
 - **Lost & Found.** A pouch button with a count badge next to the bag bar opens a list with Claim, Claim all and Discard. When items are lost, a toast and a combat log line appear.
-- **Bank screen.** Shown when `state.bank` is present. A "Bank" room action appears in the room view and status panel, and the map shows a banker marker on explored rooms where `ShopSummary.isBanker` is true.
+- **Bank screen.** Shown when `state.bank` is present. With a mouse (`pointer: fine`), items can also be dragged: backpack → open tab or a tab chip deposits the whole stack, bank → backpack withdraws it, bank → another tab chip moves it (`resolveBankDrop`). State pushes are held until the drag ends so the dragged element survives. A "Bank" room action appears in the room view and status panel, and the map shows a banker marker on explored rooms where `ShopSummary.isBanker` is true.
   - Layout: tab strip (plus "Buy tab — 5,000g" with confirm), the tab grid, and the backpack beside it (stacked on mobile).
   - Tap an item to open a quantity sheet with Deposit or Withdraw (−/+/All).
   - Desktop: drag between the panes.

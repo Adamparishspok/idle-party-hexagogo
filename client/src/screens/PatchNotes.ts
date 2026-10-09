@@ -37,6 +37,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Already carrying more than your backpack holds? You keep everything. New loot just goes to Lost & Found until you make room.',
       'Banks! Visit a banker to store items in tabs of 28 slots. Your first tab is free and you can buy more. You can only use your bank while standing in a banker\'s room.',
       'Bankers are marked with 🏦 on the map, so you can spot the nearest bank at a glance.',
+      'On desktop you can drag items between your backpack and your bank, or onto another bank tab.',
     ],
   },
   {
