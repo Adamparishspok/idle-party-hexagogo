@@ -99,7 +99,7 @@ The **tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element, w
 
 ## Room actions
 
-`client/src/ui/RoomActions.ts` is the single vocabulary for what a room offers, shared by the map markers, the tooltip, both RoomView states and the room status panel. `getRoomActions(room, lookups, readyQuestIds)` returns, in order: the NPC (its own emoji; detail "Quest ready to turn in" plus a gold `?` pip when one of its `questIds` is an active quest with status `ready`), the shop (🪙 if it sells items, 🤝 if it only hires henchmen, detail "Henchmen for hire" when it does both), the dungeon entrance (🗝️), and one travel point per map transition (🌀, named after the destination room, else its map, else "a passage"). Ids that don't resolve are skipped. Lookups come from `WorldCache` (`getNpc`, `getShop` → `ShopSummary` from `/api/world`, `getDungeon`, `getTileByGuid`, `getMaps`), so remote rooms need nothing beyond the login payload.
+`client/src/ui/RoomActions.ts` is the single vocabulary for what a room offers, shared by the map markers, the tooltip, both RoomView states and the room status panel. `getRoomActions(room, lookups, readyQuestIds)` returns, in order: the NPC (its own emoji; detail "Quest ready to turn in" plus a gold `?` pip when one of its `questIds` is an active quest with status `ready`), the shop (🪙 if it sells items, 🤝 if it only hires henchmen, detail "Henchmen for hire" when it does both; skipped for a banker that offers nothing else), the bank (🏦 "Open your bank", when `ShopSummary.isBanker`), the dungeon entrance (🗝️), and one travel point per map transition (🌀, named after the destination room, else its map, else "a passage"). Ids that don't resolve are skipped. Lookups come from `WorldCache` (`getNpc`, `getShop` → `ShopSummary` from `/api/world`, `getDungeon`, `getTileByGuid`, `getMaps`), so remote rooms need nothing beyond the login payload.
 
 **Explored rooms only**: markers, tooltip lines and the remote popup's list appear only on rooms `worldCache.isUnlocked` (the same rule that reveals a room's name). The map draws one marker per explored room with at least one action — up to three icons on a dark pill, then `+N`; several exits collapse into a single 🌀. `ThreeWorldMap.updateMarkersOverlay` rebuilds markers only when the grid is rebuilt (unlocks, map switch, content reload) or the ready-quest set changes, not every tick.
 
@@ -151,15 +151,20 @@ The client renders only the map the party is on. `ServerStateMessage.currentMapI
 
 1. **Character sheet** — parchment, titled with the player's name.
    - Equipment slots are `.gc-item` rarity frames in two columns around the class art.
-   - Outlined Health/Attack stats and a "Level N · Class" line.
-   - DR/MR/Gold chips that explain themselves on tap.
+   - Outlined Health/Damage stats and a "Level N · Class" line.
+   - The stats sheet (`ui/StatsSheet.ts`, prefix `ss-`): STR/AGI/INT/STA tiles with base + gear breakdown and the class primary highlighted, then Armor, Resist, Crit, Dodge, Healing and Gold. Every cell explains itself on tap. Driven by `character.derivedStats`, or `computeDerivedStats` locally when the server omits it (`GearModel.currentDerivedStats`).
+   - Tapping any equipment slot, empty or filled, opens the gear picker (`ui/GearPicker.ts`, prefix `gp-`): the equipped item with Unequip, then `itemsForSlot` candidates with a key stat and `compareEquip` delta chips. On touch, the first tap expands a This/Equipped stat comparison with an Equip button and a second tap equips; with a mouse, hovering shows the item tooltip and a click equips.
    - The skill loadout strip, which opens the skill picker. Slots follow the class's content-driven slot schedule from `WorldCache.getSlotSchedule`.
    - XP and an XP-per-hour counter, whose reset confirms in a kit modal.
    - The class passive.
 2. **Mailbox and proposed-trade rows** — only shown when there are any.
-3. **Inventory panel** — parchment, with search, a Type/Rarity/Newest segmented sort (saved per user), and a grid of rarity frames grouped under dividers when sorted by Type or Rarity.
+3. **Inventory panel** — parchment, with search, a Type/Rarity/Newest segmented sort (saved per user), and a grid of rarity frames grouped under dividers when sorted by Type or Rarity. Empty cells fill the grid up to backpack capacity. Under it, the bag bar (`ui/BagPanel.ts`, prefix `bb-`): "used / capacity", a full or over-capacity warning, four bag slots (tap to equip a bag from the backpack, swap or remove it) and the Lost & Found button with a count badge (Claim, Claim all, Discard).
 
 Item frames come from `renderItemFrame` / `renderEmptySlotFrame` (`ui/ItemIcon.ts`), and item details from `renderItemDetail` (`ui/ItemPopup.ts`); both are styled in `styles/screens/items.css`. Missing art shows the item's initials, never a placeholder image.
+
+**Item stats and tooltip.** `ui/ItemStats.ts` is the one renderer for `describeItemStats` lines (styled by `kind`, primary attribute highlighted) and `statDelta` lists; detail views (item modal, shop, home chest, bank) all use it. Every frame drawn by `renderKitItem` carries `data-tip-item` and registers its definition, and `installItemTooltips` (wired in `App.ts`) shows a tooltip with the stat block and an "If equipped" compare for gear the viewer can use: on hover with a fine pointer, and on tap for read-only frames on touch. Pass `noTip` for the big art inside a detail view of the same item. Bag, Lost & Found and bank refusals (`InventoryErrorCode` / `BankErrorCode`) toast via `ui/GameToast.ts`, except bank errors while the bank is open, which show inside it.
+
+**Bank.** `ui/BankView.ts` (`styles/screens/bank.css`) opens from the room's 🏦 action or the banker shop's "Open your bank" button, only while `state.bank` is present, and closes when it disappears. Tab strip with per-tab counts and "Buy tab · Ng" (confirm, blocked with a reason without the gold), the open tab and the backpack side by side (stacked on phones). Tapping an item opens a quantity view to Withdraw (or move to another tab) or Deposit into the open tab; both are checked up front with `fitsInventoryChanges` / `canDepositToTab`.
 
 Every popup (item details, destroy, inventory-full, skill picker) is a kit `.gc-modal`, one open at a time, registered with `ModalStack`. The legacy `renderItemIcon` / `renderItemPopupContent` and `styles/item-legacy.css` remain only for callers that haven't moved to the kit yet.
 

@@ -10,6 +10,8 @@ import {
   listUnequippedEntries,
 } from '@idle-party-rpg/shared';
 import { escapeHtml, renderKitItem } from './ItemIcon';
+import { renderItemStatBlock } from './ItemStats';
+import { isKnownClass } from './GearModel';
 import { renderPortrait } from './Portrait';
 import { renderEmptyState } from './EmptyState';
 import { houseArtHtml, houseInteriorUrl } from './HouseArt';
@@ -508,13 +510,16 @@ export class HomeView {
   }
 
   private heroHtml(itemId: string, def: ItemDefinition | undefined, sub: string): string {
+    const char = this.ctx?.state.character;
+    const cls = char?.className;
+    const stats = def ? renderItemStatBlock(def, { level: char?.level, className: isKnownClass(cls) ? cls : null }) : '';
     return `<div class="home-sheet__hero">
-      ${renderKitItem(itemId, def, { size: 'lg', decorative: true })}
+      ${renderKitItem(itemId, def, { size: 'lg', decorative: true, noTip: true })}
       <div class="home-sheet__heading">
         <h3 class="home-sheet__name">${escapeHtml(def?.name ?? itemId)}</h3>
         ${sub ? `<span class="home-sheet__sub">${escapeHtml(sub)}</span>` : ''}
       </div>
-    </div>`;
+    </div>${stats ? `<div class="home-sheet__stats">${stats}</div>` : ''}`;
   }
 
   private itemGridHtml(entries: [string, number][], defs: Record<string, ItemDefinition>, cls: string, verb: string): string {

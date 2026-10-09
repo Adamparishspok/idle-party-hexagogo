@@ -9,14 +9,14 @@ import type {
   WorldTileDefinition,
 } from '@idle-party-rpg/shared';
 
-export type RoomActionKind = 'home' | 'npc' | 'shop' | 'dungeon' | 'travel';
+export type RoomActionKind = 'home' | 'npc' | 'shop' | 'bank' | 'dungeon' | 'travel';
 
 export interface RoomAction {
   kind: RoomActionKind;
   icon: string;
   name: string;
   detail?: string;
-  /** NPC, shop or dungeon id; for travel, the destination tile GUID; for home, the home's tile GUID. */
+  /** NPC, shop (also for bank) or dungeon id; for travel, the destination tile GUID; for home, the home's tile GUID. */
   targetId: string;
   questReady?: boolean;
 }
@@ -40,6 +40,7 @@ export interface RoomHome {
 export const ROOM_ICONS = {
   home: '🏠',
   shop: '🪙',
+  bank: '🏦',
   hire: '🤝',
   dungeon: '🗝️',
   travel: '🌀',
@@ -51,7 +52,9 @@ export const HIRE_DETAIL = 'Henchmen for hire';
 
 const NO_READY_QUESTS: ReadonlySet<string> = new Set();
 
-/** Everything a room offers, in display order: your home, NPC, shop, dungeon, then one entry per exit. */
+export const BANK_ACTION_NAME = 'Bank';
+
+/** Everything a room offers, in display order: your home, NPC, shop, bank, dungeon, then one entry per exit. */
 export function getRoomActions(
   room: RoomContents,
   lookups: RoomActionLookups,
@@ -77,7 +80,8 @@ export function getRoomActions(
   }
 
   const shop = room.shopId ? lookups.getShop(room.shopId) : undefined;
-  if (shop) actions.push(shopAction(shop));
+  if (shop && hasShopFront(shop)) actions.push(shopAction(shop));
+  if (shop?.isBanker) actions.push({ kind: 'bank', icon: ROOM_ICONS.bank, name: BANK_ACTION_NAME, targetId: shop.id });
 
   const dungeon = room.dungeonId ? lookups.getDungeon(room.dungeonId) : undefined;
   if (dungeon) {
@@ -97,6 +101,7 @@ export function actionLabel(action: RoomAction): string {
     case 'home': return `Enter ${action.name}`;
     case 'npc': return `Talk to ${action.name}`;
     case 'shop': return action.name;
+    case 'bank': return 'Open your bank';
     case 'dungeon': return `Enter ${action.name}`;
     case 'travel': return `Travel to ${action.name}`;
   }
@@ -104,6 +109,11 @@ export function actionLabel(action: RoomAction): string {
 
 export function readyQuestIds(activeQuests: readonly QuestProgressEntry[] = []): Set<string> {
   return new Set(activeQuests.filter(q => q.status === 'ready').map(q => q.questId));
+}
+
+/** A banker that sells nothing is only a bank, so it gets no shop entry. */
+function hasShopFront(shop: ShopSummary): boolean {
+  return !shop.isBanker || shop.sellsItems || shop.hiresHenchmen || shop.sellsHouses;
 }
 
 function shopAction(shop: ShopSummary): RoomAction {

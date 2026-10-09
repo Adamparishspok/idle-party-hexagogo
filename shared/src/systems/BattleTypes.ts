@@ -17,11 +17,11 @@ import type {
 } from './SocialTypes.js';
 import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
+import type { DerivedStats } from './AttributeTypes.js';
+import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
+import type { BankErrorCode, ClientBankState, ClientBankMessage } from './BankTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
 import type { RoomEntryFailureKind } from './RoomRequirements.js';
-import type { BankErrorCode, ClientBankMessage, ClientBankState } from './BankTypes.js';
-import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
-import type { DerivedStats } from './AttributeTypes.js';
 
 
 export type BattleTimerState = 'battle' | 'result';

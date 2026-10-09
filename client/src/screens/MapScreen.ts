@@ -28,6 +28,7 @@ export class MapScreen implements Screen {
   private controls?: HTMLElement;
   private roomView?: RoomView;
   private onEnterHome?: () => void;
+  private onOpenBank?: () => boolean;
   private roomStatus?: RoomStatusPanel;
   private shopPopup?: ShopPopup;
   private npcTalkPopup?: NpcTalkPopup;
@@ -55,6 +56,11 @@ export class MapScreen implements Screen {
 
   setOnEnterHome(cb: () => void): void {
     this.onEnterHome = cb;
+  }
+
+  /** `cb` returns false when the party isn't standing in a banker's room. */
+  setOnOpenBank(cb: () => boolean): void {
+    this.onOpenBank = cb;
   }
 
   setOnUserClick(cb: (username: string, anchor: HTMLElement, tileCol?: number, tileRow?: number) => void): void {
@@ -146,6 +152,7 @@ export class MapScreen implements Screen {
     this.map.setSendMove((col, row) => this.tryMove(col, row));
 
     this.shopPopup = new ShopPopup(this.gameClient, this.worldCache);
+    this.shopPopup.setOnOpenBank(() => this.openBank());
     this.npcTalkPopup = new NpcTalkPopup(this.gameClient);
     this.dungeonEntryPopup = new DungeonEntryPopup(this.gameClient);
     this.roomView = new RoomView(
@@ -218,6 +225,7 @@ export class MapScreen implements Screen {
       case 'home': this.onEnterHome?.(); break;
       case 'npc': this.talkTo(action.targetId); break;
       case 'shop': this.openShop(); break;
+      case 'bank': this.openBank(); break;
       case 'dungeon': this.enterDungeon(action.targetId); break;
       case 'travel': this.enterTransition(action.targetId); break;
     }
@@ -231,6 +239,10 @@ export class MapScreen implements Screen {
   private openShop(): void {
     const state = this.gameClient.lastState;
     if (state?.shopDefinition) this.shopPopup?.show(state);
+  }
+
+  private openBank(): void {
+    if (!this.onOpenBank?.()) this.showMoveToast('Travel to this room to use your bank');
   }
 
   private enterDungeon(dungeonId: string): void {

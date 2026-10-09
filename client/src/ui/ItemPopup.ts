@@ -1,6 +1,8 @@
-import type { ItemDefinition, SetDefinition, SkillDefinition } from '@idle-party-rpg/shared';
-import { getItemEffectText, getSetsForItem, getSetBonusText, getSetDisplayName, getActiveBreakpoint } from '@idle-party-rpg/shared';
+import type { ClassName, ItemDefinition, SetDefinition, SkillDefinition } from '@idle-party-rpg/shared';
+import { getSetsForItem, getSetBonusText, getSetDisplayName, getActiveBreakpoint, isBag } from '@idle-party-rpg/shared';
 import { RARITY_COLORS, SLOT_LABELS, SHINY_RARITIES, getItemInitials, escapeHtml, renderItemFrame } from './ItemIcon';
+import { renderItemStatBlock } from './ItemStats';
+import { isKnownClass } from './GearModel';
 
 export interface ItemPopupOptions {
   /** Item definitions for looking up set piece names */
@@ -17,6 +19,8 @@ export interface ItemPopupOptions {
    * are shown. When omitted, every set containing the item is listed (admin / preview).
    */
   className?: string | null;
+  /** Viewer level: heirloom stats are shown as worn at this level. */
+  level?: number;
   /** Action buttons HTML (empty string for read-only view) */
   actionsHtml?: string;
   /** Extra HTML rendered between the set sections and the action buttons.
@@ -36,12 +40,12 @@ export function renderItemPopupContent(def: ItemDefinition, options?: ItemPopupO
 
   // Build stat lines
   const statLines: string[] = [];
-  const effect = getItemEffectText(def, options?.skills);
-  if (effect && effect !== 'Material' && effect !== 'No bonus') {
-    statLines.push(`<div><span class="stat-label">Effect</span><span>${escapeHtml(effect)}</span></div>`);
-  }
+  const statBlock = renderItemStatBlock(def, statViewer(options));
+  if (statBlock) statLines.push(`<div class="item-popup-statblock">${statBlock}</div>`);
   if (def.equipSlot) {
     statLines.push(`<div><span class="stat-label">Slot</span><span>${SLOT_LABELS[def.equipSlot] ?? def.equipSlot}</span></div>`);
+  } else if (isBag(def)) {
+    statLines.push(`<div><span class="stat-label">Type</span><span>Bag</span></div>`);
   } else if (def.consumable) {
     statLines.push(`<div><span class="stat-label">Type</span><span>Consumable</span></div>`);
   } else {
@@ -130,6 +134,11 @@ export function renderItemPopupContent(def: ItemDefinition, options?: ItemPopupO
   `;
 }
 
+function statViewer(options?: ItemPopupOptions): { level?: number; className?: ClassName | null; skills?: Record<string, SkillDefinition> } {
+  const className = options?.className;
+  return { level: options?.level, className: isKnownClass(className) ? className : null, skills: options?.skills };
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -147,10 +156,6 @@ export function renderItemDetail(def: ItemDefinition, options?: Omit<ItemPopupOp
   const row = (label: string, value: string, attrs = '') =>
     `<div class="gc-item-detail__row"${attrs}><span class="gc-item-detail__label">${label}</span><span class="gc-item-detail__value">${value}</span></div>`;
 
-  const effect = getItemEffectText(def, options?.skills);
-  if (effect && effect !== 'Material' && effect !== 'No bonus') {
-    rows.push(row('Effect', escapeHtml(effect)));
-  }
   if (def.consumable) {
     rows.push(row('Use', '<span class="gc-item-detail__soon">Not usable yet — coming soon!</span>'));
   }
@@ -173,7 +178,8 @@ export function renderItemDetail(def: ItemDefinition, options?: Omit<ItemPopupOp
 
   const typeLabel = def.equipSlot
     ? (SLOT_LABELS[def.equipSlot] ?? def.equipSlot)
-    : def.consumable ? 'Consumable' : 'Material';
+    : isBag(def) ? 'Bag' : def.consumable ? 'Consumable' : 'Material';
+  const statBlock = renderItemStatBlock(def, statViewer(options));
 
   const setDefs = options?.setDefs ?? {};
   const owned = options?.ownedItemIds;
@@ -209,9 +215,10 @@ export function renderItemDetail(def: ItemDefinition, options?: Omit<ItemPopupOp
 
   return `
     <div class="gc-item-detail" data-rarity="${escapeHtml(def.rarity ?? 'common')}">
-      <div class="gc-item-detail__art">${renderItemFrame(def.id, def, { size: 'lg', decorative: true })}</div>
+      <div class="gc-item-detail__art">${renderItemFrame(def.id, def, { size: 'lg', decorative: true, noTip: true })}</div>
       <h2 class="gc-item-detail__name">${escapeHtml(def.name)}</h2>
       <div class="gc-item-detail__sub">${escapeHtml(capitalize(def.rarity ?? 'common'))} · ${escapeHtml(typeLabel)}</div>
+      ${statBlock ? `<div class="gc-item-detail__stats">${statBlock}</div>` : ''}
       ${rows.length ? `<div class="gc-item-detail__rows">${rows.join('')}</div>` : ''}
       ${setsHtml}
       ${options?.extraHtml ?? ''}

@@ -99,7 +99,6 @@
   transform: translateY(2px) scale(0.97);
 }
 .ci-stat:focus-visible,
-.ci-chip:focus-visible,
 .ci-skill:focus-visible,
 .ci-pick:focus-visible {
   outline: 3px solid var(--gold-500);
@@ -167,56 +166,6 @@
   line-height: 1.1;
   color: var(--parch-ink);
   text-align: center;
-}
-
-/* ── Secondary stat chips (DR / MR / Gold) ───────────────────── */
-
-.ci-chips {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s-2);
-  margin-top: var(--s-4);
-}
-.ci-chip {
-  min-height: var(--tap-lg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: var(--s-1) var(--s-2);
-  border: 2px solid var(--parch-500);
-  border-radius: var(--r-md);
-  background: linear-gradient(180deg, var(--parch-100), var(--parch-300));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 0 var(--parch-700);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
-}
-.ci-chip:active {
-  transform: translateY(2px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-.ci-chip__label {
-  font-family: var(--display-font);
-  font-size: var(--t-caption);
-  color: var(--parch-ink-soft);
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-}
-.ci-chip__value {
-  font-family: var(--display-font);
-  font-size: var(--t-title);
-  line-height: 1;
-  color: #fff;
-  text-shadow: var(--text-stroke-sm);
-  font-variant-numeric: tabular-nums;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ci-chip--gold .ci-chip__value {
-  color: var(--gold-300);
 }
 
 /* ── Skill loadout strip ─────────────────────────────────────── */
@@ -511,40 +460,6 @@
 .ci-compare__head .gc-rarity-text {
   font-size: var(--t-label);
 }
-.ci-compare__grid {
-  display: grid;
-  grid-template-columns: 44px 1fr 28px 1fr;
-  align-items: center;
-  row-gap: var(--s-1);
-  margin-top: var(--s-2);
-  font-size: var(--t-body);
-  color: var(--parch-ink);
-  text-align: center;
-}
-.ci-compare__col {
-  font-size: var(--t-caption);
-  color: var(--parch-ink-soft);
-}
-.ci-compare__label {
-  font-family: var(--display-font);
-  font-size: var(--t-small);
-  color: var(--parch-ink-soft);
-  text-align: left;
-}
-.ci-compare__val {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.ci-compare__up { color: var(--green-700); }
-.ci-compare__down { color: var(--red-700); }
-.ci-compare__eq,
-.ci-compare__dash { color: var(--parch-ink-soft); }
-.ci-compare__none {
-  grid-column: 1 / -1;
-  font-size: var(--t-small);
-  color: var(--parch-ink-soft);
-}
-
 /* Confirm / destroy-count modal. */
 .ci-confirm__msg {
   text-align: center;
@@ -712,7 +627,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ci-stat,
-  .ci-chip,
   .ci-skill,
   .ci-pick,
   .ci-hero__img,

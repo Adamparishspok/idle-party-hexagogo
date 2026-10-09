@@ -11,11 +11,11 @@ import type {
   SkillDefinition,
 } from '@idle-party-rpg/shared';
 import {
-  computeEquipmentBonuses,
   CLASS_DEFINITIONS,
   getSkillsForClass,
   getOwnedItemIds,
   getEquippedItemIds,
+  isBag,
 } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import type { WorldCache } from '../network/WorldCache';
@@ -27,6 +27,11 @@ import {
   escapeHtml,
 } from '../ui/ItemIcon';
 import { renderItemDetail } from '../ui/ItemPopup';
+import { GearPicker } from '../ui/GearPicker';
+import { BagPanel } from '../ui/BagPanel';
+import { renderStatsSheet } from '../ui/StatsSheet';
+import { bagBarModel, currentDerivedStats, derivedInputFromState, isKnownClass } from '../ui/GearModel';
+import { compareLinesFor, renderDeltaList } from '../ui/ItemStats';
 import { artworkUrl } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
 import '../styles/screens/character.css';
@@ -52,14 +57,9 @@ const SLOT_ORDER: Record<string, number> = {
 /** Rarity buckets in display order (best first). */
 const RARITY_BUCKET_ORDER = ['heirloom', 'legendary', 'epic', 'rare', 'uncommon', 'common', 'janky'];
 
-/** Tap-for-info descriptions for the character stats. */
-const STAT_TOOLTIPS: Record<string, { full: string; desc: string }> = {
-  ATK: { full: 'Attack', desc: 'Damage you deal per attack (base + equipment).' },
-  DR: { full: 'Damage Reduction', desc: 'Reduces incoming physical damage (per hit).' },
-  MR: { full: 'Magic Resistance', desc: 'Reduces incoming magical damage. Holy damage is unaffected.' },
-  HP: { full: 'Hit Points', desc: 'Maximum health pool.' },
-  GOLD: { full: 'Gold', desc: 'Spent at shops and earned from battles and selling loot.' },
-};
+const GOLD_TIP = 'Spent at shops and the bank, and earned from battles and selling loot.';
+/** Upper bound on drawn free-slot cells (base backpack plus four of the largest bags). */
+const MAX_FREE_CELLS = 116;
 
 interface ModalOptions {
   /** Slate title tab across the panel's top edge. */
@@ -109,6 +109,8 @@ export class CharItemsScreen implements Screen {
   // Inventory refs
   private bagTitleEl!: HTMLElement;
   private inventoryGrid!: HTMLElement;
+  private bagPanel!: BagPanel;
+  private gearPicker: GearPicker;
   private mailboxContainer!: HTMLElement;
   private tradesContainer!: HTMLElement;
   private searchInput!: HTMLInputElement;
@@ -143,6 +145,7 @@ export class CharItemsScreen implements Screen {
   private lastTradesKey = '';
   private lastHeroKey = '';
   private lastStatKey = '';
+  private lastCapacity = 0;
 
   /** Search/sort filter state. */
   private searchFilter = '';
@@ -160,6 +163,7 @@ export class CharItemsScreen implements Screen {
     this.container = el;
     this.gameClient = gameClient;
     this.worldCache = worldCache;
+    this.gearPicker = new GearPicker(gameClient, () => worldCache.getSkillContent().skills);
 
     this.buildDOM();
   }
@@ -190,6 +194,8 @@ export class CharItemsScreen implements Screen {
     this.unsubEquipBlocked?.();
     this.unsubEquipBlocked = undefined;
     this.hideModal();
+    this.gearPicker.close();
+    this.bagPanel.closeSheet();
     this.removeTip();
   }
 
@@ -209,7 +215,8 @@ export class CharItemsScreen implements Screen {
               </div>
               <div class="ci-doll__col ci-doll__col--right"></div>
             </div>
-            <div class="ci-chips"></div>
+            <div class="gc-divider">Stats</div>
+            <div class="ci-stats"></div>
 
             <div class="gc-divider">Skills</div>
             <div class="ci-skills"></div>
@@ -246,6 +253,7 @@ export class CharItemsScreen implements Screen {
               </div>
             </div>
             <div class="ci-bag__grid"></div>
+            <div class="ci-bagbar"></div>
           </section>
         </div>
       </div>
@@ -258,7 +266,7 @@ export class CharItemsScreen implements Screen {
     this.heroLevelEl = q('.ci-hero__level');
     this.equipLeftCol = q('.ci-doll__col--left');
     this.equipRightCol = q('.ci-doll__col--right');
-    this.chipsEl = q('.ci-chips');
+    this.chipsEl = q('.ci-stats');
     this.skillStripEl = q('.ci-skills');
     this.xpFill = q('.ci-xp__fill');
     this.xpLabelEl = q('.ci-xp__numbers');
@@ -268,6 +276,7 @@ export class CharItemsScreen implements Screen {
 
     this.bagTitleEl = q('.ci-bag__title');
     this.inventoryGrid = q('.ci-bag__grid');
+    this.bagPanel = new BagPanel(q('.ci-bagbar'), this.gameClient);
     this.mailboxContainer = q('.ci-mailbox');
     this.tradesContainer = q('.ci-trades');
     this.searchInput = q<HTMLInputElement>('.ci-bag__search');
@@ -329,12 +338,7 @@ export class CharItemsScreen implements Screen {
       const slotEl = (e.target as HTMLElement).closest('.gc-item[data-slot]') as HTMLElement | null;
       if (!slotEl) return;
       const slot = slotEl.getAttribute('data-slot') as EquipSlot;
-      const itemId = slotEl.getAttribute('data-item-id');
-      if (slot && itemId) {
-        this.showItemPopup(itemId, 'equipped', slot);
-      } else if (slot) {
-        this.showTip(slotEl, `${SLOT_LABELS[slot] ?? slot}`, 'Empty slot', 1500);
-      }
+      if (slot) this.gearPicker.open(slot);
     });
 
     // Inventory grid delegation
@@ -342,7 +346,7 @@ export class CharItemsScreen implements Screen {
       const frame = (e.target as HTMLElement).closest('.gc-item[data-item]') as HTMLElement | null;
       if (!frame) return;
       const itemId = frame.getAttribute('data-item');
-      if (itemId) this.showItemPopup(itemId, 'inventory', undefined);
+      if (itemId) this.showItemPopup(itemId);
     });
 
     // Skill slot delegation (locked slots are disabled buttons)
@@ -354,11 +358,10 @@ export class CharItemsScreen implements Screen {
 
     // Stat tap → explanation tip (hero stats + chips share the data attribute)
     const onStatClick = (e: Event) => {
-      const statEl = (e.target as HTMLElement).closest('[data-tooltip]') as HTMLElement | null;
+      const statEl = (e.target as HTMLElement).closest('[data-stat-title]') as HTMLElement | null;
       if (!statEl) return;
       e.stopPropagation();
-      const info = STAT_TOOLTIPS[statEl.getAttribute('data-tooltip') ?? ''];
-      if (info) this.showTip(statEl, info.full, info.desc);
+      this.showTip(statEl, statEl.dataset.statTitle ?? '', statEl.dataset.statDesc ?? '');
     };
     this.heroStatsEl.addEventListener('click', onStatClick);
     this.chipsEl.addEventListener('click', onStatClick);
@@ -401,11 +404,13 @@ export class CharItemsScreen implements Screen {
       this.renderEquipment(char.equipment);
     }
 
-    const invKey = JSON.stringify(char.inventory);
+    this.lastCapacity = bagBarModel(state)?.capacity ?? 0;
+    const invKey = JSON.stringify(char.inventory) + `|${this.lastCapacity}`;
     if (invKey !== this.lastInvKey) {
       this.lastInvKey = invKey;
       this.renderInventory();
     }
+    this.bagPanel.update(state);
 
     // Skill loadout — re-render when skill state, the content catalog, or the
     // equipment-granted skill set changes
@@ -420,6 +425,8 @@ export class CharItemsScreen implements Screen {
     const statKey = JSON.stringify({
       d: char.baseDamage,
       hp: char.maxHp,
+      ds: char.derivedStats ?? null,
+      sets: Object.keys(this.setDefs),
       eq: char.equipment,
       lvl: char.level,
       gold: char.gold,
@@ -650,33 +657,31 @@ export class CharItemsScreen implements Screen {
   private renderStats(state: ServerStateMessage): void {
     const char = state.character;
     if (!char) return;
-    const bonuses = computeEquipmentBonuses(char.equipment, this.itemDefs, char.level);
+    const stats = currentDerivedStats(state);
+    const def = CLASS_DEFINITIONS[char.className as ClassName];
+    this.heroLevelEl.textContent = `Level ${char.level} · ${def?.displayName ?? char.className}`;
 
+    const hp = stats?.maxHp ?? char.maxHp;
+    const damage = stats?.damage ?? char.baseDamage;
     const range = (lo: number, hi: number) => (lo === hi ? `${lo}` : `${lo}-${hi}`);
-    const atkVal = range(char.baseDamage + bonuses.bonusAttackMin, char.baseDamage + bonuses.bonusAttackMax);
-    const drVal = bonuses.damageReductionMax > 0 ? range(bonuses.damageReductionMin, bonuses.damageReductionMax) : '0';
-    const mrVal = bonuses.magicReductionMax > 0 ? range(bonuses.magicReductionMin, bonuses.magicReductionMax) : '0';
-
+    const atkVal = stats ? range(damage + stats.attackBonusMin, damage + stats.attackBonusMax) : `${damage}`;
     this.heroStatsEl.innerHTML = `
-      <button type="button" class="gc-stat ci-stat" data-tooltip="HP" aria-label="Health ${char.maxHp}">
+      <button type="button" class="gc-stat ci-stat" data-stat-title="Health" data-stat-desc="Your maximum health. Grows with level and Stamina." aria-label="Health ${hp}">
         <span class="gc-stat__label">Health</span>
-        <span class="gc-stat__value ci-stat__value--hp">${char.maxHp}</span>
+        <span class="gc-stat__value ci-stat__value--hp">${hp}</span>
       </button>
-      <button type="button" class="gc-stat ci-stat" data-tooltip="ATK" aria-label="Attack ${atkVal} ${escapeHtml(char.damageType ?? '')}">
-        <span class="gc-stat__label">Attack</span>
+      <button type="button" class="gc-stat ci-stat" data-stat-title="Damage" data-stat-desc="Damage per attack from your level, primary attribute and weapon attack bonuses." aria-label="Damage ${atkVal} ${escapeHtml(char.damageType ?? '')}">
+        <span class="gc-stat__label">Damage</span>
         <span class="gc-stat__value">${atkVal}</span>
         ${char.damageType ? `<span class="ci-stat__sub">${escapeHtml(char.damageType)}</span>` : ''}
       </button>
     `;
 
-    const def = CLASS_DEFINITIONS[char.className as ClassName];
-    this.heroLevelEl.textContent = `Level ${char.level} · ${def?.displayName ?? char.className}`;
-
-    this.chipsEl.innerHTML = `
-      <button type="button" class="ci-chip" data-tooltip="DR"><span class="ci-chip__label">DR</span><span class="ci-chip__value">${drVal}</span></button>
-      <button type="button" class="ci-chip" data-tooltip="MR"><span class="ci-chip__label">MR</span><span class="ci-chip__value">${mrVal}</span></button>
-      <button type="button" class="ci-chip ci-chip--gold" data-tooltip="GOLD"><span class="ci-chip__label">Gold</span><span class="ci-chip__value">${char.gold.toLocaleString()}</span></button>
-    `;
+    const goldCell = `<button type="button" class="ss-stat ss-stat--gold" data-stat-title="Gold" data-stat-desc="${escapeHtml(GOLD_TIP)}" aria-label="Gold ${char.gold}">
+      <span class="ss-stat__label">Gold</span><span class="ss-stat__value">${char.gold.toLocaleString()}</span></button>`;
+    this.chipsEl.innerHTML = stats
+      ? renderStatsSheet(stats, { exclude: ['maxHp', 'damage'], extraCells: goldCell })
+      : `<div class="ss-derived">${goldCell}</div>`;
   }
 
   private renderXpBar(xp: number, xpForNextLevel: number): void {
@@ -753,7 +758,8 @@ export class CharItemsScreen implements Screen {
     this.bagTitleEl.textContent = total > 0 ? `Inventory · ${total}` : 'Inventory';
 
     if (entries.length === 0) {
-      this.inventoryGrid.innerHTML = '<p class="ci-bag__empty">Your bags are empty. Loot from battles lands here.</p>';
+      this.inventoryGrid.innerHTML = '<p class="ci-bag__empty">Your bags are empty. Loot from battles lands here.</p>'
+        + this.freeCellsHtml(0);
       return;
     }
 
@@ -791,9 +797,17 @@ export class CharItemsScreen implements Screen {
       return;
     }
 
-    this.inventoryGrid.innerHTML = this.sortMode === 'newest'
+    const itemsHtml = this.sortMode === 'newest'
       ? filtered.map(([itemId, count]) => this.renderInventoryEntry(itemId, count)).join('')
       : this.renderGroupedInventory(filtered);
+    this.inventoryGrid.innerHTML = itemsHtml + (this.searchFilter ? '' : this.freeCellsHtml(entries.length));
+  }
+
+  private freeCellsHtml(used: number): string {
+    const free = Math.min(MAX_FREE_CELLS, Math.max(0, this.lastCapacity - used));
+    if (free === 0) return '';
+    const cells = '<span class="gc-item gc-item--empty ci-bag__free" aria-hidden="true"></span>'.repeat(free);
+    return `<div class="gc-divider ci-bag__group">Free space · ${free}</div>${cells}`;
   }
 
   private renderInventoryEntry(itemId: string, count: number): string {
@@ -959,38 +973,35 @@ export class CharItemsScreen implements Screen {
     this.skillPopupOpen = false;
   }
 
-  private showItemPopup(itemId: string, context: 'equipped' | 'inventory', equippedSlot?: EquipSlot): void {
+  private showItemPopup(itemId: string): void {
     const def = this.itemDefs[itemId];
     if (!def) return;
 
     const count = this.lastInventory[itemId] ?? 0;
     let actionsHtml = '';
-    if (context === 'equipped' && equippedSlot) {
-      actionsHtml = `<button type="button" class="gc-btn gc-btn--lg ci-act-unequip" data-slot="${equippedSlot}">Unequip</button>`;
-    } else if (context === 'inventory') {
-      if (def.equipSlot) {
-        // A copy of this exact item is already in the slot → "Equipped",
-        // disabled, rather than an Equip that would be a no-op.
-        const alreadyEquipped = this.lastEquipment[def.equipSlot] === itemId;
-        actionsHtml += alreadyEquipped
-          ? '<button type="button" class="gc-btn gc-btn--green gc-btn--lg" disabled>Equipped</button>'
-          : `<button type="button" class="gc-btn gc-btn--green gc-btn--lg ci-act-equip" data-item="${escapeHtml(itemId)}">Equip</button>`;
-      }
-      // Destroy is the secondary action — red, but a size down from Equip.
-      actionsHtml += `<button type="button" class="gc-btn gc-btn--red${def.equipSlot ? '' : ' gc-btn--lg'} ci-act-destroy" data-item="${escapeHtml(itemId)}" data-max="${count}">Destroy</button>`;
+    if (isBag(def)) {
+      const freeBag = (this.gameClient.lastState?.character?.bags ?? []).indexOf(null);
+      actionsHtml += `<button type="button" class="gc-btn gc-btn--green gc-btn--lg ci-act-equip-bag" data-item="${escapeHtml(itemId)}"${freeBag < 0 ? ' disabled' : ''}>Equip bag</button>`;
     }
+    if (def.equipSlot) {
+      // A copy of this exact item is already in the slot → "Equipped",
+      // disabled, rather than an Equip that would be a no-op.
+      const alreadyEquipped = this.lastEquipment[def.equipSlot] === itemId;
+      actionsHtml += alreadyEquipped
+        ? '<button type="button" class="gc-btn gc-btn--green gc-btn--lg" disabled>Equipped</button>'
+        : `<button type="button" class="gc-btn gc-btn--green gc-btn--lg ci-act-equip" data-item="${escapeHtml(itemId)}">Equip</button>`;
+    }
+    // Destroy is the secondary action — red, but a size down from Equip.
+    actionsHtml += `<button type="button" class="gc-btn gc-btn--red${def.equipSlot || isBag(def) ? '' : ' gc-btn--lg'} ci-act-destroy" data-item="${escapeHtml(itemId)}" data-max="${count}">Destroy</button>`;
 
-    // Inline compare when this inventory item would replace something
-    // already equipped — the diff is visible before tapping Equip.
     let extraHtml = '';
-    if (context === 'inventory' && def.equipSlot) {
-      const currentId = this.lastEquipment[def.equipSlot];
-      if (currentId && currentId !== itemId) {
-        const oldDef = this.itemDefs[currentId];
-        if (oldDef) extraHtml = this.buildEquipCompareBlock(def, oldDef);
-      }
+    if (def.equipSlot && this.lastEquipment[def.equipSlot] !== itemId) {
+      extraHtml = this.buildEquipCompareBlock(def);
     }
-    if (context === 'inventory' && count > 1) {
+    if (isBag(def) && (this.gameClient.lastState?.character?.bags ?? []).indexOf(null) < 0) {
+      extraHtml += '<p class="ci-owned">All bag slots are in use. Tap a bag slot under your backpack to swap.</p>';
+    }
+    if (count > 1) {
       extraHtml = `<p class="ci-owned">You have ${count}</p>` + extraHtml;
     }
 
@@ -1002,16 +1013,17 @@ export class CharItemsScreen implements Screen {
         ownedItemIds: getOwnedItemIds(this.lastInventory, this.lastEquipment),
         equippedItemIds: getEquippedItemIds(this.lastEquipment),
         className: this.lastClassName || null,
+        level: this.gameClient.lastState?.character?.level,
         skills: this.worldCache.getSkillContent().skills,
         extraHtml,
       }),
       actionsHtml,
     });
 
-    const unequipBtn = modal.querySelector('.ci-act-unequip') as HTMLElement | null;
-    unequipBtn?.addEventListener('click', () => {
-      const slot = unequipBtn.getAttribute('data-slot');
-      if (slot) this.gameClient.sendUnequipItem(slot);
+    const equipBagBtn = modal.querySelector('.ci-act-equip-bag') as HTMLButtonElement | null;
+    equipBagBtn?.addEventListener('click', () => {
+      const freeBag = (this.gameClient.lastState?.character?.bags ?? []).indexOf(null);
+      if (freeBag >= 0) this.gameClient.sendEquipBag(itemId, freeBag);
       this.hideModal();
     });
 
@@ -1150,69 +1162,20 @@ export class CharItemsScreen implements Screen {
     try { localStorage.setItem(key, this.sortMode); } catch { /* ignore */ }
   }
 
-  /**
-   * Inline equip-comparison block, rendered inside the item modal whenever the
-   * viewed inventory item would replace something already equipped.
-   *
-   * Layout: "Replaces <oldName>" + a 4-col grid (stat / this / arrow /
-   * equipped). Stats show for both items; arrows only when both contribute.
-   */
-  private buildEquipCompareBlock(newDef: ItemDefinition, oldDef: ItemDefinition): string {
-    type StatKey = 'atk' | 'dr' | 'mr';
-    const stats: { key: StatKey; label: string }[] = [
-      { key: 'atk', label: 'ATK' },
-      { key: 'dr', label: 'DR' },
-      { key: 'mr', label: 'MR' },
-    ];
-    const bounds = (def: ItemDefinition, key: StatKey): [number, number] => {
-      if (key === 'atk') return [def.bonusAttackMin ?? 0, def.bonusAttackMax ?? 0];
-      if (key === 'dr') return [def.damageReductionMin ?? 0, def.damageReductionMax ?? 0];
-      return [def.magicReductionMin ?? 0, def.magicReductionMax ?? 0];
-    };
-    const itemStat = (def: ItemDefinition, key: StatKey): string | null => {
-      const [lo, hi] = bounds(def, key);
-      if (lo === 0 && hi === 0) return null;
-      const prefix = key === 'atk' ? '+' : '';
-      return lo === hi ? `${prefix}${lo}` : `${prefix}${lo}-${hi}`;
-    };
-    const mid = (def: ItemDefinition, key: StatKey): number => {
-      const [lo, hi] = bounds(def, key);
-      return (lo + hi) / 2;
-    };
-    const dash = '<span class="ci-compare__dash">—</span>';
-
-    const rows = stats.map(({ key, label }) => {
-      const newV = itemStat(newDef, key);
-      const oldV = itemStat(oldDef, key);
-      if (newV === null && oldV === null) return '';
-      let arrow = '';
-      if (newV !== null && oldV !== null) {
-        const dn = mid(newDef, key);
-        const dc = mid(oldDef, key);
-        if (dn > dc) arrow = '<span class="ci-compare__up" aria-label="better">▲</span>';
-        else if (dn < dc) arrow = '<span class="ci-compare__down" aria-label="worse">▼</span>';
-        else arrow = '<span class="ci-compare__eq" aria-label="same">=</span>';
-      }
-      return `
-        <span class="ci-compare__label">${label}</span>
-        <span class="ci-compare__val">${newV ?? dash}</span>
-        <span class="ci-compare__arrow">${arrow}</span>
-        <span class="ci-compare__val">${oldV ?? dash}</span>
-      `;
-    }).join('');
-
-    return `
-      <section class="ci-compare">
-        <div class="ci-compare__head">Replaces ${this.itemNameHtml(oldDef.id)}</div>
-        <div class="ci-compare__grid">
-          <span class="ci-compare__col"></span>
-          <span class="ci-compare__col">This</span>
-          <span></span>
-          <span class="ci-compare__col">Equipped</span>
-          ${rows || `<span class="ci-compare__none">No combat stats</span>`}
-        </div>
-      </section>
-    `;
+  /** "If equipped" stat changes, shown in the item modal for gear the viewer could put on. */
+  private buildEquipCompareBlock(def: ItemDefinition): string {
+    const state = this.gameClient.lastState;
+    const cls = state?.character?.className;
+    const lines = compareLinesFor(def, {
+      className: isKnownClass(cls) ? cls : null,
+      compareInput: derivedInputFromState(state),
+    });
+    if (!lines) return '';
+    const currentId = def.equipSlot ? this.lastEquipment[def.equipSlot] : null;
+    const head = currentId && this.itemDefs[currentId]
+      ? `Replaces ${this.itemNameHtml(currentId)}`
+      : 'If equipped';
+    return `<section class="ci-compare"><div class="ci-compare__head">${head}</div>${renderDeltaList(lines)}</section>`;
   }
 
   /**
