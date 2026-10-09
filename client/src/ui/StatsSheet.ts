@@ -47,13 +47,13 @@ function pct(value: number): string {
 function attributeExplain(name: AttributeName, stats: DerivedStats): string {
   const profile = CLASS_ATTRIBUTE_PROFILES[stats.className];
   const primaryNote = name === stats.primaryAttribute
-    ? `Your primary attribute: each point adds ${profile.damagePerPrimary} damage. `
+    ? `Primary attribute for this class: each point adds ${profile.damagePerPrimary} damage. `
     : '';
   switch (name) {
     case 'stamina': return `Each point adds ${profile.hpPerStamina} max HP.`;
     case 'strength': return `${primaryNote}Every ${STRENGTH_PER_ARMOR} Strength adds 1 Armor.`;
     case 'agility': return `${primaryNote}Each point adds 0.1% crit and 0.05% dodge.`;
-    case 'intellect': return `${primaryNote}Every ${INTELLECT_PER_RESIST} Intellect adds 1 Resist. Intellect from gear makes your heals stronger.`;
+    case 'intellect': return `${primaryNote}Every ${INTELLECT_PER_RESIST} Intellect adds 1 Resist. Intellect from gear makes heals stronger.`;
   }
 }
 
@@ -72,19 +72,19 @@ export function statsSheetModel(stats: DerivedStats): StatsSheetModel {
   const healPct = Math.round((stats.healingMultiplier - 1) * 100);
   const hasAttack = stats.attackBonusMax > 0;
   const derived: DerivedView[] = [
-    { key: 'maxHp', label: 'Health', value: `${stats.maxHp}`, explain: 'Your maximum health. Grows with level and Stamina.' },
+    { key: 'maxHp', label: 'Health', value: `${stats.maxHp}`, explain: 'Maximum health. Grows with level and Stamina.' },
     {
       key: 'damage',
       label: 'Damage',
       value: `${stats.damage}`,
       sub: hasAttack ? `+${range(stats.attackBonusMin, stats.attackBonusMax)} attack` : stats.damageType,
-      explain: `Damage per attack, from your level and ${primaryLabel}.${hasAttack ? ' Weapon attack bonuses are added on each hit.' : ''}`,
+      explain: `Damage per attack, from level and ${primaryLabel}.${hasAttack ? ' Weapon attack bonuses are added on each hit.' : ''}`,
     },
     { key: 'armor', label: 'Armor', value: range(stats.armorMin, stats.armorMax), explain: `Blocks this much physical damage per hit. Comes from gear and Strength (1 per ${STRENGTH_PER_ARMOR}).` },
     { key: 'resist', label: 'Resist', value: range(stats.resistMin, stats.resistMax), explain: `Blocks this much magical damage per hit. Comes from gear and Intellect (1 per ${INTELLECT_PER_RESIST}). Holy damage ignores it.` },
     { key: 'crit', label: 'Crit', value: pct(stats.critChance), explain: `Chance to land a critical hit. Comes from Agility, up to ${pct(MAX_ATTRIBUTE_CRIT)}.` },
     { key: 'dodge', label: 'Dodge', value: pct(stats.dodgeChance), explain: `Chance to dodge an attack. Comes from Agility, up to ${pct(MAX_ATTRIBUTE_DODGE)}.` },
-    { key: 'healing', label: 'Healing', value: `${healPct >= 0 ? '+' : ''}${healPct}%`, explain: 'Bonus to every heal you cast. Comes from Intellect on your gear.' },
+    { key: 'healing', label: 'Healing', value: `${healPct >= 0 ? '+' : ''}${healPct}%`, explain: 'Bonus to every heal cast. Comes from Intellect on gear.' },
   ];
   return { attributes, derived };
 }
