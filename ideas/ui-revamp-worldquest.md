@@ -66,7 +66,7 @@ type scale was used in 4 places, and touch targets were routinely <40px.
 
 ### Screen order
 
-1. Combat (reference implementation)
+1. Combat (reference implementation) — **done**
 2. Character / inventory (parchment paper doll, item grid, skill loadout)
 3. Map + RoomView
 4. Popups: item, user, monster, NPC talk, shop, dungeon entry, trade, profile
@@ -109,6 +109,27 @@ Replacements should be painted objects like WorldQuest's:
 - `social` (banner/scroll), `items` (armor pauldrons), `map` (golden orb/compass),
   `combat` (crossed swords on shield), `craft` (anvil/hammer), `settings` (gear),
   `chat` (speech bubbles — currently an inline SVG).
+
+### Location backgrounds (required, not optional)
+
+Every location needs real painted background art — not the CSS fallback.
+Per zone at minimum, with per-room overrides for notable rooms:
+
+- `combat-bg` — the battlefield backdrop for each zone (WorldQuest screenshot 3:
+  painted forest clearing, foreground left clear for cards).
+- `room-bg` — the "you are here" room view backdrop for each zone.
+
+The coverage report should treat a zone without both as incomplete.
+
+### World map direction
+
+Stays **hex-based** underneath (movement, pathfinding, fog, unlocks all keep
+working on the hex grid), but the presentation is overhauled into a polished
+painted map: painted terrain per tile type that blends across hex edges, so it
+reads as one continuous illustrated island (WorldQuest screenshot 1), with the
+hex grid shown subtly (hover/selection, faint lines on demand) rather than as
+hard-outlined tiles. Landmarks (towns, towers, docks) are painted props sitting
+on top of tiles. Needs its own design pass before implementation.
 
 ### Content art (existing kinds, needed for the full look)
 

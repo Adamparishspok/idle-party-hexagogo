@@ -7,6 +7,10 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Your gold, plus the name of the zone and room you\'re in, now show along the top of the screen.',
       'Settings has moved to the gear button at the top right, next to your notifications.',
       'The experience bar now shows your exact progress to the next level, with your level badge and class portrait at its left end — tap the portrait to open your character.',
+      'Bigger, bolder text and chunkier buttons across the game, starting with the frame around every screen.',
+      'The combat screen has been completely redesigned: enemies face your party across the battlefield, with big portrait cards, health bars you can actually read, damage and healing numbers that pop off each fighter, and a Victory banner when you win.',
+      'The combat log now runs as a short live feed at the bottom of the battle. Tap it to open the full log.',
+      'Tap any monster to see a larger picture of it.',
     ],
   },
   {

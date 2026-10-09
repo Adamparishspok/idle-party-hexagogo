@@ -117,13 +117,21 @@ Whenever the popout is open with `dm` selected as the send channel, it reports t
 
 Notification channel/category preferences are a modal opened from a new "Notifications" button on `SettingsScreen` (`client/src/ui/NotificationPreferences.ts`) — a category × channel checkbox grid following the same visual language as the existing Player Options popup.
 
-## Combat cards
+## Combat screen
 
-`CombatScreen` renders each combatant as a small card on a 3×3 grid — portrait image (top), name, HP bar with numeric overlay. Player portraits load from `/class-artwork/{class}.png` with a class-icon fallback; monster art loads from `/monster-artwork/{id}.png` (keyed by the monster definition id, matching the admin upload; a slug of the name is used only when the payload carries no id) with a placehold.co fallback. Player cards highlight the current user in gold; dead combatants dim; stunned combatants show a "💫" badge. Cards arrange on the grid via CSS-grid mapping their `gridPosition`. Clicking a player opens the user popup; clicking a monster opens the monster popup (name + image + optional flavor description from `MonsterDefinition.description`).
+Rebuilt in the WorldQuest style (`CombatScreen.ts` + `styles/screens/combat.css`), the reference implementation for the overhaul.
 
-Per-turn animations (`updateCombatAnimations`) toggle `.attacking` / `.hit` / `.dodged` classes on the card itself (not an inner element) — keyframes `attack-lunge-right/-left`, `hit-flash`, `dodge-sidestep`. On mobile, `.combat-tray` is `overflow: visible` inside the narrow-viewport `@media` block so the lunge can extend into the inter-tray gap without clipping at the tray edge.
+**Vertical battlefield.** Enemies stand at the top and the party at the bottom, over a full-bleed backdrop. The 3×3 battle grid is transposed for a portrait screen: grid **row** → horizontal **lane** (so lane-mates face each other, matching same-row targeting), and grid **column** → **depth**, with both front lines meeting in the middle (party front = column 2 → top of the party block; enemy front = column 0 → bottom of the enemy block; both are `depth = 2 - col`). Depth levels nobody occupies are collapsed so a small fight doesn't leave empty rows. The card DOM rebuilds only when the set of combatants (side + position + name) changes.
 
-**Combat backgrounds**: each combat stage has a CSS `background-image` chain `/combat-bg-artwork/{zoneId}-{col}-{row}.png` → `/combat-bg-artwork/{zoneId}.png` → `/zone-artwork/{zoneId}.png` → placehold.co. The key is the current room's raw `zone` tag (read off the `WorldCache` tile), matching what admin uploads are keyed by — **not** a slug of the zone's display name. Dimmed + scrim'd so cards remain readable.
+**Unit cards.** Chamfered-square portrait frame (steel edge; gold for you; red-tinted for enemies), outlined name above (monsters wrap to two lines), HP pill with `current/max` inside the frame's bottom edge (turns red ≤30%), a "Stun" tag when stunned, grayscale when dead. Player art comes from `/class-artwork/{class}.png`; monster art from `/monster-artwork/{id}.png`, then a name-slug fallback. When all art fails, the image hides and the name's initial shows. Tapping a player opens the user popup; tapping a monster opens a kit parchment modal (art, name, optional `MonsterDefinition.description`).
+
+**Juice.** Damage and heal numbers float off cards. They are derived from **HP deltas between ticks**, not parsed from log text, and skipped when the tick counter resets for a new battle. `lastAction` adds "Miss" on dodges and floats the skill name off the attacker. Attackers lunge toward the other side, targets shake and flash, dodgers sidestep. "Victory!" / "Defeat" banners pop on result. All of this respects `prefers-reduced-motion`.
+
+**Combat log.** A short live feed sits at the bottom, with older lines fading out. Tapping it, or the log button, expands it into a full sheet with a close button. Scrolling back pauses the feed and shows "Resume live". Names and damage types are colored: you → gold "You", party → green, enemies → red.
+
+**Controls.** Log button and Run share the perch row on the right, clearing the portrait and the perched Chat button. Run is never `disabled` (disabled buttons swallow taps on mobile); a locked class gates it, and tapping it while locked shows why. Inside a dungeon, a top pill (name, floor, boss tag, Leave, owner/leader-gated) replaces Run.
+
+**Backdrop.** A CSS `background-image` chain: `/combat-bg-artwork/{zoneId}-{col}-{row}.png` → `/combat-bg-artwork/{zoneId}.png` → `/zone-artwork/{zoneId}.png`, painted over a CSS forest-clearing scene, with a vignette for readability. The key is the room's raw `zone` tag, not a slug of the display name. Every location is expected to get real backdrop art (see `ideas/ui-revamp-worldquest.md`).
 
 ## ModalStack
 

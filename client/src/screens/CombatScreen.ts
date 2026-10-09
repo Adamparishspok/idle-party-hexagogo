@@ -1,9 +1,14 @@
 import type { GameClient } from '../network/GameClient';
 import type { WorldCache } from '../network/WorldCache';
-import type { ServerStateMessage, CombatLogEntry, ClientCombatAction } from '@idle-party-rpg/shared';
-import { classIconHtml, RUN_AVAILABLE_ROUNDS } from '@idle-party-rpg/shared';
+import type {
+  ServerStateMessage,
+  CombatLogEntry,
+  ClientCombatAction,
+  ClientCombatState,
+} from '@idle-party-rpg/shared';
+import { RUN_AVAILABLE_ROUNDS } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
-import { artworkUrl, placeholderUrl } from '../ui/assets';
+import { artworkUrl } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
 
 /** Slugify a name into an artwork id (lowercase + dashes). */
@@ -12,21 +17,65 @@ function slugify(name: string): string {
 }
 
 /**
- * Build the chain of artwork URLs to try for a monster, ending in placehold.co.
- * Art is keyed by the monster's definition id (matching the admin upload, which
- * saves to `/monster-artwork/{id}.png`); falls back to a name slug for any older
- * art dropped in by name.
+ * Monster art is keyed by definition id (matching the admin upload); older art
+ * dropped in under a slug of the name still resolves as the fallback.
  */
-function monsterArtSrc(monster: { id?: string; name: string }): { real: string; fallback: string } {
-  const key = monster.id || slugify(monster.name);
-  return { real: artworkUrl('monster', key), fallback: placeholderUrl(monster.name, { w: 160, h: 160 }) };
+function monsterArtUrls(monster: { id?: string; name: string }): string[] {
+  const urls = [];
+  if (monster.id) urls.push(artworkUrl('monster', monster.id));
+  urls.push(artworkUrl('monster', slugify(monster.name)));
+  return urls;
 }
 
-/** Build artwork URLs for a class. */
-function classArtSrc(className: string): { real: string; fallback: string } {
-  return { real: artworkUrl('class', slugify(className)), fallback: placeholderUrl(className, { w: 160, h: 160 }) };
+function classArtUrls(className: string): string[] {
+  return [artworkUrl('class', className.toLowerCase())];
 }
 
+/**
+ * Point an <img> at the first URL in `urls` that loads; when every URL fails,
+ * hide the image so the frame's painted fill and the initial show through.
+ * No-op when the image is already on this chain.
+ */
+function setImageChain(img: HTMLImageElement, urls: string[]): void {
+  const key = urls.join('|');
+  if (img.dataset.chain === key) return;
+  img.dataset.chain = key;
+  let i = 0;
+  img.style.visibility = '';
+  img.onerror = () => {
+    i++;
+    if (i < urls.length) img.src = urls[i];
+    else img.style.visibility = 'hidden';
+  };
+  img.src = urls[0];
+}
+
+type Side = 'party' | 'enemy';
+
+interface UnitView {
+  side: Side;
+  gridPosition: number;
+  name: string;
+  currentHp: number;
+  maxHp: number;
+  stunned: boolean;
+  artUrls: string[];
+  isSelf: boolean;
+}
+
+/**
+ * Combat screen — WorldQuest-style vertical battlefield.
+ *
+ * Enemies stand at the top, the party at the bottom, over a full-bleed zone
+ * backdrop. The 3×3 battle grid is transposed for the portrait screen: each
+ * grid row becomes a vertical lane (so lane-mates face each other, matching
+ * same-row targeting), and grid columns become depth with both front lines
+ * meeting in the middle. Depth levels nobody stands on are collapsed.
+ *
+ * Damage/heal numbers float off the cards; they're derived from HP deltas
+ * between ticks rather than parsed from the log. The combat log lives as a
+ * short live feed at the bottom that expands to a full-screen sheet.
+ */
 export class CombatScreen implements Screen {
   private container: HTMLElement;
   private gameClient: GameClient;
@@ -35,16 +84,16 @@ export class CombatScreen implements Screen {
 
   // DOM references
   private stage!: HTMLElement;
-  private playerSide!: HTMLElement;
+  private bg!: HTMLElement;
   private enemySide!: HTMLElement;
+  private partySide!: HTMLElement;
+  private banner!: HTMLElement;
+  private feed!: HTMLElement;
   private logContainer!: HTMLElement;
-  private logWrapper!: HTMLElement;
-  private resumeBtn!: HTMLElement;
-  private fullscreenBtn!: HTMLElement;
+  private resumeBtn!: HTMLButtonElement;
+  private logToggleBtn!: HTMLButtonElement;
   private runBtn!: HTMLButtonElement;
   private runHint!: HTMLElement;
-  private runBar!: HTMLElement;
-  private runLocationLabel!: HTMLElement;
   private runHintTimer?: ReturnType<typeof setTimeout>;
   private dungeonBar!: HTMLElement;
   private dungeonNameLabel!: HTMLElement;
@@ -62,12 +111,19 @@ export class CombatScreen implements Screen {
   private selfUsername = '';
   private partyUsernames = new Set<string>();
   private monsterNamesSeen = new Set<string>();
-  private renderedPlayerKey = '';
-  private renderedEnemyKey = '';
 
-  // Pause/fullscreen state
+  // Card DOM is rebuilt only when the set of combatants changes.
+  private renderedKey = '';
+  private unitEls = new Map<string, HTMLElement>();
+
+  // HP from the previous tick, keyed by unitKey — drives floating numbers.
+  private prevHp = new Map<string, number>();
+  private lastTick = -1;
+  private lastVisual = '';
+
+  // Log state
   private paused = false;
-  private isFullscreen = false;
+  private logExpanded = false;
 
   // Username click callback
   private onUserClick?: (username: string, anchor: HTMLElement) => void;
@@ -80,7 +136,7 @@ export class CombatScreen implements Screen {
     this.worldCache = worldCache;
 
     this.buildDOM();
-    this.wireSubscriptions();
+    this.gameClient.subscribe((state) => this.handleState(state));
   }
 
   setOnUserClick(cb: (username: string, anchor: HTMLElement) => void): void {
@@ -93,8 +149,8 @@ export class CombatScreen implements Screen {
     // Render current state immediately (first state may have arrived before subscription)
     const state = this.gameClient.lastState;
     if (state) {
-      this.updateVisuals(state);
       this.lastLog = state.combatLog;
+      this.updateVisuals(state, false);
     }
 
     // Full re-render of log on activate (may have accumulated while inactive)
@@ -108,128 +164,102 @@ export class CombatScreen implements Screen {
 
   private buildDOM(): void {
     this.container.innerHTML = `
-      <div class="combat-stage">
-        <div class="combat-stage-bg"></div>
-        <div class="combat-stage-scrim"></div>
-        <div class="combat-stage-grid">
-          <div class="combat-tray combat-tray-player">
-            <div class="combat-side combat-player-side"></div>
+      <div class="cb-stage">
+        <div class="cb-bg"></div>
+        <div class="cb-vignette"></div>
+
+        <div class="cb-dungeon" hidden>
+          <div class="cb-dungeon__info">
+            <span class="cb-dungeon__name"></span>
+            <span class="cb-dungeon__floor"></span>
           </div>
-          <div class="combat-stage-divider"></div>
-          <div class="combat-tray combat-tray-enemy">
-            <div class="combat-side combat-enemy-side"></div>
+          <button type="button" class="gc-btn gc-btn--red cb-dungeon__leave">Leave</button>
+        </div>
+
+        <div class="cb-field">
+          <div class="cb-side cb-side--enemy"></div>
+          <div class="cb-side cb-side--party"></div>
+        </div>
+
+        <div class="cb-banner" aria-live="polite"></div>
+
+        <div class="cb-feed">
+          <div class="cb-feed__head">
+            <span class="cb-feed__title">Combat Log</span>
+            <button type="button" class="gc-close cb-feed__close" aria-label="Close combat log"></button>
           </div>
+          <div class="cb-log" role="log"></div>
+          <button type="button" class="gc-btn gc-btn--steel cb-feed__resume" hidden>Resume live</button>
         </div>
-      </div>
-      <div class="combat-dungeon-bar" style="display:none">
-        <div class="combat-dungeon-info">
-          <span class="combat-dungeon-name"></span>
-          <span class="combat-dungeon-floor"></span>
+
+        <div class="cb-controls">
+          <span class="cb-run-hint" hidden></span>
+          <button type="button" class="gc-btn gc-btn--steel gc-btn--icon cb-log-toggle" aria-label="Open combat log">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>
+          </button>
+          <button type="button" class="gc-btn gc-btn--steel cb-run">Run</button>
         </div>
-        <button class="combat-dungeon-leave" type="button">Leave Dungeon</button>
-      </div>
-      <div class="combat-run-bar">
-        <button class="combat-run-btn combat-run-locked">Run</button>
-        <span class="combat-run-hint" style="display:none">Available after ${RUN_AVAILABLE_ROUNDS} combat rounds</span>
-        <span class="combat-run-location"></span>
-      </div>
-      <div class="combat-log-wrapper">
-        <div class="combat-log-controls">
-          <button class="log-fullscreen-btn" title="Fullscreen">\u26F6</button>
-        </div>
-        <div class="combat-log"></div>
-        <button class="log-resume-btn" style="display:none">\u25BC Resume Live</button>
       </div>
     `;
 
-    this.stage = this.container.querySelector('.combat-stage')!;
-    this.playerSide = this.container.querySelector('.combat-player-side')!;
-    this.enemySide = this.container.querySelector('.combat-enemy-side')!;
-    this.logWrapper = this.container.querySelector('.combat-log-wrapper')!;
-    this.logContainer = this.container.querySelector('.combat-log')!;
-    this.resumeBtn = this.container.querySelector('.log-resume-btn')!;
-    this.fullscreenBtn = this.container.querySelector('.log-fullscreen-btn')!;
-    this.runBtn = this.container.querySelector('.combat-run-btn')! as HTMLButtonElement;
-    this.runHint = this.container.querySelector('.combat-run-hint')!;
-    this.runBar = this.container.querySelector('.combat-run-bar')!;
-    this.runLocationLabel = this.container.querySelector('.combat-run-location')!;
-    this.dungeonBar = this.container.querySelector('.combat-dungeon-bar')!;
-    this.dungeonNameLabel = this.container.querySelector('.combat-dungeon-name')!;
-    this.dungeonFloorLabel = this.container.querySelector('.combat-dungeon-floor')!;
-    this.dungeonLeaveBtn = this.container.querySelector('.combat-dungeon-leave')! as HTMLButtonElement;
+    const q = <T extends HTMLElement>(sel: string) => this.container.querySelector(sel) as T;
+    this.stage = q('.cb-stage');
+    this.bg = q('.cb-bg');
+    this.enemySide = q('.cb-side--enemy');
+    this.partySide = q('.cb-side--party');
+    this.banner = q('.cb-banner');
+    this.feed = q('.cb-feed');
+    this.logContainer = q('.cb-log');
+    this.resumeBtn = q<HTMLButtonElement>('.cb-feed__resume');
+    this.logToggleBtn = q<HTMLButtonElement>('.cb-log-toggle');
+    this.runBtn = q<HTMLButtonElement>('.cb-run');
+    this.runHint = q('.cb-run-hint');
+    this.dungeonBar = q('.cb-dungeon');
+    this.dungeonNameLabel = q('.cb-dungeon__name');
+    this.dungeonFloorLabel = q('.cb-dungeon__floor');
+    this.dungeonLeaveBtn = q<HTMLButtonElement>('.cb-dungeon__leave');
 
-    // Auto-pause on user scroll
+    // Auto-pause the live feed when the player scrolls back through the log.
     this.logContainer.addEventListener('scroll', () => {
       if (this.paused) return;
       const { scrollTop, scrollHeight, clientHeight } = this.logContainer;
-      if (scrollTop + clientHeight < scrollHeight - 20) {
-        this.setPaused(true);
-      }
+      if (scrollTop + clientHeight < scrollHeight - 20) this.setPaused(true);
     });
 
-    // Resume button
     this.resumeBtn.addEventListener('click', () => {
       this.setPaused(false);
       this.renderLog(this.lastLog);
     });
 
-    // Fullscreen toggle
-    this.fullscreenBtn.addEventListener('click', () => {
-      this.isFullscreen = !this.isFullscreen;
-      this.logWrapper.classList.toggle('fullscreen', this.isFullscreen);
-      this.fullscreenBtn.textContent = this.isFullscreen ? '\u2716' : '\u26F6';
-      this.fullscreenBtn.title = this.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen';
-      // Hide run bar when log is fullscreen
-      if (this.isFullscreen) {
-        this.runBar.style.display = 'none';
-      }
+    this.logToggleBtn.addEventListener('click', () => this.setLogExpanded(true));
+    this.feed.querySelector('.cb-feed__close')!.addEventListener('click', () => this.setLogExpanded(false));
+    // Tapping the collapsed feed opens the full log too.
+    this.feed.addEventListener('click', (e) => {
+      if (!this.logExpanded && !(e.target as HTMLElement).closest('button')) this.setLogExpanded(true);
     });
 
-    // Run button — show hint when locked, send run when available
+    // Never set `disabled` on Run — disabled buttons swallow taps on mobile,
+    // which would kill the "why is this locked" hint. The class gates it.
     this.runBtn.addEventListener('click', () => {
-      if (this.runBtn.classList.contains('combat-run-locked')) {
-        this.showRunHint();
-      } else {
-        this.gameClient.sendRun();
-      }
+      if (this.runBtn.classList.contains('is-locked')) this.showRunHint();
+      else this.gameClient.sendRun();
     });
 
-    // Leave Dungeon — owner/leader only (gated by class, not `disabled`, so the
-    // tap isn't swallowed on mobile).
+    // Leave Dungeon — owner/leader only (gated by class for the same reason).
     this.dungeonLeaveBtn.addEventListener('click', () => {
-      if (this.dungeonLeaveBtn.classList.contains('combat-dungeon-leave-locked')) return;
+      if (this.dungeonLeaveBtn.classList.contains('is-locked')) return;
       this.gameClient.sendLeaveDungeon();
     });
   }
 
-  private wireSubscriptions(): void {
-    this.gameClient.subscribe((state) => this.handleState(state));
-    // Connection state is communicated via the persistent XP bar / nav badges;
-    // no header label here since the combat header was removed.
-  }
-
   private handleState(state: ServerStateMessage): void {
     this.lastLog = state.combatLog;
-
     if (!this.isActive) return;
-
-    this.updateVisuals(state);
+    this.updateVisuals(state, true);
     this.updateLog(state.combatLog);
   }
 
-  /**
-   * Build a cache key from a grid side's combatants.
-   * We rebuild the DOM only when the set of combatants (count + positions) changes.
-   */
-  private static gridKey(items: { gridPosition: number }[]): string {
-    return items.map(i => i.gridPosition).sort().join(',');
-  }
-
-  private static classIcon(className: string): string {
-    return classIconHtml(className);
-  }
-
-  private updateVisuals(state: ServerStateMessage): void {
+  private updateVisuals(state: ServerStateMessage, animate: boolean): void {
     // Refresh log-name classification before any log re-render this tick.
     this.selfUsername = state.username ?? '';
     const partyMembers = state.social?.party?.members ?? [];
@@ -240,384 +270,355 @@ export class CombatScreen implements Screen {
       this.monsterNamesSeen.add(m.name);
     }
 
-    // Combat background — try tile-specific then zone default
-    this.updateCombatBackground(state);
+    this.updateBackground(state);
 
-    // Zone : Room label in the run bar.
-    this.updateLocationLabel(state);
+    const visual = state.battle.visual;
+    this.stage.dataset.visual = visual;
 
-    // Stage visual state
-    this.stage.classList.remove('fighting', 'victory', 'defeat');
-    if (state.battle.visual !== 'none') {
-      this.stage.classList.add(state.battle.visual);
-    }
+    const units = this.collectUnits(state);
+    this.renderField(units);
+    this.updateUnits(units);
 
     const combat = state.battle.combat;
-
-    // --- Player side (3-row grid) ---
-    const players = combat?.players ?? [];
-    const playerKey = CombatScreen.gridKey(players);
-    if (playerKey !== this.renderedPlayerKey) {
-      this.playerSide.innerHTML = '';
-      this.renderGridSide(this.playerSide, players.length, players.map(p => p.gridPosition), 'player');
-      this.renderedPlayerKey = playerKey;
+    if (animate) {
+      this.spawnFloaters(units, combat);
+      this.updateAnimations(combat?.lastAction ?? null, visual);
+      this.updateBanner(visual);
+    } else {
+      this.seedHp(units);
     }
+    this.lastTick = combat?.tickCount ?? -1;
+    this.lastVisual = visual;
 
-    // --- Enemy side (3-row grid) ---
-    const monsters = combat?.monsters ?? [];
-    const enemyKey = CombatScreen.gridKey(monsters);
-    if (enemyKey !== this.renderedEnemyKey) {
-      this.enemySide.innerHTML = '';
-      this.renderGridSide(this.enemySide, monsters.length, monsters.map(m => m.gridPosition), 'enemy');
-      this.renderedEnemyKey = enemyKey;
-    }
-
-    // Update combatant cards: portrait img, class icon (fallback), name, dim dead, stun indicator
-    if (combat) {
-      for (const p of combat.players) {
-        const card = this.playerSide.querySelector(`[data-grid="${p.gridPosition}"]`) as HTMLElement | null;
-        if (card) {
-          card.classList.toggle('dead', p.currentHp <= 0);
-          card.classList.toggle('stunned', !!(p.stunTurns && p.stunTurns > 0));
-          const icon = card.querySelector('.combat-card-icon') as HTMLElement | null;
-          if (icon) icon.innerHTML = CombatScreen.classIcon(p.className);
-          const img = card.querySelector('.combat-card-img') as HTMLImageElement | null;
-          if (img) {
-            const { real, fallback } = classArtSrc(p.className);
-            const desired = real;
-            if (img.dataset.src !== desired) {
-              img.dataset.src = desired;
-              img.dataset.fb = '0';
-              img.src = real;
-              img.onerror = () => {
-                if (img.dataset.fb !== '1') { img.dataset.fb = '1'; img.src = fallback; }
-                else { img.style.display = 'none'; }
-              };
-            }
-          }
-          const nameEl = card.querySelector('.combat-card-name') as HTMLElement | null;
-          if (nameEl) nameEl.textContent = CombatScreen.truncateName(p.username, 10);
-        }
-      }
-      for (const m of combat.monsters) {
-        const card = this.enemySide.querySelector(`[data-grid="${m.gridPosition}"]`) as HTMLElement | null;
-        if (card) {
-          card.classList.toggle('dead', m.currentHp <= 0);
-          card.classList.toggle('stunned', !!(m.stunTurns && m.stunTurns > 0));
-          const img = card.querySelector('.combat-card-img') as HTMLImageElement | null;
-          if (img) {
-            const { real, fallback } = monsterArtSrc(m);
-            if (img.dataset.src !== real) {
-              img.dataset.src = real;
-              img.dataset.fb = '0';
-              img.src = real;
-              img.onerror = () => {
-                if (img.dataset.fb !== '1') { img.dataset.fb = '1'; img.src = fallback; }
-                else { img.style.display = 'none'; }
-              };
-            }
-          }
-          const nameEl = card.querySelector('.combat-card-name') as HTMLElement | null;
-          if (nameEl) {
-            // Allow up to 2 lines for long monster names like "Skeletal Warrior".
-            nameEl.textContent = m.name;
-            nameEl.classList.add('combat-card-name-multiline');
-          }
-          // Wire monster click → popup
-          card.style.cursor = 'pointer';
-          card.onclick = (e) => {
-            e.stopPropagation();
-            this.showMonsterPopup(m, card);
-          };
-        }
-      }
-    }
-
-    // HP bars
-    this.updateHpBars(state);
-
-    // Per-turn attack/hit animations
-    this.updateCombatAnimations(combat?.lastAction ?? null, state.battle.visual);
-
-    // Round counter and run button
     this.updateRunButton(state);
-
-    // Dungeon banner (overrides the run bar while inside a dungeon)
     this.updateDungeonBar(state);
   }
 
-  /**
-   * Show the dungeon banner (name + floor progress + Leave) while the party is
-   * inside a dungeon, hiding the normal run bar. Leave is owner/leader-only.
-   */
-  private updateDungeonBar(state: ServerStateMessage): void {
-    const d = state.dungeon;
-    if (!d) {
-      this.dungeonBar.style.display = 'none';
+  // ── Battlefield ──────────────────────────────────────────
+
+  private collectUnits(state: ServerStateMessage): UnitView[] {
+    const combat = state.battle.combat;
+    if (!combat) return [];
+    const party: UnitView[] = combat.players.map(p => ({
+      side: 'party',
+      gridPosition: p.gridPosition,
+      name: p.username,
+      currentHp: p.currentHp,
+      maxHp: p.maxHp,
+      stunned: !!(p.stunTurns && p.stunTurns > 0),
+      artUrls: classArtUrls(p.className),
+      isSelf: p.username === state.username,
+    }));
+    const enemies: UnitView[] = combat.monsters.map(m => ({
+      side: 'enemy',
+      gridPosition: m.gridPosition,
+      name: m.name,
+      currentHp: m.currentHp,
+      maxHp: m.maxHp,
+      stunned: !!(m.stunTurns && m.stunTurns > 0),
+      artUrls: monsterArtUrls(m),
+      isSelf: false,
+    }));
+    return [...enemies, ...party];
+  }
+
+  private static unitKey(u: { side: Side; gridPosition: number }): string {
+    return `${u.side}:${u.gridPosition}`;
+  }
+
+  /** Rebuild the card DOM when the set of combatants (side + position + name) changes. */
+  private renderField(units: UnitView[]): void {
+    const key = units.map(u => `${CombatScreen.unitKey(u)}:${u.name}`).sort().join('|');
+    if (key === this.renderedKey) return;
+    this.renderedKey = key;
+    this.unitEls.clear();
+    this.prevHp.clear();
+
+    for (const side of ['enemy', 'party'] as const) {
+      const container = side === 'enemy' ? this.enemySide : this.partySide;
+      container.innerHTML = '';
+      const sideUnits = units.filter(u => u.side === side);
+
+      // Display depth (0 = top of the block). Front lines face the middle:
+      // the party's front is grid column 2 → depth 0 (top of the party block);
+      // the enemy's front is column 0 → depth 2 (bottom of the enemy block).
+      // Both fall out of the same formula.
+      const depthOf = (u: UnitView) => 2 - (u.gridPosition % 3);
+      const usedDepths = [...new Set(sideUnits.map(depthOf))].sort((a, b) => a - b);
+
+      for (const u of sideUnits) {
+        const el = this.createUnitEl(u);
+        el.style.gridColumn = String(Math.floor(u.gridPosition / 3) + 1);
+        el.style.gridRow = String(usedDepths.indexOf(depthOf(u)) + 1);
+        container.appendChild(el);
+        this.unitEls.set(CombatScreen.unitKey(u), el);
+      }
+      container.style.gridTemplateRows = `repeat(${Math.max(1, usedDepths.length)}, auto)`;
+    }
+  }
+
+  private createUnitEl(u: UnitView): HTMLElement {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `cb-unit cb-unit--${u.side}`;
+    el.innerHTML = `
+      <span class="cb-unit__name"></span>
+      <span class="cb-unit__frame">
+        <span class="cb-unit__initial" aria-hidden="true"></span>
+        <img class="cb-unit__img" alt="" />
+        <span class="cb-unit__stun" aria-hidden="true"></span>
+        <span class="cb-unit__hp">
+          <span class="cb-unit__hp-fill"></span>
+          <span class="cb-unit__hp-text"></span>
+        </span>
+      </span>
+      <span class="cb-unit__floaters" aria-hidden="true"></span>
+    `;
+    (el.querySelector('.cb-unit__initial') as HTMLElement).textContent = u.name.charAt(0).toUpperCase();
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (u.side === 'party') {
+        this.onUserClick?.(u.name, el);
+      } else {
+        const m = this.gameClient.lastState?.battle.combat?.monsters.find(x => x.gridPosition === u.gridPosition);
+        if (m) this.showMonsterPopup(m);
+      }
+    });
+    return el;
+  }
+
+  private updateUnits(units: UnitView[]): void {
+    for (const u of units) {
+      const el = this.unitEls.get(CombatScreen.unitKey(u));
+      if (!el) continue;
+      const pct = u.maxHp > 0 ? Math.max(0, Math.min(100, (u.currentHp / u.maxHp) * 100)) : 0;
+      el.classList.toggle('is-dead', u.currentHp <= 0);
+      el.classList.toggle('is-stunned', u.stunned);
+      el.classList.toggle('is-self', u.isSelf);
+      el.classList.toggle('is-low', pct > 0 && pct <= 30);
+      el.setAttribute('aria-label', `${u.name}, ${Math.max(0, u.currentHp)} of ${u.maxHp} health`);
+      (el.querySelector('.cb-unit__name') as HTMLElement).textContent = u.name;
+      (el.querySelector('.cb-unit__hp-fill') as HTMLElement).style.width = `${pct}%`;
+      (el.querySelector('.cb-unit__hp-text') as HTMLElement).textContent =
+        `${Math.max(0, u.currentHp)}/${u.maxHp}`;
+      setImageChain(el.querySelector('.cb-unit__img') as HTMLImageElement, u.artUrls);
+    }
+  }
+
+  // ── Juice: floating numbers, attack animations, result banner ──
+
+  private seedHp(units: UnitView[]): void {
+    for (const u of units) this.prevHp.set(CombatScreen.unitKey(u), u.currentHp);
+  }
+
+  private spawnFloaters(units: UnitView[], combat: ClientCombatState | undefined): void {
+    const tick = combat?.tickCount ?? -1;
+    // A new battle restarts the tick counter — don't float the reset.
+    const sameBattle = tick > this.lastTick && this.lastTick >= 0;
+
+    if (sameBattle) {
+      for (const u of units) {
+        const prev = this.prevHp.get(CombatScreen.unitKey(u));
+        if (prev === undefined || prev === u.currentHp) continue;
+        const delta = u.currentHp - prev;
+        this.floatText(u, delta < 0 ? String(delta) : `+${delta}`, delta < 0 ? 'damage' : 'heal');
+      }
+      const action = combat?.lastAction;
+      if (action) {
+        if (action.dodged && action.targetSide && action.targetPos !== null) {
+          const target = units.find(u => u.side === sideOf(action.targetSide!) && u.gridPosition === action.targetPos);
+          if (target) this.floatText(target, 'Miss', 'miss');
+        }
+        if (action.skillName) {
+          const attacker = units.find(u => u.side === sideOf(action.attackerSide) && u.gridPosition === action.attackerPos);
+          if (attacker) this.floatText(attacker, action.skillName, 'skill');
+        }
+      }
+    }
+    this.seedHp(units);
+  }
+
+  private floatText(u: UnitView, text: string, kind: 'damage' | 'heal' | 'miss' | 'skill'): void {
+    const el = this.unitEls.get(CombatScreen.unitKey(u));
+    const layer = el?.querySelector('.cb-unit__floaters');
+    if (!layer) return;
+    const f = document.createElement('span');
+    f.className = `cb-floater cb-floater--${kind}`;
+    f.textContent = text;
+    // Nudge sideways so simultaneous floaters don't stack exactly.
+    f.style.setProperty('--dx', `${Math.round((Math.random() - 0.5) * 24)}px`);
+    layer.appendChild(f);
+    f.addEventListener('animationend', () => f.remove());
+  }
+
+  private updateAnimations(action: ClientCombatAction | null, visual: string): void {
+    for (const el of this.container.querySelectorAll('.is-attacking, .is-hit, .is-dodging')) {
+      el.classList.remove('is-attacking', 'is-hit', 'is-dodging');
+    }
+    if (!action || visual !== 'fighting') return;
+
+    const attacker = this.unitEls.get(`${sideOf(action.attackerSide)}:${action.attackerPos}`);
+    if (attacker) {
+      void attacker.offsetWidth; // restart the animation
+      attacker.classList.add('is-attacking');
+    }
+    if (action.targetPos !== null && action.targetSide) {
+      const target = this.unitEls.get(`${sideOf(action.targetSide)}:${action.targetPos}`);
+      if (target) {
+        void target.offsetWidth;
+        target.classList.add(action.dodged ? 'is-dodging' : 'is-hit');
+      }
+    }
+  }
+
+  private updateBanner(visual: string): void {
+    if (visual === this.lastVisual) return;
+    if (visual === 'victory' || visual === 'defeat') {
+      this.banner.textContent = visual === 'victory' ? 'Victory!' : 'Defeat';
+      this.banner.className = `cb-banner cb-banner--${visual}`;
+      void this.banner.offsetWidth;
+      this.banner.classList.add('is-shown');
+    } else {
+      this.banner.classList.remove('is-shown');
+    }
+  }
+
+  // ── Backdrop ─────────────────────────────────────────────
+
+  private updateBackground(state: ServerStateMessage): void {
+    // The zone id is the current room's `zone` tag — admin art is keyed by it,
+    // not by a slug of the display name. Layered, first found wins:
+    //   per-room combat bg → zone combat bg → zone artwork → CSS scene.
+    const tile = state.party ? this.worldCache.getTile(state.party.col, state.party.row) : null;
+    const zoneId = tile?.zone ?? '';
+    const enc = encodeURIComponent;
+    const layers: string[] = [];
+    if (state.party && zoneId) layers.push(`/combat-bg-artwork/${enc(zoneId)}-${state.party.col}-${state.party.row}.png`);
+    if (zoneId) layers.push(`/combat-bg-artwork/${enc(zoneId)}.png`);
+    if (zoneId) layers.push(`/zone-artwork/${enc(zoneId)}.png`);
+    const layered = layers.map(u => `url('${u}')`).join(', ');
+    if (this.bg.dataset.bgKey !== layered) {
+      this.bg.style.backgroundImage = layered;
+      this.bg.dataset.bgKey = layered;
+    }
+  }
+
+  // ── Run / dungeon controls ───────────────────────────────
+
+  private updateRunButton(state: ServerStateMessage): void {
+    // Inside a dungeon the dungeon banner's Leave replaces Run.
+    if (state.dungeon) {
+      this.runBtn.hidden = true;
       return;
     }
+    this.runBtn.hidden = false;
 
-    // The run bar is hidden by updateRunButton when state.dungeon is set; here
-    // we only own the dungeon banner.
-    this.dungeonBar.style.display = this.isFullscreen ? 'none' : '';
+    const combat = state.battle.combat;
+    const isFighting = state.battle.visual === 'fighting';
+    const roundCount = combat?.roundCount ?? 0;
+    const myRole = state.social?.party?.members.find(m => m.username === state.username)?.role;
+    const canRun = myRole === 'owner' || myRole === 'leader';
+
+    let locked = true;
+    let hint = '';
+    if (!isFighting) {
+      hint = 'Nothing to run from';
+    } else if (!canRun) {
+      hint = 'Only the party owner or a leader can run';
+    } else if (roundCount < RUN_AVAILABLE_ROUNDS) {
+      hint = `Run unlocks after ${RUN_AVAILABLE_ROUNDS} rounds`;
+    } else {
+      locked = false;
+    }
+    this.runBtn.classList.toggle('is-locked', locked);
+    this.runHint.textContent = hint;
+  }
+
+  private showRunHint(): void {
+    if (!this.runHint.textContent) return;
+    if (this.runHintTimer) clearTimeout(this.runHintTimer);
+    this.runHint.hidden = false;
+    this.runHintTimer = setTimeout(() => {
+      this.runHint.hidden = true;
+      this.runHintTimer = undefined;
+    }, 3000);
+  }
+
+  /** Dungeon pill (name + floor + Leave) while the party is inside a dungeon. */
+  private updateDungeonBar(state: ServerStateMessage): void {
+    const d = state.dungeon;
+    this.dungeonBar.hidden = !d;
+    if (!d) return;
 
     this.dungeonNameLabel.textContent = d.name;
     this.dungeonFloorLabel.textContent = `Floor ${d.floor} / ${d.totalFloors}${d.isBossFloor ? ' · Boss' : ''}`;
 
     const myRole = state.social?.party?.members.find(m => m.username === state.username)?.role;
     const canLeave = myRole === 'owner' || myRole === 'leader';
-    this.dungeonLeaveBtn.classList.toggle('combat-dungeon-leave-locked', !canLeave);
+    this.dungeonLeaveBtn.classList.toggle('is-locked', !canLeave);
     this.dungeonLeaveBtn.title = canLeave ? '' : 'Only the party owner or a leader can leave';
   }
 
-  /**
-   * Render a 3×3 grid layout for one side (players or enemies).
-   * Each combatant is placed at its actual grid position (0-8).
-   * Empty cells are left as blank space.
-   *
-   * Cards layout: image (top), name (middle, truncated), HP bar (bottom).
-   */
-  private renderGridSide(
-    container: HTMLElement,
-    count: number,
-    positions: number[],
-    type: 'player' | 'enemy',
-  ): void {
-    if (count === 0) return;
+  // ── Monster popup ────────────────────────────────────────
 
-    const posSet = new Set(positions);
+  private showMonsterPopup(monster: { id?: string; name: string; description?: string }): void {
+    document.querySelectorAll('.cb-monster-modal').forEach((el) => {
+      release(el as HTMLElement);
+      el.remove();
+    });
 
-    for (let pos = 0; pos < 9; pos++) {
-      if (posSet.has(pos)) {
-        const unit = document.createElement('div');
-        unit.className = `combat-unit combat-card ${type}-unit ${type === 'player' ? 'party' : 'enemy'}`;
-        unit.setAttribute('data-grid', String(pos));
-        unit.innerHTML = `
-          <div class="combat-card-portrait">
-            <img class="combat-card-img" alt="" />
-            <span class="combat-card-icon"></span>
-            <span class="combat-card-stun" title="Stunned"></span>
-          </div>
-          <div class="combat-card-name"></div>
-          <div class="combat-card-hp">
-            <div class="combat-card-hp-fill"></div>
-          </div>
-        `;
-        container.appendChild(unit);
-      } else {
-        const empty = document.createElement('div');
-        empty.className = 'combat-grid-empty';
-        container.appendChild(empty);
-      }
-    }
-  }
-
-  private updateCombatBackground(state: ServerStateMessage): void {
-    const bg = this.container.querySelector('.combat-stage-bg') as HTMLElement | null;
-    if (!bg) return;
-    const zoneName = (state.party?.col != null && state.party?.row != null) ? (state.zoneName ?? '') : '';
-    // The zone id is the current room's `zone` tag — admin art is keyed by it
-    // (matching `/zone-artwork/{id}` and `/combat-bg-artwork/{id}` uploads),
-    // not by a slugified display name.
-    const tile = state.party ? this.worldCache.getTile(state.party.col, state.party.row) : null;
-    const zoneId = tile?.zone ?? '';
-    const enc = encodeURIComponent;
-    // Layered background, first found wins:
-    //   per-room combat bg → zone combat bg → zone artwork (admin upload) → placeholder.
-    const layers: string[] = [];
-    if (state.party && zoneId) layers.push(`/combat-bg-artwork/${enc(zoneId)}-${state.party.col}-${state.party.row}.png`);
-    if (zoneId) layers.push(`/combat-bg-artwork/${enc(zoneId)}.png`);
-    if (zoneId) layers.push(`/zone-artwork/${enc(zoneId)}.png`);
-    layers.push(placeholderUrl(zoneName || 'Combat', { w: 800, h: 400, bg: '1a1a2e', fg: '666' }));
-    const layered = layers.map(u => `url('${u}')`).join(', ');
-    if (bg.dataset.bgKey !== layered) {
-      bg.style.backgroundImage = layered;
-      bg.dataset.bgKey = layered;
-    }
-  }
-
-  /** Set the "Zone: Room name" label that lives next to the Run button. */
-  private updateLocationLabel(state: ServerStateMessage): void {
-    if (!this.runLocationLabel) return;
-    const zone = state.zoneName ?? '';
-    const tile = state.party
-      ? this.worldCache.getTile(state.party.col, state.party.row)
-      : null;
-    const room = tile?.name ?? '';
-    const text = zone && room ? `${zone}: ${room}` : (zone || room);
-    this.runLocationLabel.textContent = text;
-  }
-
-  private updateCombatAnimations(action: ClientCombatAction | null, visual: string): void {
-    // Clear all animation classes. Force reflow before re-adding so the same
-    // class triggers a fresh animation cycle if hit twice in a row.
-    for (const el of this.container.querySelectorAll('.attacking, .hit, .dodged')) {
-      el.classList.remove('attacking', 'hit', 'dodged');
-    }
-
-    if (!action || visual !== 'fighting') return;
-
-    // Apply attacking class to the attacker card.
-    const attackerSide = action.attackerSide === 'player' ? this.playerSide : this.enemySide;
-    const attackerEl = attackerSide.querySelector(`[data-grid="${action.attackerPos}"]`) as HTMLElement | null;
-    if (attackerEl) {
-      // Restart the animation by reading offsetWidth (forces reflow)
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      void attackerEl.offsetWidth;
-      attackerEl.classList.add('attacking');
-    }
-
-    // Apply hit/dodged class to the target card.
-    if (action.targetPos !== null && action.targetSide) {
-      const targetSide = action.targetSide === 'player' ? this.playerSide : this.enemySide;
-      const targetEl = targetSide.querySelector(`[data-grid="${action.targetPos}"]`) as HTMLElement | null;
-      if (targetEl) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-        void targetEl.offsetWidth;
-        targetEl.classList.add(action.dodged ? 'dodged' : 'hit');
-      }
-    }
-  }
-
-  private updateHpBars(state: ServerStateMessage): void {
-    const combat = state.battle.combat;
-    if (!combat) return;
-
-    const selfUsername = state.username;
-
-    for (const p of combat.players) {
-      const card = this.playerSide.querySelector(`[data-grid="${p.gridPosition}"]`) as HTMLElement | null;
-      if (!card) continue;
-      const fill = card.querySelector('.combat-card-hp-fill') as HTMLElement | null;
-      const pct = Math.max(0, (p.currentHp / p.maxHp) * 100);
-      const hpClass = pct <= 25 ? 'critical' : pct <= 50 ? 'low' : '';
-      if (fill) {
-        fill.className = `combat-card-hp-fill ${hpClass}`;
-        fill.style.width = `${pct}%`;
-      }
-      const isSelf = p.username === selfUsername;
-      card.classList.toggle('self', isSelf);
-      card.setAttribute('data-player-username', p.username);
-      card.onclick = (e) => {
-        e.stopPropagation();
-        this.onUserClick?.(p.username, card);
-      };
-    }
-
-    for (const m of combat.monsters) {
-      const card = this.enemySide.querySelector(`[data-grid="${m.gridPosition}"]`) as HTMLElement | null;
-      if (!card) continue;
-      const fill = card.querySelector('.combat-card-hp-fill') as HTMLElement | null;
-      const pct = Math.max(0, (m.currentHp / m.maxHp) * 100);
-      const hpClass = pct <= 25 ? 'critical' : pct <= 50 ? 'low' : '';
-      if (fill) {
-        fill.className = `combat-card-hp-fill ${hpClass}`;
-        fill.style.width = `${pct}%`;
-      }
-    }
-  }
-
-  private showMonsterPopup(monster: { id?: string; name: string; currentHp: number; maxHp: number; description?: string }, _anchor: HTMLElement): void {
-    const existing = document.querySelector('.monster-popup-overlay') as HTMLElement | null;
-    if (existing) { release(existing); existing.remove(); }
     const overlay = document.createElement('div');
-    overlay.className = 'monster-popup-overlay';
-    const { real, fallback } = monsterArtSrc(monster);
-    const description = monster.description?.trim();
-    const descriptionHtml = description
-      ? `<div class="monster-popup-description">${this.escapeHtml(description)}</div>`
-      : '';
+    overlay.className = 'gc-modal cb-monster-modal';
     overlay.innerHTML = `
-      <div class="monster-popup">
-        <button class="monster-popup-close" aria-label="Close">×</button>
-        <div class="monster-popup-art">
-          <img src="${real}" alt="${this.escapeHtml(monster.name)}"
-               onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src='${fallback}';}else{this.style.display='none';}" />
-        </div>
-        <div class="monster-popup-name">${this.escapeHtml(monster.name)}</div>
-        ${descriptionHtml}
+      <div class="gc-modal__panel gc-parchment" role="dialog" aria-modal="true">
+        <button type="button" class="gc-close gc-modal__close" aria-label="Close"></button>
+        <div class="cb-monster-art"><img alt="" /></div>
+        <h2 class="cb-monster-name"></h2>
+        <p class="cb-monster-desc"></p>
       </div>
     `;
-    document.body.appendChild(overlay);
+    (overlay.querySelector('.cb-monster-name') as HTMLElement).textContent = monster.name;
+    const desc = overlay.querySelector('.cb-monster-desc') as HTMLElement;
+    const description = monster.description?.trim();
+    if (description) desc.textContent = description;
+    else desc.remove();
+    setImageChain(overlay.querySelector('.cb-monster-art img') as HTMLImageElement, monsterArtUrls(monster));
+
+    const close = () => {
+      release(overlay);
+      overlay.remove();
+    };
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay || (e.target as HTMLElement).closest('.monster-popup-close')) {
-        release(overlay);
-        overlay.remove();
-      }
+      if (e.target === overlay || (e.target as HTMLElement).closest('.gc-modal__close')) close();
     });
+    document.body.appendChild(overlay);
     bringToFront(overlay);
     wireFocusOnInteract(overlay);
+    (overlay.querySelector('.gc-modal__close') as HTMLElement).focus();
   }
 
-  private static truncateName(name: string, max: number): string {
-    if (name.length <= max) return name;
-    return name.slice(0, max - 1) + '…';
-  }
+  // ── Combat log ───────────────────────────────────────────
 
-  private updateRunButton(state: ServerStateMessage): void {
-    // Inside a dungeon the run bar is replaced by the dungeon banner — hide it
-    // here so run-bar visibility has a single owner (no implicit dependency on
-    // updateDungeonBar running afterward).
-    if (state.dungeon) {
-      this.runBar.style.display = 'none';
+  private setLogExpanded(expanded: boolean): void {
+    this.logExpanded = expanded;
+    this.stage.classList.toggle('is-log-open', expanded);
+    if (!expanded) {
+      this.setPaused(false);
+      this.renderLog(this.lastLog);
       return;
     }
-
-    const combat = state.battle.combat;
-    const isFighting = state.battle.visual === 'fighting';
-    const roundCount = combat?.roundCount ?? 0;
-
-    // Check if user is owner/leader
-    const myRole = state.social?.party?.members.find(m => m.username === state.username)?.role;
-    const canRun = myRole === 'owner' || myRole === 'leader';
-
-    // The Run bar is always visible so combat doesn't resize between
-    // rounds. When combat ends the button stays in place but is disabled
-    // so the player still sees their party hasn't fled. Fullscreen log
-    // mode is the only case where the bar disappears entirely.
-    this.runBar.style.display = this.isFullscreen ? 'none' : '';
-    this.runBar.classList.remove('combat-run-bar-empty');
-
-    // Never set `disabled` on the run button \u2014 disabled <button>s swallow
-    // click events on mobile, which kills the locked-state hint tap. We use
-    // the .combat-run-locked class for visual state instead and gate the
-    // click handler on the class.
-    if (!isFighting) {
-      this.runBtn.classList.add('combat-run-locked');
-      this.runBtn.textContent = '\uD83D\uDD12 Run';
-      this.runHint.textContent = '';
-      return;
-    }
-
-    if (!canRun) {
-      this.runBtn.classList.add('combat-run-locked');
-      this.runBtn.textContent = '\uD83D\uDD12 Run';
-      this.runHint.textContent = 'Only the party owner or a leader can run';
-      return;
-    }
-
-    const available = roundCount >= RUN_AVAILABLE_ROUNDS;
-    this.runBtn.classList.toggle('combat-run-locked', !available);
-    this.runBtn.textContent = available ? 'Run' : '\uD83D\uDD12 Run';
-    this.runHint.textContent = `Available after ${RUN_AVAILABLE_ROUNDS} combat rounds`;
-  }
-
-  private showRunHint(): void {
-    if (this.runHintTimer) clearTimeout(this.runHintTimer);
-    this.runHint.style.display = '';
-    this.runHintTimer = setTimeout(() => {
-      this.runHint.style.display = 'none';
-      this.runHintTimer = undefined;
-    }, 3000);
-  }
-
-  private escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Resizing the log fires a scroll event that would read as "the player
+    // scrolled back" and pause the feed. Re-pin to the newest line once the
+    // sheet has laid out.
+    requestAnimationFrame(() => {
+      this.logContainer.scrollTop = this.logContainer.scrollHeight;
+      this.setPaused(false);
+    });
   }
 
   private setPaused(paused: boolean): void {
     this.paused = paused;
-    this.resumeBtn.style.display = paused ? '' : 'none';
+    this.resumeBtn.hidden = !paused;
   }
 
   private updateLog(log: CombatLogEntry[]): void {
@@ -625,8 +626,6 @@ export class CombatScreen implements Screen {
     if (this.paused) return;
 
     const lastId = log.length > 0 ? log[log.length - 1].id : -1;
-
-    // Nothing new — skip
     if (lastId === this.lastRenderedId) return;
 
     // Find the first entry we haven't rendered yet
@@ -635,36 +634,30 @@ export class CombatScreen implements Screen {
     if (startIdx <= 0) {
       // Log reset or all entries are new — full re-render
       this.renderLog(log);
-    } else {
-      // Trim DOM if old entries shifted off the front (log at max capacity)
-      const staleCount = this.logContainer.childElementCount - (log.length - startIdx) - startIdx;
-      if (staleCount > 0) {
-        // Old entries at the front are no longer in the log — remove them
-        for (let i = 0; i < staleCount && this.logContainer.firstChild; i++) {
-          this.logContainer.removeChild(this.logContainer.firstChild);
-        }
-      }
-
-      // Append only new entries
-      for (let i = startIdx; i < log.length; i++) {
-        this.appendLogEntry(log[i]);
-      }
-      this.lastRenderedId = lastId;
+      return;
     }
+
+    // Trim DOM if old entries shifted off the front (log at max capacity)
+    const staleCount = this.logContainer.childElementCount - (log.length - startIdx) - startIdx;
+    for (let i = 0; i < staleCount && this.logContainer.firstChild; i++) {
+      this.logContainer.removeChild(this.logContainer.firstChild);
+    }
+    for (let i = startIdx; i < log.length; i++) {
+      this.appendLogEntry(log[i]);
+    }
+    this.lastRenderedId = lastId;
   }
 
   private renderLog(log: CombatLogEntry[]): void {
     this.logContainer.innerHTML = '';
-    for (const entry of log) {
-      this.appendLogEntry(entry);
-    }
+    for (const entry of log) this.appendLogEntry(entry);
     this.lastRenderedId = log.length > 0 ? log[log.length - 1].id : -1;
   }
 
   private appendLogEntry(entry: CombatLogEntry): void {
     const div = document.createElement('div');
-    div.className = `log-entry ${entry.type}`;
-    div.innerHTML = this.formatLogText(this.escapeHtml(entry.text));
+    div.className = `cb-log__entry cb-log__entry--${entry.type}`;
+    div.innerHTML = this.formatLogText(escapeHtml(entry.text));
     this.logContainer.appendChild(div);
     this.logContainer.scrollTop = this.logContainer.scrollHeight;
   }
@@ -681,36 +674,40 @@ export class CombatScreen implements Screen {
     let result = escaped;
 
     if (this.selfUsername) {
-      const re = new RegExp(`\\b${escapeRegex(this.escapeHtml(this.selfUsername))}(?:'s|s')?\\b`, 'g');
+      const re = new RegExp(`\\b${escapeRegex(escapeHtml(this.selfUsername))}(?:'s|s')?\\b`, 'g');
       result = result.replace(re, (m) => {
         const possessive = m.endsWith("'s") || m.endsWith("s'");
-        return `<span class="log-name-self">You${possessive ? "'re" : ''}</span>`;
+        return `<span class="cb-name--self">You${possessive ? "'re" : ''}</span>`;
       });
       // Server-emitted log entries are written third-person ("Lucas has fallen!");
       // after the self-substitution that reads as "You has fallen!". Rewrite the
       // verb conjugation that follows a self-span so it reads as 2nd person.
-      result = result.replace(/(<span class="log-name-self">You<\/span>) has\b/g, '$1 have');
+      result = result.replace(/(<span class="cb-name--self">You<\/span>) has\b/g, '$1 have');
     }
 
     for (const u of this.partyUsernames) {
-      const escU = this.escapeHtml(u);
-      const re = new RegExp(`\\b${escapeRegex(escU)}\\b`, 'g');
-      result = result.replace(re, `<span class="log-name-party">${escU}</span>`);
+      const escU = escapeHtml(u);
+      result = result.replace(new RegExp(`\\b${escapeRegex(escU)}\\b`, 'g'), `<span class="cb-name--party">${escU}</span>`);
     }
 
     for (const name of this.monsterNamesSeen) {
-      const escName = this.escapeHtml(name);
-      const re = new RegExp(`\\b${escapeRegex(escName)}\\b`, 'g');
-      result = result.replace(re, `<span class="log-name-enemy">${escName}</span>`);
+      const escName = escapeHtml(name);
+      result = result.replace(new RegExp(`\\b${escapeRegex(escName)}\\b`, 'g'), `<span class="cb-name--enemy">${escName}</span>`);
     }
 
-    result = result.replace(
+    return result.replace(
       /\b(physical|magical|holy)\b/gi,
-      (match) => `<span class="dmg-${match.toLowerCase()}">${match}</span>`,
+      (match) => `<span class="cb-dmg--${match.toLowerCase()}">${match}</span>`,
     );
-
-    return result;
   }
+}
+
+function sideOf(side: 'player' | 'monster'): Side {
+  return side === 'player' ? 'party' : 'enemy';
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function escapeRegex(s: string): string {
