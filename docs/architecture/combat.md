@@ -4,7 +4,7 @@ This document covers the combat engine, class system, damage types, skill system
 
 ## Class system
 
-Five playable classes designed to be weak solo, strong together. `CharacterStats.ts` defines `ClassDefinition` with `baseHp`, `hpPerLevel`, `baseDamage`, `damagePerLevel`, and `damageType`. No abstract stats (STR/INT/etc.) — HP and damage scale linearly per class.
+Five playable classes designed to be weak solo, strong together. `CharacterStats.ts` defines `ClassDefinition` with `baseHp`, `hpPerLevel`, `baseDamage`, `damagePerLevel`, and `damageType`. HP and damage follow the per-class linear curves; gear adds core attributes (Strength, Agility, Intellect, Stamina) on top. `PlayerSession.getCombatInfo` builds each `PartyCombatant` from `computeDerivedStats`: `maxHp`, `baseDamage`, armor/resist (via `derivedToEquipmentBonuses`, so they flow through the existing DR/MR rolls), plus `critChance`, `dodgeChance` and `healingMultiplier`. A character with no attribute gear keeps the curve HP and damage exactly. See [`gear-stats-bank.md`](gear-stats-bank.md).
 
 | Class  | HP                    | Damage         | Type     |
 |--------|-----------------------|----------------|----------|
@@ -34,7 +34,7 @@ Client-side trip counter on the Character tab. Tracks cumulative XP earned since
 
 Pure functions in `CombatEngine.ts`. Party: `createPartyCombatState()`/`processPartyTick()` — turn-based, one combatant acts per tick.
 
-Player damage = `baseDamage + variance(-2..+2) + equipBonus`, min 1, multiplied by Bard Rally if present, doubled on crit (Archer Pierce). Active skills trigger every Nth attack based on cooldown. Stun causes target to skip their next turn (doesn't stack, refreshes to 1).
+Player damage = `baseDamage + variance(-2..+2) + equipBonus`, min 1, multiplied by Bard Rally if present, doubled on crit. Crit chance is the combatant's attribute `critChance` plus Pierce; dodge is the target's personal `dodgeChance` plus party Nimble. Heals (direct and HoT) multiply Devotion's `heal_power` by the caster's `healingMultiplier`. Active skills trigger every Nth attack based on cooldown. Stun causes target to skip their next turn (doesn't stack, refreshes to 1).
 
 A skill may carry several effect options: an active cast executes all of its `activeEffects` in order (the cast counts as a no-op only when every option no-ops — the no-op fallback and Arcane Surge rewind operate on the whole cast), and `passiveEffects` are honored on both passive and active skills. Summing passives sum across all equipped options; first-match passives (martyr, scorch, resurrection, stun-on-hit, intensify, focus, healing-received) use the first matching option found.
 

@@ -5,16 +5,13 @@ import {
   offsetToCube,
   createCharacter,
   ALL_CLASS_NAMES,
-  CLASS_DEFINITIONS,
   addXp,
   addGold,
-  calculateMaxHp,
-  calculateBaseDamage,
   xpForNextLevel,
   totalXpEarned,
-  computeEquipmentBonuses,
+  computeDerivedStats,
+  derivedToEquipmentBonuses,
   computeActiveSetBonuses,
-  mergeSetBonusesIntoEquip,
   MAX_STACK,
   addItemToInventory,
   equipItem,
@@ -86,6 +83,7 @@ import type {
   WebPushSubscription,
   ServerWelcomeBackMessage,
   WelcomeBackItem,
+  DerivedStats,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -220,19 +218,8 @@ export class PlayerSession {
   /** Get combat info for the party combat system. Requires character to exist. */
   getCombatInfo(): PartyCombatant {
     if (!this.character) throw new Error('getCombatInfo called on characterless session');
-    const baseMaxHp = calculateMaxHp(this.character.level, this.character.className);
-    let baseDamage = calculateBaseDamage(this.character.level, this.character.className);
-    const rawEquipBonuses = computeEquipmentBonuses(this.character.equipment, this.content.getAllItems(), this.character.level);
-    const playerDamageType = CLASS_DEFINITIONS[this.character.className].damageType;
-
-    // Compute set bonuses (filtered by class) and merge flat DR/MR/attack into equipBonuses.
-    // Multiplicative bonuses (damagePercent, damageResistancePercent, cooldownReduction)
-    // ride along on `setBonuses` so the combat engine can consume them at the right time.
-    const setResult = computeActiveSetBonuses(this.character.equipment, this.content.getAllSets(), this.character.className);
-    const equipBonuses = mergeSetBonusesIntoEquip(rawEquipBonuses, setResult.bonuses);
-    const flatHp = setResult.bonuses.flatHp ?? 0;
-    const percentHp = setResult.bonuses.percentHp ?? 0;
-    const maxHp = Math.max(1, Math.floor((baseMaxHp + flatHp) * (1 + percentHp / 100)));
+    const stats = this.getDerivedStats()!;
+    const setBonuses = computeActiveSetBonuses(this.character.equipment, this.content.getAllSets(), this.character.className).bonuses;
 
     // Resolve equipped skill definitions from live content. Grants are NOT
     // auto-appended here — they only gate which skills can occupy a slot.
@@ -250,12 +237,15 @@ export class PlayerSession {
 
     return {
       username: this.username,
-      maxHp,
-      currentHp: maxHp,
-      baseDamage,
-      playerDamageType,
-      equipBonuses,
-      setBonuses: setResult.bonuses,
+      maxHp: stats.maxHp,
+      currentHp: stats.maxHp,
+      baseDamage: stats.damage,
+      playerDamageType: stats.damageType,
+      equipBonuses: derivedToEquipmentBonuses(stats),
+      setBonuses,
+      critChance: stats.critChance,
+      dodgeChance: stats.dodgeChance,
+      healingMultiplier: stats.healingMultiplier,
       gridPosition,
       className: this.character.className,
       level: this.character.level,
@@ -275,6 +265,18 @@ export class PlayerSession {
       interceptActive: false,
       activeSkillCount: 0,
     };
+  }
+
+  /** Attributes and derived stats from class, level, equipment and sets. Recomputed on demand, never saved. */
+  getDerivedStats(): DerivedStats | null {
+    if (!this.character) return null;
+    return computeDerivedStats({
+      className: this.character.className,
+      level: this.character.level,
+      equipment: this.character.equipment,
+      items: this.content.getAllItems(),
+      sets: this.content.getAllSets(),
+    });
   }
 
   /**
@@ -729,21 +731,16 @@ export class PlayerSession {
 
     let charState: ClientCharacterState | null = null;
     if (this.character) {
-      const baseMaxHp = calculateMaxHp(this.character.level, this.character.className);
-      const setResult = computeActiveSetBonuses(this.character.equipment, this.content.getAllSets(), this.character.className);
-      const flatHp = setResult.bonuses.flatHp ?? 0;
-      const percentHp = setResult.bonuses.percentHp ?? 0;
-      const maxHp = Math.max(1, Math.floor((baseMaxHp + flatHp) * (1 + percentHp / 100)));
-
+      const derivedStats = this.getDerivedStats()!;
       charState = {
         className: this.character.className,
         level: this.character.level,
         xp: this.character.xp,
         xpForNextLevel: xpForNextLevel(this.character.level),
-        maxHp,
+        maxHp: derivedStats.maxHp,
         gold: this.character.gold,
-        baseDamage: calculateBaseDamage(this.character.level, this.character.className),
-        damageType: CLASS_DEFINITIONS[this.character.className].damageType,
+        baseDamage: derivedStats.damage,
+        damageType: derivedStats.damageType,
         skillLoadout: this.character.skillLoadout,
         grantedSkillIds: this.getGrantedSkillIds(),
         inventory: { ...this.character.inventory },
@@ -751,6 +748,7 @@ export class PlayerSession {
         xpRate: { startTime: this.xpRateStartTime, totalXp: this.xpRateXpTotal },
         craftLevel: this.character.craftLevel,
         craftXp: this.character.craftXp,
+        derivedStats,
       };
     }
 

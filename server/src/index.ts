@@ -838,6 +838,7 @@ wss.on('connection', (ws) => {
           equipment: profile.equipment,
           skillLoadout: profile.skillLoadout,
           itemDefinitions: itemDefs,
+          derivedStats: targetSession.getDerivedStats() ?? undefined,
           setDefinitions: profileSetDefs,
           partyMembers,
         }));

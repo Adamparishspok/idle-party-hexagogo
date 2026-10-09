@@ -107,6 +107,12 @@ export interface PartyCombatant {
   interceptActive: boolean;
   /** Number of active skills used this combat (for Arcane Surge). */
   activeSkillCount: number;
+  /** 0..1 attribute crit; skill crit (Pierce) adds on top. */
+  critChance?: number;
+  /** 0..1 personal dodge; Bard Nimble adds on top. */
+  dodgeChance?: number;
+  /** Gear-Intellect heal multiplier; multiplies with Devotion. */
+  healingMultiplier?: number;
 }
 
 export interface CombatMonster extends MonsterInstance {
@@ -321,7 +327,7 @@ function getMagicalReduction(allPlayers: PartyCombatant[]): number {
 
 /** Get crit chance from equipped passives. */
 function getCritChance(player: PartyCombatant): number {
-  let chance = 0;
+  let chance = player.critChance ?? 0;
   for (const effect of getPassiveEffects(player, 'crit_chance')) {
     chance += effect.flatValue ?? 0;
   }
@@ -407,13 +413,17 @@ function getPassiveValue(player: PartyCombatant, kind: PassiveEffectKind): numbe
   return 0;
 }
 
-/** Get healing power multiplier from Devotion. */
+/** Heal multiplier: Devotion times gear Intellect. */
 function getHealPowerMultiplier(player: PartyCombatant): number {
   let bonus = 0;
   for (const effect of getPassiveEffects(player, 'heal_power')) {
     bonus += (effect.valuePerLevel ?? 0) * player.level;
   }
-  return 1 + bonus / 100;
+  return (1 + bonus / 100) * (player.healingMultiplier ?? 1);
+}
+
+function getDodgeChance(target: PartyCombatant, state: PartyCombatState): number {
+  return state.nimbleDodge + (target.dodgeChance ?? 0);
 }
 
 /** Get the effective cooldown for a player's active skill.
@@ -701,7 +711,7 @@ function applyHeal(
 ): number {
   let amount = baseAmount;
 
-  // Devotion: +heal power %
+  // Devotion and gear Intellect
   amount = Math.floor(amount * getHealPowerMultiplier(healer));
 
   // Martyr bonus (reset after use)
@@ -1678,8 +1688,7 @@ export function processPartyTick(state: PartyCombatState): TickResult {
       }
 
       if (target) {
-        // Dodge check: Nimble party dodge
-        const totalDodge = state.nimbleDodge;
+        const totalDodge = getDodgeChance(target, state);
         const dodged = totalDodge > 0 && Math.random() < totalDodge;
 
         if (dodged) {
@@ -1890,11 +1899,11 @@ function tryExecuteMonsterSkill(
 
     if (skillDef.effect === 'damage') {
       const damageType = skillDef.damageType ?? 'physical';
-      const dodgeChance = state.nimbleDodge;
 
       if (skillDef.targeting === 'aoe_all') {
         logEntries.push(`${monster.name} casts ${skillDef.name}!`);
         for (const p of alivePlayers) {
+          const dodgeChance = getDodgeChance(p, state);
           const dodged = dodgeChance > 0 && Math.random() < dodgeChance;
           if (dodged) {
             logEntries.push(`${p.username} dodges ${skillDef.name}!`);
@@ -1923,6 +1932,7 @@ function tryExecuteMonsterSkill(
             interceptor.interceptActive = false;
           }
 
+          const dodgeChance = getDodgeChance(target, state);
           const dodged = dodgeChance > 0 && Math.random() < dodgeChance;
           if (dodged) {
             logEntries.push(`${target.username} dodges ${monster.name}'s ${skillDef.name}!`);

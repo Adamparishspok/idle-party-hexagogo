@@ -21,6 +21,7 @@ import type { ClientNotificationMessage, ServerNotificationMessage } from './Not
 import type { RoomEntryFailureKind } from './RoomRequirements.js';
 import type { BankErrorCode } from './BankTypes.js';
 import type { InventoryErrorCode } from './BagTypes.js';
+import type { DerivedStats } from './AttributeTypes.js';
 
 
 export type BattleTimerState = 'battle' | 'result';
@@ -123,6 +124,8 @@ export interface ClientCharacterState {
   xpRate: { startTime: number; totalXp: number };
   craftLevel: number;
   craftXp: number;
+  /** Attributes and the stats they derive (HP, damage, armor, resist, crit, dodge, healing). */
+  derivedStats: DerivedStats;
 }
 
 export interface ClientResetXpRateMessage {
@@ -372,6 +375,7 @@ export interface PlayerProfileMessage {
   itemDefinitions: Record<string, ItemDefinition>;
   setDefinitions?: Record<string, SetDefinition>;
   partyMembers: { username: string; className?: string; level?: number }[];
+  derivedStats?: DerivedStats;
 }
 
 export interface ClientRunMessage {
