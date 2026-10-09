@@ -11,6 +11,7 @@ import {
   calculateMaxHp,
   calculateBaseDamage,
   xpForNextLevel,
+  totalXpEarned,
   computeEquipmentBonuses,
   computeActiveSetBonuses,
   mergeSetBonusesIntoEquip,
@@ -76,8 +77,10 @@ import type {
   NotificationEntry,
   NotificationPreferences,
   WebPushSubscription,
+  ServerWelcomeBackMessage,
+  WelcomeBackItem,
 } from '@idle-party-rpg/shared';
-import type { PlayerSaveData } from './GameStateStore.js';
+import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
 import type { WorldGrids } from './WorldGrids.js';
 import { QuestSystem } from './QuestSystem.js';
@@ -87,6 +90,7 @@ import type { QuestDefinition, QuestProgressEntry, CompletedQuestEntry } from '@
 const MAX_LOG_ENTRIES = 1000;
 const MAX_SAVE_LOG_ENTRIES = 1000;
 const MAX_CHAT_HISTORY = 1000;
+export const WELCOME_BACK_MIN_AWAY_MS = 5 * 60 * 1000;
 
 export class PlayerSession {
   username: string;
@@ -118,6 +122,7 @@ export class PlayerSession {
   getNotifications?: () => NotificationEntry[];
   private notificationPreferences: NotificationPreferences = emptyNotificationPreferences();
   private pushSubscriptions: WebPushSubscription[] = [];
+  private awaySnapshot: AwaySnapshot | null = null;
   /** Which chat thread the player is actively looking at right now, if any — ephemeral, not persisted. */
   private chatFocus: { channelType: string; channelId: string } | null = null;
   /** Per-player quest tracking. */
@@ -270,6 +275,7 @@ export class PlayerSession {
   ): void {
     if (!this.character) return;
     this.addLogEntry('Victory!', 'victory');
+    if (this.awaySnapshot) this.awaySnapshot.battlesWon++;
 
     if (options?.unlockTiles !== false) {
       const unlocked = this.unlockSystem.unlockAdjacentTiles(tile);
@@ -324,6 +330,64 @@ export class PlayerSession {
   resetXpRate(): void {
     this.xpRateStartTime = Date.now();
     this.xpRateXpTotal = 0;
+  }
+
+  captureAwaySnapshot(now = Date.now()): void {
+    if (!this.character) {
+      this.awaySnapshot = null;
+      return;
+    }
+    this.awaySnapshot = {
+      at: now,
+      level: this.character.level,
+      xp: this.character.xp,
+      gold: this.character.gold,
+      battleCount: this.battleCount,
+      battlesWon: 0,
+      inventory: { ...this.character.inventory },
+    };
+  }
+
+  getAwaySnapshot(): AwaySnapshot | null {
+    return this.awaySnapshot;
+  }
+
+  consumeWelcomeBack(now = Date.now(), minAwayMs = WELCOME_BACK_MIN_AWAY_MS): ServerWelcomeBackMessage | null {
+    const snap = this.awaySnapshot;
+    this.awaySnapshot = null;
+    if (!snap || !this.character) return null;
+    const awayMs = now - snap.at;
+    if (awayMs < minAwayMs) return null;
+
+    const char = this.character;
+    const items: WelcomeBackItem[] = [];
+    for (const [itemId, count] of Object.entries(char.inventory)) {
+      const gained = count - (snap.inventory[itemId] ?? 0);
+      if (gained > 0) items.push({ itemId, count: gained });
+    }
+    items.sort((a, b) => b.count - a.count || a.itemId.localeCompare(b.itemId));
+
+    const itemDefinitions: Record<string, ItemDefinition> = {};
+    for (const { itemId } of items) {
+      const def = this.content.getItem(itemId);
+      if (def) itemDefinitions[itemId] = def;
+    }
+
+    const msg: ServerWelcomeBackMessage = {
+      type: 'welcome_back',
+      awayMs,
+      level: char.level,
+      levelsGained: Math.max(0, char.level - snap.level),
+      xpGained: Math.max(0, totalXpEarned(char.level, char.xp) - totalXpEarned(snap.level, snap.xp)),
+      goldGained: Math.max(0, char.gold - snap.gold),
+      battlesWon: snap.battlesWon,
+      battlesFought: Math.max(0, this.battleCount - snap.battleCount),
+      items,
+      itemDefinitions,
+    };
+    const nothingHappened = msg.battlesFought === 0 && msg.battlesWon === 0 && msg.xpGained === 0
+      && msg.goldGained === 0 && items.length === 0;
+    return nothingHappened ? null : msg;
   }
 
   /**
@@ -1142,6 +1206,7 @@ export class PlayerSession {
       notifications: this.getNotifications ? this.getNotifications() : this.initialNotifications,
       notificationPreferences: this.notificationPreferences,
       pushSubscriptions: [...this.pushSubscriptions],
+      awaySnapshot: this.awaySnapshot ? { ...this.awaySnapshot, inventory: { ...this.awaySnapshot.inventory } } : undefined,
     };
   }
 
@@ -1246,6 +1311,9 @@ export class PlayerSession {
     session['initialNotifications'] = data.notifications ? [...data.notifications] : [];
     session['notificationPreferences'] = data.notificationPreferences ?? emptyNotificationPreferences();
     session['pushSubscriptions'] = data.pushSubscriptions ? [...data.pushSubscriptions] : [];
+    session['awaySnapshot'] = data.awaySnapshot
+      ? { ...data.awaySnapshot, inventory: { ...data.awaySnapshot.inventory } }
+      : null;
     session['chatFocus'] = null;
 
     // Restore craft queue (lazy completion happens on next tick)

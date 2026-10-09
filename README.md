@@ -298,6 +298,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Sound effects (combat, buttons, rewards, alerts) with synthesized placeholders, volume/mute in Settings; real files drop into `data/sfx/{id}.ogg`
 - [ ] Real recorded sound effects for every `SFX_IDS` entry — see `ideas/ui-revamp-worldquest.md`
 - [x] ModalStack click-order z-index across all overlays
+- [x] Welcome-back summary (time away, levels, XP, gold, battles won and loot earned while offline)
 
 ### World Manager
 - [x] Separate admin client (World Manager dashboard at /admin)

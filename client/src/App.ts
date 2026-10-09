@@ -22,6 +22,7 @@ import { ChatPopout } from './ui/ChatPopout';
 import { PersistentXpBar } from './ui/PersistentXpBar';
 import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
+import { WelcomeBackModal } from './ui/WelcomeBackModal';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 import { wireGameSounds } from './audio/SoundEvents';
 import { QuestLog } from './ui/QuestLog';
@@ -547,6 +548,9 @@ export class App {
     // Switch to saved screen (or combat by default)
     this.screenManager.switchTo(savedScreen);
 
+    // Subscribed last so it opens above the restored screen; an early summary is replayed.
+    const welcomeBack = new WelcomeBackModal();
+    this.gameClient.onWelcomeBack((msg) => welcomeBack.show(msg));
     startTourWhenClear(tour, () => isNewPlayer(this.gameClient.lastState) && !isTourDone());
   }
 }

@@ -137,7 +137,7 @@ export class PlayerManager {
     return session;
   }
 
-  removeConnection(ws: WebSocket): void {
+  removeConnection(ws: WebSocket, now = Date.now()): void {
     const username = this.connections.get(ws);
     if (!username) return;
 
@@ -149,10 +149,18 @@ export class PlayerManager {
       if (wsSet.size === 0) {
         this.playerConnections.delete(username);
         // Trades are async — they persist across disconnect. Nothing to cancel here.
+        this.sessions.get(username)?.captureAwaySnapshot(now);
       }
     }
 
     console.log(`[PlayerManager] "${username}" disconnected (session preserved, ${this.connectionCount} connections)`);
+  }
+
+  /** Consumes the snapshot, so other tabs and later reconnects never get a second copy. */
+  sendWelcomeBack(ws: WebSocket, username: string, now = Date.now()): void {
+    const msg = this.sessions.get(username)?.consumeWelcomeBack(now);
+    if (!msg || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(msg));
   }
 
   /** Kick a player: close all WebSocket connections with suspension code. */
@@ -751,6 +759,8 @@ export class PlayerManager {
 
       try {
         const session = PlayerSession.fromSaveData(data, this.grids, this.content);
+        // Nobody is connected at boot; players online at shutdown never got a close-time snapshot.
+        if (!session.getAwaySnapshot()) session.captureAwaySnapshot();
         this.sessions.set(data.username, session);
         this.friends.initPlayer(data.username, session.getFriends(), session.getOutgoingFriendRequests());
         const initialMailbox = session.consumeInitialMailbox();

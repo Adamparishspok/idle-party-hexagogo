@@ -24,6 +24,7 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'The Quest Log has moved to its own parchment window, and the room panel on the map shows what your current room offers as big buttons.',
       'New quest button next to Chat — a gold ! appears when a quest is ready to hand in, and it shows how many quests you have going.',
       'New players get a quick guided tour of the game (replay it any time from Settings).',
+      'Coming back after a break? A welcome-back summary now shows everything your party earned while you were away — levels, experience, gold, battles won and loot.',
     ],
   },
   {

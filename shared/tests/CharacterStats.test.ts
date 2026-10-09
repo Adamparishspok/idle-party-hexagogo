@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   xpForNextLevel,
+  totalXpEarned,
   xpForCraftLevel,
   calculateMaxHp,
   calculateBaseDamage,
@@ -19,6 +20,24 @@ import type { SkillContent } from '../src/systems/SkillTypes';
 const SKILL_CONTENT: SkillContent = { skills: SEED_SKILLS, slotSchedules: SEED_SKILL_SLOT_SCHEDULES };
 
 describe('CharacterStats', () => {
+  describe('totalXpEarned', () => {
+    it('is just the in-level xp at level 1', () => {
+      expect(totalXpEarned(1, 500)).toBe(500);
+    });
+
+    it('adds every completed level on the curve', () => {
+      expect(totalXpEarned(3, 10)).toBe(xpForNextLevel(1) + xpForNextLevel(2) + 10);
+    });
+
+    it('matches the xp fed through addXp across level-ups', () => {
+      const char = createCharacter('Knight', SKILL_CONTENT);
+      const before = totalXpEarned(char.level, char.xp);
+      addXp(char, 250_000);
+      expect(char.level).toBeGreaterThan(2);
+      expect(totalXpEarned(char.level, char.xp) - before).toBe(250_000);
+    });
+  });
+
   describe('xpForNextLevel', () => {
     it('returns floor(18000 * L^1.2 * 1.06^L)', () => {
       expect(xpForNextLevel(1)).toBe(19080);

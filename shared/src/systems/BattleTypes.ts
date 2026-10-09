@@ -293,6 +293,26 @@ export interface ClientUnequipSkillMessage {
  */
 export type ServerErrorCode = 'trade_nonce_mismatch';
 
+export interface WelcomeBackItem {
+  itemId: string;
+  count: number;
+}
+
+/** Summary only — the rewards were already granted while the player was away. */
+export interface ServerWelcomeBackMessage {
+  type: 'welcome_back';
+  awayMs: number;
+  level: number;
+  levelsGained: number;
+  xpGained: number;
+  goldGained: number;
+  battlesWon: number;
+  battlesFought: number;
+  /** Positive inventory gains, largest first. */
+  items: WelcomeBackItem[];
+  itemDefinitions: Record<string, ItemDefinition>;
+}
+
 export type ServerMessage =
   | ServerStateMessage
   | ServerSocialStateMessage
@@ -305,6 +325,7 @@ export type ServerMessage =
   | ServerTradeCompletedMessage
   | ServerNotificationMessage
   | PlayerProfileMessage
+  | ServerWelcomeBackMessage
   | { type: 'error'; message: string; code?: ServerErrorCode };
 
 export interface ClientViewPlayerMessage {

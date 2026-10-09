@@ -302,6 +302,7 @@ wss.on('connection', (ws) => {
   // Register the connection and send initial state
   playerManager.login(ws, username).then(() => {
     playerManager.sendStateToPlayer(username);
+    playerManager.sendWelcomeBack(ws, username);
   });
 
   ws.on('message', (data) => {
