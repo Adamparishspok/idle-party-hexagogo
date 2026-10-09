@@ -323,7 +323,7 @@ There is no new content type and no `ContentSnapshot` change. The new fields rid
   - Attribute inputs (STR/AGI/INT/STA) with the suggested budget for an "item level" helper input.
   - A `bagSlots` input; setting it clears and disables `equipSlot`.
   - Validation: `validateAttributes` and `validateBagItem` in `ContentStore` and `DraftEditor` upserts.
-- **Sets tab.** Attribute inputs per breakpoint. `getSetBonusText` learns attributes and the Armor/Resist labels.
+- **Sets tab.** STR/AGI/INT/STA inputs per breakpoint; set tiers only grant whole, non-negative points (`validateSetDefinition`). `getSetBonusText` lists attribute points; its DR/MR wording is unchanged.
 - **Shops tab.** A "Banker" checkbox.
 - **MCP.**
   - `get_content_schema` cheat sheet: `ItemDefinition.attributes`/`bagSlots`, `SetBonuses.attributes`, `ShopDefinition.banker`, and the budget formula.

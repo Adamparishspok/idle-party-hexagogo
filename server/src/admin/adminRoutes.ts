@@ -5,7 +5,7 @@ import type { PlayerManager } from '../game/PlayerManager.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
-import { validateItemDefinition } from '../game/ContentStore.js';
+import { validateItemDefinition, validateSetDefinition } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
 import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
 import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition } from '@idle-party-rpg/shared';
@@ -720,6 +720,8 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       return;
     }
     const set = migrateLegacySet(raw);
+    const invalid = validateSetDefinition(set);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
     // Collect every skill this set's breakpoints grant (validated against the target store below)
     const setGrantIds: string[] = [];
     for (const bp of set.breakpoints ?? []) {

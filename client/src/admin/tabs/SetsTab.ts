@@ -6,9 +6,26 @@ import {
   getSetDisplayName,
   migrateLegacySet,
 } from '@idle-party-rpg/shared';
-import type { SetDefinition, SetBreakpoint, SetBonuses, SkillDefinition } from '@idle-party-rpg/shared';
+import type { PartialAttributes, SetDefinition, SetBreakpoint, SetBonuses, SkillDefinition } from '@idle-party-rpg/shared';
+import { ATTRIBUTE_ABBREVIATIONS, ATTRIBUTE_LABELS, ATTRIBUTE_NAMES } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
+
+/** Reads a breakpoint row's attribute inputs; blank counts as 0, and only whole numbers of 0 or more are allowed. */
+export function readSetAttributeInputs(row: ParentNode): { attributes?: PartialAttributes; error?: string } {
+  const attributes: PartialAttributes = {};
+  for (const input of row.querySelectorAll<HTMLInputElement>('.sf-bp-attr')) {
+    const name = input.dataset.attr as keyof PartialAttributes;
+    const raw = input.value.trim();
+    if (raw === '') continue;
+    if (!/^\d+$/.test(raw)) {
+      return { error: `${ATTRIBUTE_LABELS[name] ?? name} must be a whole number of 0 or more.` };
+    }
+    const value = Number(raw);
+    if (value > 0) attributes[name] = value;
+  }
+  return Object.keys(attributes).length > 0 ? { attributes } : {};
+}
 
 export class SetsTab implements Tab {
   /** Working state for the set form's breakpoints — kept across re-renders inside one modal. */
@@ -223,6 +240,7 @@ export class SetsTab implements Tab {
             <label>Atk Max<input type="number" class="sf-bp-atkMax" value="${b.bonusAttackMax ?? 0}" min="0"></label>
             <label>Flat HP<input type="number" class="sf-bp-flatHp" value="${b.flatHp ?? 0}" min="0"></label>
             <label>% HP<input type="number" class="sf-bp-pctHp" value="${b.percentHp ?? 0}" min="0"></label>
+            ${ATTRIBUTE_NAMES.map(attr => `<label>${ATTRIBUTE_ABBREVIATIONS[attr]}<input type="number" step="1" min="0" class="sf-bp-attr" data-attr="${attr}" value="${b.attributes?.[attr] ?? 0}"></label>`).join('')}
           </div>
           <div class="sf-bp-grants">
             <div class="admin-checklist-toolbar">
@@ -277,6 +295,8 @@ export class SetsTab implements Tab {
       if (atkMin || atkMax) { bonuses.bonusAttackMin = atkMin; bonuses.bonusAttackMax = atkMax; }
       const flatHp = num('.sf-bp-flatHp'); if (flatHp) bonuses.flatHp = flatHp;
       const pctHp = num('.sf-bp-pctHp'); if (pctHp) bonuses.percentHp = pctHp;
+      const attributes = readSetAttributeInputs(row).attributes;
+      if (attributes) bonuses.attributes = attributes;
       const grantedSkillIds: string[] = [];
       row.querySelectorAll<HTMLInputElement>('.sf-bp-skill-check').forEach(cb => {
         if (cb.checked) grantedSkillIds.push(cb.value);
@@ -303,6 +323,10 @@ export class SetsTab implements Tab {
       if (cb.checked) classRestriction.push(cb.value);
     });
 
+    for (const row of root.querySelectorAll<HTMLElement>('.sf-breakpoint-row')) {
+      const { error } = readSetAttributeInputs(row);
+      if (error) { alert(error); return; }
+    }
     this.captureBreakpoints(root);
     const breakpoints = this.setFormBreakpoints.map(bp => ({
       piecesRequired: bp.piecesRequired,

@@ -1,6 +1,7 @@
 import type { EquipmentBonuses, ItemDefinition } from './ItemTypes.js';
 import type { SkillDefinition } from './SkillTypes.js';
 import type { PartialAttributes } from './AttributeTypes.js';
+import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES } from './AttributeTypes.js';
 
 // --- Types ---
 
@@ -338,6 +339,10 @@ export function getSetBonusText(bonuses: SetBonuses, skills?: Record<string, Ski
   }
   if (bonuses.flatHp) parts.push(`+${bonuses.flatHp} HP`);
   if (bonuses.percentHp) parts.push(`+${bonuses.percentHp}% HP`);
+  for (const name of ATTRIBUTE_NAMES) {
+    const points = bonuses.attributes?.[name];
+    if (points) parts.push(`+${points} ${ATTRIBUTE_LABELS[name]}`);
+  }
   if (bonuses.grantedSkillIds) {
     for (const skillId of bonuses.grantedSkillIds) {
       parts.push(`Grants skill: ${skills?.[skillId]?.name ?? skillId}`);

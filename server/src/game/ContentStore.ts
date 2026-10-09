@@ -39,6 +39,19 @@ export function validateItemDefinition(item: ItemDefinition): string | null {
   return validateAttributes(item.attributes) ?? validateBagItem(item);
 }
 
+/** Set tiers may only grant non-negative, whole attribute points. */
+export function validateSetDefinition(set: SetDefinition): string | null {
+  for (const bp of set.breakpoints ?? []) {
+    const attrs = bp.bonuses?.attributes;
+    const error = validateAttributes(attrs);
+    if (error) return `Tier @${bp.piecesRequired}: ${error}`;
+    for (const [key, value] of Object.entries(attrs ?? {})) {
+      if ((value as number) < 0) return `Tier @${bp.piecesRequired}: attribute ${key} can't be negative.`;
+    }
+  }
+  return null;
+}
+
 export function validateShopDefinition(shop: ShopDefinition): string | null {
   if (shop.banker !== undefined && typeof shop.banker !== 'boolean') return 'banker must be true or false.';
   return null;
@@ -517,6 +530,8 @@ export class ContentStore {
    * existing sets (same item in two sets that share a class).
    */
   async addOrUpdateSet(set: SetDefinition): Promise<{ success: boolean; error?: string }> {
+    const invalid = validateSetDefinition(set);
+    if (invalid) return { success: false, error: invalid };
     const migrated = migrateLegacySet(set);
     const existing = Array.from(this.sets.values()).map(s => migrateLegacySet(s));
     const errors = findSetConflicts(migrated, existing);

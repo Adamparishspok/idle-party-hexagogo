@@ -595,4 +595,8 @@ describe('computeGrantedSkillIds', () => {
     // Unknown skill id falls back to the raw id
     expect(getSetBonusText({ grantedSkillIds: ['mystery'] })).toBe('Grants skill: mystery');
   });
+
+  it('getSetBonusText lists attribute points', () => {
+    expect(getSetBonusText({ flatHp: 10, attributes: { stamina: 4, strength: 2 } })).toBe('+10 HP, +2 Strength, +4 Stamina');
+  });
 });
