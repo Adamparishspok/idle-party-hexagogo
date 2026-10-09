@@ -2,6 +2,7 @@ import type { GameClient } from '../network/GameClient';
 import type { ChatMessage, ChatChannelType, ServerStateMessage } from '@idle-party-rpg/shared';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import { chatFocusTracker } from '../network/ChatFocusTracker';
+import '../styles/screens/chat.css';
 
 const STORAGE_KEY_GEOMETRY = 'chatPopoutGeometry';
 const STORAGE_KEY_FILTERS = 'chatPopoutFilters';
@@ -40,15 +41,24 @@ const CHANNEL_LABELS: Record<ChatChannelType, string> = {
   server: 'Server',
 };
 
+/** Channel accent colors — tuned to read on the slate chat panel. */
 const CHANNEL_COLORS: Record<ChatChannelType, string> = {
-  global: '#e8e8e8',
-  zone: '#a4d2ff',
-  tile: '#ffd58a',
-  party: '#9eff9e',
-  guild: '#d39bff',
-  dm: '#ff9eee',
-  server: '#888',
+  global: '#ffe7a0',
+  zone: '#8cc4ff',
+  tile: '#ffc36b',
+  party: '#9ef07a',
+  guild: '#c49bff',
+  dm: '#ff9ad5',
+  server: '#b7bec9',
 };
+
+/** Consecutive messages from one sender on one channel within this window share a header. */
+const GROUP_WINDOW_MS = 3 * 60 * 1000;
+/** Distance from the bottom (px) still treated as "following the live feed". */
+const STICK_THRESHOLD_PX = 80;
+
+const ICON_EXPAND = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ICON_COLLAPSE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 /**
  * Floating, draggable, resizable chat window — overlays whichever screen is
@@ -63,6 +73,10 @@ export class ChatPopout {
   private inputEl!: HTMLInputElement;
   private channelSelect!: HTMLSelectElement;
   private dmInput!: HTMLInputElement;
+  private dmRow!: HTMLElement;
+  private composerEl!: HTMLElement;
+  private layoutBtn!: HTMLButtonElement;
+  private jumpBtn!: HTMLButtonElement;
 
   private gameClient: GameClient;
   private isOpen = false;
@@ -145,12 +159,12 @@ export class ChatPopout {
     // Re-render: messages may have been pushed into this.messages while
     // chat was closed (handleChatMessage skips renderTimeline when !isOpen),
     // so the DOM is stale. Always rebuild on open so the user sees them.
-    this.renderTimeline();
+    this.renderTimeline(true);
     // Also pull anything that arrived server-side while we were away.
     this.gameClient.sendSyncChat(this.getLatestId());
     this.persistOpenState();
     requestAnimationFrame(() => {
-      this.timelineEl.scrollTop = this.timelineEl.scrollHeight;
+      this.scrollToLatest();
       // Mobile: don't grab focus on open — that pops the soft keyboard over
       // the timeline, so the user can't read the messages they just opened.
       if (!this.isMobile()) this.inputEl.focus();
@@ -163,7 +177,7 @@ export class ChatPopout {
     this.open();
     this.channelSelect.value = 'dm';
     this.dmInput.value = username;
-    this.dmInput.style.display = '';
+    this.syncChannelUi();
     this.reportChatFocus();
   }
 
@@ -217,30 +231,38 @@ export class ChatPopout {
     this.root.innerHTML = `
       <div class="chat-popout" role="dialog" aria-label="Chat" style="display:none">
         <div class="chat-popout-header">
-          <span class="chat-popout-title">Chat</span>
+          <h2 class="chat-popout-title">Chat</h2>
           <div class="chat-popout-header-actions">
-            <button class="chat-popout-layout-btn" title="Toggle layout">⇅</button>
-            <button class="chat-popout-close" title="Close">×</button>
+            <button type="button" class="chat-popout-layout-btn gc-btn gc-btn--steel gc-btn--icon"></button>
+            <button type="button" class="chat-popout-close gc-close" aria-label="Close chat"></button>
           </div>
         </div>
-        <div class="chat-popout-filters"></div>
+        <div class="chat-popout-filters gc-chips" role="group" aria-label="Show channels"></div>
         <div class="chat-popout-body">
-          <div class="chat-popout-timeline"></div>
+          <div class="chat-popout-timeline" role="log" aria-live="polite"></div>
+          <button type="button" class="chat-popout-jump gc-btn gc-btn--steel" hidden>New messages ↓</button>
         </div>
         <div class="chat-popout-composer">
-          <select class="chat-popout-channel">
-            <option value="global">Global</option>
-            <option value="zone">Zone</option>
-            <option value="tile">Room</option>
-            <option value="party">Party</option>
-            <option value="guild">Guild</option>
-            <option value="dm">DM</option>
-          </select>
-          <input class="chat-popout-dm-target" type="text" placeholder="DM to..." style="display:none" />
-          <input class="chat-popout-input" type="text" placeholder="Type a message..." maxlength="500" />
-          <button class="chat-popout-send">Send</button>
+          <label class="chat-popout-dm-row" hidden>
+            <span class="chat-popout-dm-label">To</span>
+            <input class="chat-popout-dm-target gc-input" type="text" placeholder="Player name"
+              autocomplete="off" autocapitalize="off" spellcheck="false" />
+          </label>
+          <div class="chat-popout-send-row">
+            <select class="chat-popout-channel" aria-label="Send to channel">
+              <option value="global">Global</option>
+              <option value="zone">Zone</option>
+              <option value="tile">Room</option>
+              <option value="party">Party</option>
+              <option value="guild">Guild</option>
+              <option value="dm">DM</option>
+            </select>
+            <input class="chat-popout-input gc-input" type="text" placeholder="Say something…" maxlength="500"
+              aria-label="Message" autocomplete="off" enterkeyhint="send" />
+            <button type="button" class="chat-popout-send gc-btn gc-btn--green">Send</button>
+          </div>
         </div>
-        <div class="chat-popout-resize"></div>
+        <div class="chat-popout-resize" aria-hidden="true"></div>
       </div>
     `;
 
@@ -250,7 +272,17 @@ export class ChatPopout {
     this.inputEl = this.window.querySelector('.chat-popout-input')! as HTMLInputElement;
     this.channelSelect = this.window.querySelector('.chat-popout-channel')! as HTMLSelectElement;
     this.dmInput = this.window.querySelector('.chat-popout-dm-target')! as HTMLInputElement;
+    this.dmRow = this.window.querySelector('.chat-popout-dm-row')!;
+    this.composerEl = this.window.querySelector('.chat-popout-composer')!;
+    this.layoutBtn = this.window.querySelector('.chat-popout-layout-btn')! as HTMLButtonElement;
+    this.jumpBtn = this.window.querySelector('.chat-popout-jump')! as HTMLButtonElement;
+    this.jumpBtn.addEventListener('click', () => this.scrollToLatest());
+    this.timelineEl.addEventListener('scroll', () => {
+      if (this.isNearBottom()) this.jumpBtn.hidden = true;
+    }, { passive: true });
 
+    this.syncChannelUi();
+    this.updateLayoutButton();
     this.renderFilters();
     this.applyGeometry(this.loadGeometry());
 
@@ -291,7 +323,17 @@ export class ChatPopout {
     });
   }
 
+  /** The layout button shows what tapping it will do: expand or shrink the chat. */
+  private updateLayoutButton(): void {
+    const expanded = this.isMobile() ? this.mobileLayout === 'full' : this.desktopMaximized;
+    this.layoutBtn.innerHTML = expanded ? ICON_COLLAPSE : ICON_EXPAND;
+    const label = expanded ? 'Shrink chat' : 'Expand chat';
+    this.layoutBtn.setAttribute('aria-label', label);
+    this.layoutBtn.title = label;
+  }
+
   private applyDesktopMaximized(): void {
+    this.updateLayoutButton();
     if (this.isMobile()) {
       this.window.classList.remove('chat-popout-desktop-max');
       return;
@@ -334,11 +376,19 @@ export class ChatPopout {
 
   private wireChannelChange(): void {
     this.channelSelect.addEventListener('change', () => {
-      const showDm = this.channelSelect.value === 'dm';
-      this.dmInput.style.display = showDm ? '' : 'none';
+      this.syncChannelUi();
       this.reportChatFocus();
     });
     this.dmInput.addEventListener('input', () => this.reportChatFocus());
+  }
+
+  /** Tint the composer with the send channel's color and show the DM "To" row for DMs. */
+  private syncChannelUi(): void {
+    const channel = this.channelSelect.value as ChatChannelType;
+    this.composerEl.style.setProperty('--ch-color', CHANNEL_COLORS[channel] ?? CHANNEL_COLORS.global);
+    this.dmRow.hidden = channel !== 'dm';
+    const label = CHANNEL_LABELS[channel] ?? 'Global';
+    this.inputEl.placeholder = channel === 'dm' ? 'Whisper something…' : `Say something in ${label}…`;
   }
 
   private wireDrag(): void {
@@ -413,8 +463,8 @@ export class ChatPopout {
       const rect = this.window.getBoundingClientRect();
       const maxW = window.innerWidth - rect.left - margin;
       const maxH = this.getBottomBoundary() - rect.top - margin;
-      const w = Math.max(280, Math.min(maxW, startW + (e.clientX - startX)));
-      const h = Math.max(200, Math.min(maxH, startH + (e.clientY - startY)));
+      const w = Math.max(320, Math.min(maxW, startW + (e.clientX - startX)));
+      const h = Math.max(280, Math.min(maxH, startH + (e.clientY - startY)));
       this.window.style.width = `${w}px`;
       this.window.style.height = `${h}px`;
     });
@@ -468,6 +518,7 @@ export class ChatPopout {
   }
 
   private applyMobileLayout(): void {
+    this.updateLayoutButton();
     if (!this.isMobile()) {
       this.window.classList.remove('chat-popout-mobile-full', 'chat-popout-mobile-sheet');
       delete document.body.dataset.chatLayout;
@@ -489,8 +540,9 @@ export class ChatPopout {
   private renderFilters(): void {
     const channels: ChatChannelType[] = ['global', 'zone', 'tile', 'party', 'guild', 'dm', 'server'];
     this.filtersEl.innerHTML = channels.map(ch => `
-      <button class="chat-filter ${this.filters[ch] ? 'active' : ''}" data-ch="${ch}" style="--ch-color:${CHANNEL_COLORS[ch]}">
-        ${CHANNEL_LABELS[ch]}
+      <button type="button" class="chat-filter gc-chip ${this.filters[ch] ? 'active' : ''}" data-ch="${ch}"
+        aria-pressed="${this.filters[ch] ? 'true' : 'false'}" style="--chip-color:${CHANNEL_COLORS[ch]}">
+        <span class="gc-chip__face"><span class="gc-chip__dot"></span>${CHANNEL_LABELS[ch]}</span>
       </button>
     `).join('');
     for (const btn of this.filtersEl.querySelectorAll('.chat-filter')) {
@@ -499,7 +551,8 @@ export class ChatPopout {
         this.filters[ch] = !this.filters[ch];
         this.saveFilters();
         btn.classList.toggle('active', this.filters[ch]);
-        this.renderTimeline();
+        btn.setAttribute('aria-pressed', this.filters[ch] ? 'true' : 'false');
+        this.renderTimeline(true);
       });
     }
   }
@@ -511,7 +564,8 @@ export class ChatPopout {
       this.messages.push(msg);
     }
     if (this.isOpen) {
-      this.renderTimeline();
+      // Your own message always snaps the feed back to the bottom.
+      this.renderTimeline(this.isOwn(msg));
     } else {
       this.hasUnread = true;
       this.onUnreadChange?.(true);
@@ -523,45 +577,97 @@ export class ChatPopout {
     return this.messages[this.messages.length - 1].id;
   }
 
-  private renderTimeline(): void {
+  /**
+   * Rebuild the timeline. The feed follows new messages only while the
+   * player is at (or near) the bottom; if they've scrolled back to read, it
+   * stays put and a "New messages" pill offers the jump. `forceBottom` snaps
+   * regardless (opening chat, changing filters, sending a message).
+   */
+  private renderTimeline(forceBottom = false): void {
+    const stick = forceBottom || this.isNearBottom();
     const visible = this.messages.filter(m => this.filters[m.channelType] !== false);
     let html = '';
-    let lastTimestamp: number | null = null;
+    let prev: ChatMessage | null = null;
     for (const m of visible) {
-      if (lastTimestamp === null || !this.isSameCalendarDay(lastTimestamp, m.timestamp)) {
+      const newDay = prev === null || !this.isSameCalendarDay(prev.timestamp, m.timestamp);
+      if (newDay) {
         html += `<div class="chat-day-separator"><span>${this.formatDayLabel(m.timestamp)}</span></div>`;
       }
-      html += this.formatMessage(m);
-      lastTimestamp = m.timestamp;
+      html += this.formatMessage(m, !newDay && this.continuesGroup(prev, m));
+      prev = m;
+    }
+    if (!html) {
+      html = `<div class="chat-empty">No messages yet.<br>Say hello, or turn on more channels above.</div>`;
     }
     this.timelineEl.innerHTML = html;
-    requestAnimationFrame(() => {
-      this.timelineEl.scrollTop = this.timelineEl.scrollHeight;
-    });
+    if (stick) {
+      this.jumpBtn.hidden = true;
+      requestAnimationFrame(() => {
+        this.timelineEl.scrollTop = this.timelineEl.scrollHeight;
+      });
+    } else {
+      this.jumpBtn.hidden = false;
+    }
   }
 
-  private formatMessage(msg: ChatMessage): string {
+  private scrollToLatest(): void {
+    this.timelineEl.scrollTop = this.timelineEl.scrollHeight;
+    this.jumpBtn.hidden = true;
+  }
+
+  private isNearBottom(): boolean {
+    const el = this.timelineEl;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD_PX;
+  }
+
+  private isOwn(msg: ChatMessage): boolean {
+    const me = this.gameClient.lastState?.username;
+    return !!me && msg.channelType !== 'server' && msg.senderUsername === me;
+  }
+
+  /** True when `msg` should tuck under `prev`'s header (same sender + channel, close in time). */
+  private continuesGroup(prev: ChatMessage | null, msg: ChatMessage): boolean {
+    if (!prev || msg.channelType === 'server') return false;
+    return prev.senderUsername === msg.senderUsername
+      && prev.channelType === msg.channelType
+      && prev.channelId === msg.channelId
+      && msg.timestamp - prev.timestamp <= GROUP_WINDOW_MS;
+  }
+
+  private formatMessage(msg: ChatMessage, continued: boolean): string {
     const time = this.formatTime(msg.timestamp);
-    const color = CHANNEL_COLORS[msg.channelType] ?? '#e8e8e8';
+    const color = CHANNEL_COLORS[msg.channelType] ?? CHANNEL_COLORS.global;
     const tag = CHANNEL_LABELS[msg.channelType] ?? msg.channelType;
     const sender = this.escapeHtml(msg.senderUsername || 'Server');
     const text = this.escapeHtml(msg.text);
-    // Server messages render as plain spans (no popup / no channel switch);
-    // everything else gets clickable tag (switch send channel) and sender
-    // (open user popup).
     const isServer = msg.channelType === 'server';
-    const tagHtml = isServer
-      ? `<span class="chat-msg-tag">[${tag}]</span>`
-      : `<button type="button" class="chat-msg-tag chat-msg-tag-btn" data-channel="${msg.channelType}" data-channel-id="${this.escapeHtml(msg.channelId ?? '')}" data-sender="${sender}">[${tag}]</button>`;
-    const senderHtml = isServer
-      ? `<span class="chat-msg-sender">${sender}:</span>`
-      : `<button type="button" class="chat-msg-sender chat-msg-sender-btn" data-user="${sender}">${sender}:</button>`;
-    return `
-      <div class="chat-msg" style="--ch-color:${color}">
+
+    // Server messages render as a centered system line (no popup / no
+    // channel switch).
+    if (isServer) {
+      return `
+        <div class="chat-msg chat-msg--server" style="--ch-color:${color}">
+          <span class="chat-msg-text">${text}</span>
+          <span class="chat-msg-time">${time}</span>
+        </div>
+      `;
+    }
+
+    // Everything else gets a clickable tag (switch send channel) and sender
+    // (open user popup). Continuation messages drop the header row.
+    const classes = ['chat-msg'];
+    if (this.isOwn(msg)) classes.push('chat-msg--own');
+    if (continued) classes.push('chat-msg--cont');
+    const header = continued ? '' : `
+      <div class="chat-msg-meta">
+        <button type="button" class="chat-msg-sender chat-msg-sender-btn" data-user="${sender}">${sender}</button>
+        <button type="button" class="chat-msg-tag chat-msg-tag-btn" data-channel="${msg.channelType}" data-channel-id="${this.escapeHtml(msg.channelId ?? '')}" data-sender="${sender}" title="Reply in ${tag}">${tag}</button>
         <span class="chat-msg-time">${time}</span>
-        ${tagHtml}
-        ${senderHtml}
-        <span class="chat-msg-text">${text}</span>
+      </div>`;
+    return `
+      <div class="${classes.join(' ')}" style="--ch-color:${color}">
+        ${header}
+        <div class="chat-msg-bubble" title="${time}"><span class="chat-msg-text">${text}</span></div>
       </div>
     `;
   }
@@ -628,7 +734,8 @@ export class ChatPopout {
   }
 
   private escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // ── Persistence ───────────────────────────────────────────────────────
@@ -638,7 +745,7 @@ export class ChatPopout {
       const raw = localStorage.getItem(STORAGE_KEY_GEOMETRY);
       if (raw) return JSON.parse(raw) as Geometry;
     } catch { /* ignore */ }
-    return { x: window.innerWidth - 380, y: 80, width: 360, height: 440 };
+    return { x: window.innerWidth - 436, y: 72, width: 420, height: 540 };
   }
 
   private saveGeometry(): void {

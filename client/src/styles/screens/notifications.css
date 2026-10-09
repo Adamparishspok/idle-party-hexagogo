@@ -1,0 +1,408 @@
+/*
+ * Notification center (NotificationCenter.ts) — the inbox dropdown under the
+ * bell and the live toast stack. The bell button itself is shell chrome and
+ * is styled in game-chrome.css.
+ *
+ * New reusable pattern defined here: .gc-octicon (small octagon icon frame
+ * in the WorldQuest steel edge, tinted via --icon-color) — candidate for
+ * components.css.
+ */
+
+/* ── Octagon icon frame (.gc-octicon) ────────────────────── */
+
+.gc-octicon {
+  --icon-color: var(--gc-steel-300);
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--icon-color);
+  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.5));
+}
+.gc-octicon::before,
+.gc-octicon::after {
+  content: '';
+  position: absolute;
+  clip-path: var(--gc-octagon);
+  z-index: -1;
+}
+.gc-octicon::before {
+  inset: 0;
+  background: var(--gc-frame-edge);
+}
+.gc-octicon::after {
+  inset: var(--gc-frame-w);
+  background: var(--gc-frame-fill);
+}
+.gc-octicon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Category tints. */
+.notif-icon[data-cat="party"] { --icon-color: var(--green-300); }
+.notif-icon[data-cat="dm"] { --icon-color: #ff9ad5; }
+.notif-icon[data-cat="friend"] { --icon-color: var(--teal-300); }
+.notif-icon[data-cat="trade"] { --icon-color: var(--gold-500); }
+.notif-icon[data-cat="world_event"] { --icon-color: var(--arcane-400); }
+.notif-icon[data-cat="quest"] { --icon-color: var(--gold-300); }
+.notif-icon[data-cat="guild_combat"] { --icon-color: var(--red-300); }
+.notif-icon[data-cat="system"] { --icon-color: var(--gc-steel-300); }
+
+.notif-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Dropdown panel ──────────────────────────────────────── */
+
+.notif-dropdown {
+  position: fixed;
+  width: min(400px, calc(100vw - 16px));
+  max-height: min(70vh, calc(100vh - 64px - var(--chrome-bottom)));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 3px solid var(--slate-500);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--slate-800) 0%, var(--slate-900) 100%);
+  box-shadow:
+    0 0 0 2px var(--ink-900),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 16px 40px rgba(0, 0, 0, 0.7);
+  font-family: var(--ui-font);
+  color: #eef2fa;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.92);
+  transition: opacity var(--dur-fast) var(--ease-out), transform 0.26s var(--ease-spring);
+}
+.notif-dropdown.notif-dropdown-shown {
+  opacity: 1;
+  transform: none;
+}
+
+.notif-dropdown-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 60px;
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-800) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.notif-dropdown-title {
+  margin: 0;
+  font-family: var(--display-font);
+  font-weight: 400;
+  font-size: var(--t-title);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+
+.notif-dropdown-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  background: var(--slate-800);
+  border-bottom: 2px solid var(--ink-900);
+}
+.notif-dropdown-actions .gc-btn {
+  flex: 1;
+  padding: 0 var(--s-3);
+  font-size: var(--t-small);
+}
+
+.notif-dropdown-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: rgba(10, 11, 16, 0.45);
+  box-shadow: inset 0 6px 10px -6px rgba(0, 0, 0, 0.7);
+  scrollbar-width: thin;
+  scrollbar-color: var(--slate-500) transparent;
+}
+
+.notif-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-5) var(--s-4);
+  text-align: center;
+}
+.notif-empty-title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.notif-empty-text {
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: #a9b3c7;
+}
+
+/* ── Rows (.gc-row with a pressable main area + dismiss) ── */
+
+.notif-row.gc-row {
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0.82;
+}
+.notif-row.notif-row-unread {
+  opacity: 1;
+  border-color: var(--gold-700);
+  box-shadow: inset 4px 0 0 var(--gold-500);
+}
+.notif-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 64px;
+  padding: var(--s-2) var(--s-1) var(--s-2) var(--s-3);
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast);
+}
+.notif-row-main:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.notif-row-main:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+.notif-row-main:active .notif-icon {
+  transform: scale(0.92);
+}
+.notif-row-main:focus-visible,
+.notif-row-dismiss:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: -3px;
+}
+.notif-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.notif-row-title.gc-row__title {
+  white-space: normal;
+}
+.notif-row-unread .notif-row-title {
+  color: var(--gold-300);
+}
+.notif-row-text {
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: #c3cbdb;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notif-row-time {
+  font-size: var(--t-caption);
+  color: #8a93a6;
+}
+.notif-row-dot {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.notif-row-unread .notif-row-dot {
+  background: radial-gradient(circle at 35% 30%, var(--gold-300), var(--gold-500) 60%, var(--gold-700));
+  box-shadow: 0 0 0 2px var(--ink-900), 0 0 8px rgba(245, 200, 66, 0.6);
+}
+.notif-row-dismiss {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-right: var(--s-1);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: #8a93a6;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.notif-row-dismiss svg {
+  width: 20px;
+  height: 20px;
+}
+.notif-row-dismiss:hover {
+  color: var(--red-300);
+  background: rgba(224, 70, 58, 0.15);
+}
+.notif-row-dismiss:active {
+  transform: scale(0.88);
+  color: var(--red-300);
+}
+
+/* ── Toasts ──────────────────────────────────────────────── */
+
+.notif-toast-stack {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 56px);
+  right: 8px;
+  z-index: 1002;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: min(360px, calc(100vw - 16px));
+  pointer-events: none;
+}
+.notif-toast {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 72px;
+  padding: var(--s-3) var(--s-1) var(--s-3) var(--s-3);
+  overflow: hidden;
+  border: 3px solid var(--gold-500);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--slate-700) 0%, var(--slate-900) 100%);
+  box-shadow:
+    0 0 0 2px var(--ink-900),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 24px rgba(0, 0, 0, 0.6);
+  color: #eef2fa;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  transform: translateX(110%) scale(0.9);
+  transition: opacity 0.2s var(--ease-out), transform 0.36s var(--ease-spring);
+}
+.notif-toast.notif-toast-shown {
+  opacity: 1;
+  transform: none;
+}
+.notif-toast.notif-toast-shown:active {
+  transform: scale(0.97);
+  transition-duration: var(--dur-fast);
+}
+.notif-toast.notif-toast-leaving {
+  opacity: 0;
+  transform: translateX(110%);
+  transition: opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out);
+}
+.notif-toast:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 3px;
+}
+.notif-toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.notif-toast-title {
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  line-height: 1.15;
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke-sm);
+}
+.notif-toast-text {
+  font-size: var(--t-small);
+  line-height: 1.35;
+  color: #c3cbdb;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notif-toast-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: #8a93a6;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.notif-toast-close svg {
+  width: 18px;
+  height: 18px;
+}
+.notif-toast-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.notif-toast-close:active {
+  transform: scale(0.88);
+}
+/* Lifetime bar — drains while the toast is on screen. */
+.notif-toast-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 4px;
+  width: 100%;
+  background: linear-gradient(90deg, var(--gold-700), var(--gold-300));
+  transform-origin: left center;
+  animation: notif-toast-drain var(--toast-life, 6000ms) linear forwards;
+}
+@keyframes notif-toast-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notif-dropdown,
+  .notif-toast,
+  .notif-toast.notif-toast-leaving {
+    transform: none;
+    transition: opacity var(--dur-fast) linear;
+  }
+  .notif-toast-timer {
+    animation: none;
+  }
+  .notif-row-main:active .notif-icon,
+  .notif-row-dismiss:active,
+  .notif-toast-close:active,
+  .notif-toast.notif-toast-shown:active {
+    transform: none;
+  }
+}
