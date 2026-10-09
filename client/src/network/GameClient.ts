@@ -1,5 +1,5 @@
 import type { ServerStateMessage, ServerEquipBlockedMessage,
-  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage } from '@idle-party-rpg/shared';
+  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage, ClientInventoryMessage, ClientBankMessage } from '@idle-party-rpg/shared';
 
 const RECONNECT_DELAY = 2000;
 
@@ -602,6 +602,48 @@ export class GameClient {
   }
 
   private sendHousing(msg: ClientHousingMessage): void {
+    this.sendRaw({ ...msg });
+  }
+
+  // --- Bags and Lost & Found ---
+
+  sendEquipBag(itemId: string, bagIndex: number): void {
+    this.sendTyped({ type: 'equip_bag', itemId, bagIndex });
+  }
+
+  sendUnequipBag(bagIndex: number): void {
+    this.sendTyped({ type: 'unequip_bag', bagIndex });
+  }
+
+  /** Omit `itemId` to claim everything that fits. */
+  sendClaimLostFound(itemId?: string): void {
+    this.sendTyped(itemId ? { type: 'claim_lost_found', itemId } : { type: 'claim_lost_found' });
+  }
+
+  sendDiscardLostFound(itemId: string): void {
+    this.sendTyped({ type: 'discard_lost_found', itemId });
+  }
+
+  // --- Bank ---
+
+  /** Omit `tab` to let the server pick a tab. */
+  sendBankDeposit(itemId: string, quantity: number, tab?: number): void {
+    this.sendTyped(tab === undefined ? { type: 'bank_deposit', itemId, quantity } : { type: 'bank_deposit', itemId, quantity, tab });
+  }
+
+  sendBankWithdraw(tab: number, itemId: string, quantity: number): void {
+    this.sendTyped({ type: 'bank_withdraw', tab, itemId, quantity });
+  }
+
+  sendBankMove(fromTab: number, toTab: number, itemId: string, quantity: number): void {
+    this.sendTyped({ type: 'bank_move', fromTab, toTab, itemId, quantity });
+  }
+
+  sendBankBuyTab(): void {
+    this.sendTyped({ type: 'bank_buy_tab' });
+  }
+
+  private sendTyped(msg: ClientInventoryMessage | ClientBankMessage): void {
     this.sendRaw({ ...msg });
   }
 

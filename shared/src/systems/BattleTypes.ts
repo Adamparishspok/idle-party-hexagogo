@@ -17,10 +17,11 @@ import type {
 } from './SocialTypes.js';
 import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
+import type { DerivedStats } from './AttributeTypes.js';
+import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
+import type { BankErrorCode, ClientBankState, ClientBankMessage } from './BankTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
 import type { RoomEntryFailureKind } from './RoomRequirements.js';
-import type { BankErrorCode } from './BankTypes.js';
-import type { InventoryErrorCode } from './BagTypes.js';
 
 
 export type BattleTimerState = 'battle' | 'result';
@@ -123,6 +124,14 @@ export interface ClientCharacterState {
   xpRate: { startTime: number; totalXp: number };
   craftLevel: number;
   craftXp: number;
+  /** Attributes and derived combat stats from class, level, gear and sets. */
+  derivedStats?: DerivedStats;
+  /** One entry per bag slot (`BAG_SLOT_COUNT`). */
+  bags?: BagSlots;
+  /** Distinct stacks the backpack holds: base slots plus equipped bags. */
+  inventoryCapacity?: number;
+  /** Lost & Found pouch: unattended loot that didn't fit the backpack. */
+  lostAndFound?: Record<string, number>;
 }
 
 export interface ClientResetXpRateMessage {
@@ -206,6 +215,8 @@ export interface ServerStateMessage {
   };
   /** Active dungeon run state (floor progress) — present only while the party is inside a dungeon. */
   dungeon?: DungeonRunInfo;
+  /** The player's bank — present only while the party stands in a banker's room. */
+  bank?: ClientBankState;
   /** Server version identifier — changes on restart/deploy, triggers client reload on mismatch. */
   serverVersion: string;
 }
@@ -457,4 +468,6 @@ export type ClientMessage =
   | ClientEnterTransitionMessage
   | ClientSocialMessage
   | ClientNotificationMessage
-  | ClientHousingMessage;
+  | ClientHousingMessage
+  | ClientInventoryMessage
+  | ClientBankMessage;
