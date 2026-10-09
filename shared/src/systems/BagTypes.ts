@@ -51,6 +51,15 @@ export const MAX_BAG_SIZE = 24;
 /** Distinct stacks the Lost & Found pouch holds; past this, incoming items are lost. */
 export const LOST_AND_FOUND_SLOTS = 20;
 
+/** One-time gift to every character (`starterBagGranted` in the save). The server ensures this item exists in content. */
+export const STARTER_BAG_ITEM: ItemDefinition = {
+  id: 'travelers_satchel',
+  name: "Traveler's Satchel",
+  rarity: 'common',
+  bagSlots: 12,
+  value: 1,
+};
+
 // --- Pure functions ---
 
 export function isBag(def: ItemDefinition | undefined): boolean {
@@ -165,6 +174,17 @@ export function unequipBag(
   applyChanges(inventory, changes);
   bags[bagIndex] = null;
   return { ok: true, returnedItemId: current };
+}
+
+/** Puts the starter bag in the first empty bag slot, else the backpack (ignoring capacity — it's a gift). */
+export function grantStarterBag(bags: BagSlots, inventory: Inventory, bagItemId: string = STARTER_BAG_ITEM.id): 'bag_slot' | 'backpack' {
+  const free = bags.indexOf(null);
+  if (free >= 0) {
+    bags[free] = bagItemId;
+    return 'bag_slot';
+  }
+  inventory[bagItemId] = Math.min(MAX_STACK, (inventory[bagItemId] ?? 0) + 1);
+  return 'backpack';
 }
 
 /** Delivers unattended items (loot, rewards, finished crafts): backpack, then pouch, then lost. Mutates both. */

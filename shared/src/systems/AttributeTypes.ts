@@ -44,6 +44,8 @@ export interface DerivedStats {
   critChance: number;
   /** 0..1, personal; Bard Nimble adds on top in combat. */
   dodgeChance: number;
+  /** Multiplier on every heal this character casts (direct and over-time). 1 = naked. */
+  healingMultiplier: number;
   damagePercent: number;
   damageResistancePercent: number;
   cooldownReduction: number;
@@ -86,11 +88,13 @@ export const CLASS_ATTRIBUTE_PROFILES: Record<ClassName, ClassAttributeProfile> 
   Archer: { primary: 'agility', hpPerStamina: 1, damagePerPrimary: 1 },
   Priest: { primary: 'intellect', hpPerStamina: 1.5, damagePerPrimary: 0.5 },
   Mage: { primary: 'intellect', hpPerStamina: 1, damagePerPrimary: 1 },
-  Bard: { primary: 'agility', hpPerStamina: 1, damagePerPrimary: 0.5 },
+  Bard: { primary: 'intellect', hpPerStamina: 1, damagePerPrimary: 0.5 },
 };
 
 export const STRENGTH_PER_ARMOR = 15;
 export const INTELLECT_PER_RESIST = 15;
+/** Heal growth per gear Intellect point, against the class damage curve: a Priest's heals grow by the same % as its damage. */
+export const INTELLECT_HEAL_RATE = 0.5;
 export const CRIT_PER_AGILITY = 0.001;
 export const DODGE_PER_AGILITY = 0.0005;
 export const MAX_ATTRIBUTE_CRIT = 0.25;
@@ -187,7 +191,9 @@ export function computeDerivedStats(input: DerivedStatsInput): DerivedStats {
   const percentHp = setBonuses.percentHp ?? 0;
   const hpBeforeSets = calculateMaxHp(level, className) + gearAttributes.stamina * profile.hpPerStamina;
   const maxHp = Math.max(1, Math.floor((hpBeforeSets + flatHp) * (1 + percentHp / 100)));
-  const damage = Math.max(0, Math.floor(calculateBaseDamage(level, className) + gearAttributes[primaryAttribute] * profile.damagePerPrimary));
+  const damageCurve = calculateBaseDamage(level, className);
+  const damage = Math.max(0, Math.floor(damageCurve + gearAttributes[primaryAttribute] * profile.damagePerPrimary));
+  const healingMultiplier = Math.max(0, 1 + (gearAttributes.intellect * INTELLECT_HEAL_RATE) / Math.max(1, damageCurve));
 
   const armor = Math.floor(Math.max(0, attributes.strength) / STRENGTH_PER_ARMOR);
   const resist = Math.floor(Math.max(0, attributes.intellect) / INTELLECT_PER_RESIST);
@@ -211,6 +217,7 @@ export function computeDerivedStats(input: DerivedStatsInput): DerivedStats {
     resistMax: legacy.magicReductionMax + (setBonuses.magicReductionMax ?? 0) + resist,
     critChance: Math.min(MAX_ATTRIBUTE_CRIT, agility * CRIT_PER_AGILITY),
     dodgeChance: Math.min(MAX_ATTRIBUTE_DODGE, agility * DODGE_PER_AGILITY),
+    healingMultiplier,
     damagePercent: setBonuses.damagePercent ?? 0,
     damageResistancePercent: setBonuses.damageResistancePercent ?? 0,
     cooldownReduction: setBonuses.cooldownReduction ?? 0,

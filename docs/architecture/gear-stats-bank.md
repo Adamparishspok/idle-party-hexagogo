@@ -32,8 +32,8 @@ No server or client behaviour has changed yet. See the build plan at the end.
 |---|---|---|
 | **Stamina** | max HP (`hpPerStamina`, varies by class) | everyone |
 | **Strength** | damage if it's the class's primary attribute; +1 armor per 15 STR | Knight primary |
-| **Agility** | damage if primary; +0.1% crit and +0.05% dodge per point | Archer, Bard primary |
-| **Intellect** | damage if primary; +1 resist per 15 INT | Priest, Mage primary |
+| **Agility** | damage if primary; +0.1% crit and +0.05% dodge per point | Archer primary |
+| **Intellect** | damage if primary; +1 resist per 15 INT; gear INT boosts healing | Priest, Mage, Bard primary |
 
 Secondary effects apply to every class, so off-attribute gear is never completely worthless. Attribute crit is capped at 25% and attribute dodge at 15%. Crit from skills (Pierce) and dodge from Nimble still stack on top in combat.
 
@@ -45,7 +45,7 @@ Secondary effects apply to every class, so off-attribute gear is never completel
 | Archer | Agility | 1 | 1 |
 | Priest | Intellect | 1.5 | 0.5 |
 | Mage | Intellect | 1 | 1 |
-| Bard | Agility | 1 | 0.5 |
+| Bard | Intellect | 1 | 0.5 |
 
 The rates are uneven on purpose. With a flat 1:1 rate, the same gear would add the same raw HP and damage to every class. That shrinks the gaps between classes: a 145 HP Knight and a 27 HP Archer would both get +24 HP from the same kit. Per-class rates keep the Knight the tank and the Archer/Mage the damage dealers, while gear still matters for everyone.
 
@@ -59,6 +59,7 @@ armor  range = legacy DR (items + sets) + floor(STR / 15)        (physical, flat
 resist range = legacy MR (items + sets) + floor(INT / 15)        (magical, flat per hit)
 critChance   = min(25%, AGI × 0.1%)
 dodgeChance  = min(15%, AGI × 0.05%)
+healingMultiplier = 1 + gearINT × 0.5 / classDamageCurve(L)       (every heal the character casts)
 attack range = legacy bonusAttackMin/Max (items + sets)          (unchanged)
 ```
 
@@ -66,10 +67,11 @@ attack range = legacy bonusAttackMin/Max (items + sets)          (unchanged)
 - `gearAttributes` covers equipped items plus the active set tiers. Heirloom attributes are multiplied by level, like heirloom legacy stats. A 2H weapon is counted once.
 - `classBaseAttributes` expresses the class curves in the class's rates. Knight L20 has 145 HP and 20 damage, which shows as **72 STA / 40 STR**.
 - HP and damage read the curves directly, so **a character with no attribute gear keeps today's HP and damage exactly** at every level. A test asserts this for every class at levels 1–60.
+- **Healing** grows with *gear* Intellect only, so naked heals are unchanged. The rate (`INTELLECT_HEAL_RATE = 0.5`) is the Priest's damage rate measured against the class's own damage curve, so a Priest's heals grow by exactly the same percentage as its damage. Any class's heals scale the same way, including Mage, Bard, and off-spec Intellect on a Knight. The multiplier applies to direct heals and heal-over-time effects. It multiplies with Devotion's `heal_power`; it does not add to it.
 
 The rebalance comes from **secondary stats on naked characters** (below) and from the new attribute gear.
 
-Combat consumes the result through `derivedToEquipmentBonuses()` (armor and resist feed the existing DR/MR rolls). Two new fields on `PartyCombatant` carry `critChance` and `dodgeChance` (server phase A). Holy damage still ignores armor and resist, and Priest Bless remains the only thing that reduces it.
+Combat consumes the result through `derivedToEquipmentBonuses()` (armor and resist feed the existing DR/MR rolls). Three new fields on `PartyCombatant` carry `critChance`, `dodgeChance` and `healingMultiplier` (server phase A). Holy damage still ignores armor and resist, and Priest Bless remains the only thing that reduces it.
 
 ### Worked numbers: naked (today vs new)
 
@@ -89,9 +91,9 @@ HP and damage are the same as today in every row. The armor, resist, crit and do
 | Mage | 1 | 8 | 15 | 0 | 0 | 15 | 8 | 0 | 1 | 0% | 0% |
 | Mage | 10 | 17 | 33 | 0 | 0 | 33 | 17 | 0 | 2 | 0% | 0% |
 | Mage | 20 | 27 | 53 | 0 | 0 | 53 | 27 | 0 | 3 | 0% | 0% |
-| Bard | 1 | 10 | 1 | 0 | 2 | 0 | 10 | 0 | 0 | 0.2% | 0.1% |
-| Bard | 10 | 19 | 10 | 0 | 20 | 0 | 19 | 0 | 0 | 2.0% | 1.0% |
-| Bard | 20 | 29 | 20 | 0 | 40 | 0 | 29 | 0 | 0 | 4.0% | 2.0% |
+| Bard | 1 | 10 | 1 | 0 | 0 | 2 | 10 | 0 | 0 | 0% | 0% |
+| Bard | 10 | 19 | 10 | 0 | 0 | 20 | 19 | 0 | 1 | 0% | 0% |
+| Bard | 20 | 29 | 20 | 0 | 0 | 40 | 29 | 0 | 2 | 0% | 0% |
 
 ### Worked numbers: geared with attribute gear (new)
 
@@ -101,18 +103,20 @@ These rows assume a full 12-piece uncommon kit at the suggested budget (below):
 
 Legacy flat stats are excluded.
 
-| Class | Lv | HP (naked → geared) | Dmg (naked → geared) | Armor | Resist | Crit | Dodge |
-|---|---|---|---|---|---|---|---|
-| Knight | 10 | 95 → 119 | 10 → 22 | 2 | 0 | 0% | 0% |
-| Knight | 20 | 145 → 193 | 20 → 38 | 5 | 0 | 0% | 0% |
-| Archer | 10 | 17 → 29 | 33 → 57 | 0 | 0 | 5.7% | 2.85% |
-| Archer | 20 | 27 → 51 | 53 → 89 | 0 | 0 | 8.9% | 4.45% |
-| Priest | 10 | 38 → 56 | 12 → 24 | 0 | 3 | 0% | 0% |
-| Priest | 20 | 58 → 94 | 22 → 40 | 0 | 5 | 0% | 0% |
-| Mage | 10 | 17 → 29 | 33 → 57 | 0 | 3 | 0% | 0% |
-| Mage | 20 | 27 → 51 | 53 → 89 | 0 | 5 | 0% | 0% |
-| Bard | 10 | 19 → 31 | 10 → 22 | 0 | 0 | 4.4% | 2.2% |
-| Bard | 20 | 29 → 53 | 20 → 38 | 0 | 0 | 7.6% | 3.8% |
+| Class | Lv | HP (naked → geared) | Dmg (naked → geared) | Armor | Resist | Crit | Dodge | Healing |
+|---|---|---|---|---|---|---|---|---|
+| Knight | 10 | 95 → 119 | 10 → 22 | 2 | 0 | 0% | 0% | +0% |
+| Knight | 20 | 145 → 193 | 20 → 38 | 5 | 0 | 0% | 0% | +0% |
+| Archer | 10 | 17 → 29 | 33 → 57 | 0 | 0 | 5.7% | 2.85% | +0% |
+| Archer | 20 | 27 → 51 | 53 → 89 | 0 | 0 | 8.9% | 4.45% | +0% |
+| Priest | 10 | 38 → 56 | 12 → 24 | 0 | 3 | 0% | 0% | +100% |
+| Priest | 20 | 58 → 94 | 22 → 40 | 0 | 5 | 0% | 0% | +82% |
+| Mage | 10 | 17 → 29 | 33 → 57 | 0 | 3 | 0% | 0% | +36% |
+| Mage | 20 | 27 → 51 | 53 → 89 | 0 | 5 | 0% | 0% | +34% |
+| Bard | 10 | 19 → 31 | 10 → 22 | 0 | 2 | 0% | 0% | +120% |
+| Bard | 20 | 29 → 53 | 20 → 38 | 0 | 5 | 0% | 0% | +90% |
+
+A Priest's healing grows by the same percentage as its damage: at Lv20, 22 → 40 damage is +82%, and its heals are +82%. Bard's percentages are high only because its damage curve is tiny (1 + 1/level). Its heals and damage grow together.
 
 Class identity at Lv20, fully geared:
 - Archer/Mage deal about 2.3× the Knight's damage (2.65× naked).
@@ -141,6 +145,11 @@ Live servers hold authored items that only use `bonusAttackMin/Max`, `damageRedu
 - The UI relabels "DR" as **Armor** and "MR" as **Resist**, in item text and the set bonus text. Field names don't change.
 - Nothing is converted automatically. Each server's operators decide per item whether to add `attributes`, keep legacy stats, or both, through the World Manager or MCP. `suggestedAttributeBudget` helps them size it.
 - Old saves need no migration for stats. Derived stats are recomputed from equipment on every state push and on every combat start.
+- **Starter bag.** Every character gets one free `STARTER_BAG_ITEM` (Traveler's Satchel, 12 slots) the first time it loads after release, and new characters get it on creation.
+  - The grant is idempotent, guarded by `PlayerSaveData.starterBagGranted`.
+  - `grantStarterBag` puts it in the first empty bag slot. If every bag slot is full, it goes in the backpack, ignoring capacity.
+  - Anything still over capacity after the grant is grandfathered.
+  - The server makes sure the item exists in content at boot. It adds the definition only if the id is missing and never overwrites an operator's edits. Deleting it from content is blocked while the grant code references it.
 - Henchmen have fixed authored `maxHp`/`baseDamage` and no gear, so they are unaffected.
 
 ## 2. Gear UI contract (`GearTypes.ts`)
@@ -193,6 +202,7 @@ Counting rules:
 - `routeIncomingItems(inventory, capacity, pouch, itemId, qty)` fills the backpack first, then the pouch, and drops the rest. It returns `{ toInventory, toPouch, lost }`.
 - `LOST_AND_FOUND_SLOTS = 20` distinct stacks, each capped at 99. The pouch is reachable from anywhere; no travel is needed.
 - The server writes a combat-log line for anything sent to the pouch ("Your bags are full — 2× Iron Ore went to Lost & Found") and anything lost ("…Lost & Found is full — lost 1× Iron Ore"). The welcome-back summary includes totals for both.
+- Lost items also fire the `items_lost` notification (registry category `system`, in-app by default). Each battle's losses are batched into one notification, so a long offline run doesn't spam the inbox.
 - `claim_lost_found { itemId? }` uses `claimFromPouch`: as much as fits moves to the backpack, and the remainder stays. Omitting `itemId` claims everything.
 - `discard_lost_found { itemId }` destroys a pouch stack.
 - This replaces today's "crafted X but inventory full — lost N" path. Crafted output goes to the pouch first.
@@ -201,7 +211,7 @@ Counting rules:
 
 **Where.** A banker is an ordinary shop with `ShopDefinition.banker: true`. This follows the estate-agent pattern (`houseIds`) and the existing `shopId` link on `WorldTileDefinition`, so there is no new content type and no `ContentSnapshot` change. `ShopSummary.isBanker` lets the map label banker rooms. A banker shop may also sell items.
 
-**Travel-based access.** You can only use the bank while your party stands in a banker's room. Every bank request re-checks the party's current tile and fails with `bank_not_here` otherwise. There is no remote access, no access from inside a home view, and no access on dungeon floors, which aren't overworld tiles. The state push carries `bank?: ClientBankState` only while you're in a banker room. If the party moves away, it disappears and the client closes the bank screen.
+**Travel-based access.** You can only use the bank while your party stands in a banker's room. Every bank request re-checks the party's current tile and fails with `bank_not_here` otherwise. There is no remote access and no access on dungeon floors, which aren't overworld tiles. Being inside a home doesn't matter: homes are travel-based now, so the check is only the party's room. The state push carries `bank?: ClientBankState` only while you're in a banker room. If the party moves away, it disappears and the client closes the bank screen.
 
 **Shape.** There is one bank per player, `PlayerBank { tabs: Record<itemId,count>[] }`.
 
@@ -272,8 +282,9 @@ Server → client changes are fields on `ServerStateMessage` and `ClientCharacte
 | `character.bags?` | `(string \| null)[]` | `normalizeBagSlots` (absent → 4 empty) |
 | `lostAndFound?` | `Record<string, number>` | absent → `{}` |
 | `bank?` | `PlayerBank` | `normalizeBank` (absent → 1 empty tab) |
+| `starterBagGranted?` | `boolean` | absent → grant on load, then `true` |
 
-Derived stats are never saved. `toSaveData`/`fromSaveData` get the three fields. Bags that sit in bag slots are the only items that live outside both `inventory` and `equipment`, so `InventoryView.getOwnedCount`/`ownsItem` must learn about `bags` (server phase B). That keeps quest "have item" checks and room gates correct.
+Derived stats are never saved. `toSaveData`/`fromSaveData` get the four fields. Bags that sit in bag slots are the only items that live outside both `inventory` and `equipment`, so `InventoryView.getOwnedCount`/`ownsItem` must learn about `bags` (server phase B). That keeps quest "have item" checks and room gates correct.
 
 ## 6. Client UX
 
@@ -288,7 +299,7 @@ Derived stats are never saved. `toSaveData`/`fromSaveData` get the three fields.
   - The Compare block is shown when the viewer could equip the item.
 - **Stats sheet.** A Character-tab panel driven by `derivedStats`:
   - Four attributes with base + gear breakdown.
-  - Then HP, Damage (+ Attack range), Armor, Resist, Crit, Dodge.
+  - Then HP, Damage (+ Attack range), Armor, Resist, Crit, Dodge, Healing.
   - Tapping a stat explains its source in one line.
   - The View Player profile shows the same sheet, read-only.
 - **Bag bar.** Below the backpack grid:
@@ -327,6 +338,7 @@ The contract is merged first. Then:
 - **A. Stats.**
   - `getCombatInfo` and `getState` use `computeDerivedStats` and `derivedToEquipmentBonuses`.
   - `PartyCombatant` gets `critChance`/`dodgeChance`, read by `getCritChance` and the monster-attack and direct-damage dodge rolls.
+  - `PartyCombatant` also gets `healingMultiplier`, applied to the caster's direct heals and HoTs alongside `getHealPowerMultiplier`.
   - Add `ClientCharacterState.derivedStats` and the View Player sheet.
   - Update the `combat.md` class section, which says "no abstract stats".
 - **B. Inventory.**
@@ -335,6 +347,8 @@ The contract is merged first. Then:
   - `routeIncomingItems` for unattended adds.
   - Bag and pouch handlers.
   - `InventoryView` learns about bags.
+  - The starter bag: `starterBagGranted` save flag, the grant on load and on character creation, `ContentStore` making sure `STARTER_BAG_ITEM` exists, and a delete guard.
+  - The `items_lost` notify call, batched per battle.
 - **C. Bank.**
   - `PlayerSaveData.bank`.
   - A `BankService` for the four handlers with a banker-room check.

@@ -45,7 +45,8 @@ export type DerivedStatKey =
   | 'armor'
   | 'resist'
   | 'critChance'
-  | 'dodgeChance';
+  | 'dodgeChance'
+  | 'healing';
 
 export interface StatDeltaLine {
   key: DerivedStatKey;
@@ -135,6 +136,7 @@ export function statDelta(before: DerivedStats, after: DerivedStats, includeUnch
   rows.push(rangeRow('resist', 'Resist', before.resistMin, before.resistMax, after.resistMin, after.resistMax));
   rows.push(['critChance', 'Crit', before.critChance, after.critChance, percent(before.critChance), percent(after.critChance)]);
   rows.push(['dodgeChance', 'Dodge', before.dodgeChance, after.dodgeChance, percent(before.dodgeChance), percent(after.dodgeChance)]);
+  rows.push(['healing', 'Healing', before.healingMultiplier, after.healingMultiplier, bonusPercent(before.healingMultiplier), bonusPercent(after.healingMultiplier)]);
 
   const out: StatDeltaLine[] = [];
   for (const [key, label, b, a, beforeText, afterText] of rows) {
@@ -209,6 +211,11 @@ function pushRange(lines: ItemStatLine[], kind: ItemStatLineKind, label: string,
 
 function percent(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
+}
+
+function bonusPercent(multiplier: number): string {
+  const pct = Math.round((multiplier - 1) * 100);
+  return pct >= 0 ? `+${pct}%` : `${pct}%`;
 }
 
 function signed(value: number): string {

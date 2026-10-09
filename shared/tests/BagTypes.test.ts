@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   BACKPACK_BASE_SLOTS,
   LOST_AND_FOUND_SLOTS,
+  STARTER_BAG_ITEM,
   canAddToInventory,
+  grantStarterBag,
   claimFromPouch,
   equipBag,
   fitsInventoryChanges,
@@ -101,6 +103,28 @@ describe('bags', () => {
     const bags = ['sack', null, null, null];
     const inv = { ...fill(BACKPACK_BASE_SLOTS + 7), pouch: 1 };
     expect(equipBag(inv, bags, 0, 'pouch', ITEMS)).toEqual({ ok: false, error: 'bag_no_room' });
+  });
+});
+
+describe('starter bag', () => {
+  it('goes into the first empty bag slot', () => {
+    const bags = ['sack', null, null, null];
+    const inv: Record<string, number> = {};
+    expect(grantStarterBag(bags, inv)).toBe('bag_slot');
+    expect(bags[1]).toBe(STARTER_BAG_ITEM.id);
+    expect(inventoryCapacity(bags, { ...ITEMS, [STARTER_BAG_ITEM.id]: STARTER_BAG_ITEM })).toBe(BACKPACK_BASE_SLOTS + 8 + 12);
+  });
+
+  it('lands in the backpack when every bag slot is taken, even past capacity', () => {
+    const bags = ['sack', 'sack', 'sack', 'sack'];
+    const inv = fill(BACKPACK_BASE_SLOTS);
+    expect(grantStarterBag(bags, inv)).toBe('backpack');
+    expect(inv[STARTER_BAG_ITEM.id]).toBe(1);
+  });
+
+  it('is a valid bag', () => {
+    expect(isBag(STARTER_BAG_ITEM)).toBe(true);
+    expect(validateBagItem(STARTER_BAG_ITEM)).toBeNull();
   });
 });
 

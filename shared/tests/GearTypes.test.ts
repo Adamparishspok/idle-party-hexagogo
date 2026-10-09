@@ -52,6 +52,13 @@ describe('compareEquip', () => {
     expect(lines.find(l => l.key === 'damage')).toMatchObject({ before: '5', after: '6', delta: 1 });
     expect(lines.find(l => l.key === 'strength')?.delta).toBe(3);
   });
+
+  it('shows Intellect gear as a healing bonus', () => {
+    const items: Record<string, ItemDefinition> = { tome: { id: 'tome', name: 'Tome', rarity: 'rare', equipSlot: 'relic', attributes: { intellect: 12 } } };
+    const lines = compareEquip({ className: 'Priest', level: 10, equipment: { relic: null }, items }, 'tome');
+    expect(lines.find(l => l.key === 'healing')).toMatchObject({ before: '+0%', after: '+50%', delta: 0.5 });
+    expect(lines.find(l => l.key === 'damage')).toMatchObject({ before: '12', after: '18' });
+  });
 });
 
 describe('describeItemStats', () => {

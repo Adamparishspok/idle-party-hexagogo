@@ -57,6 +57,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
   { eventKey: 'friend_request_received', category: 'friend', label: 'New friend request', defaultChannels: ['in_app'] },
   { eventKey: 'friend_request_accepted', category: 'friend', label: 'Friend request accepted', defaultChannels: ['in_app'] },
   { eventKey: 'home_invite', category: 'friend', label: 'Invited to visit a home', defaultChannels: ['in_app'] },
+  { eventKey: 'items_lost', category: 'system', label: 'Loot lost — bags and Lost & Found were full', defaultChannels: ['in_app'] },
 ];
 
 export function getNotificationEventDefinition(eventKey: string): NotificationEventDefinition | undefined {

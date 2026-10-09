@@ -38,7 +38,8 @@ describe('class base attributes', () => {
   it('put only Stamina and the primary attribute on a naked class', () => {
     expect(classBaseAttributes(10, 'Archer')).toEqual({ strength: 0, agility: 33, intellect: 0, stamina: 17 });
     expect(classBaseAttributes(20, 'Knight')).toEqual({ strength: 40, agility: 0, intellect: 0, stamina: 72 });
-    expect(CLASS_ATTRIBUTE_PROFILES.Bard.primary).toBe('agility');
+    expect(CLASS_ATTRIBUTE_PROFILES.Bard.primary).toBe('intellect');
+    expect(classBaseAttributes(10, 'Bard')).toEqual({ strength: 0, agility: 0, intellect: 20, stamina: 19 });
   });
 });
 
@@ -92,6 +93,27 @@ describe('derived stats', () => {
     expect(computeSetAttributes(equipment, sets, 'Priest').stamina).toBe(10);
     const stats = computeDerivedStats({ className: 'Priest', level: 1, equipment, items: ITEMS, sets });
     expect(stats.maxHp).toBe(Math.floor((20 + 15 * 1.5) * 1.1));
+  });
+});
+
+describe('healing', () => {
+  const tome: Record<string, ItemDefinition> = { tome: { id: 'tome', name: 'Tome', rarity: 'rare', equipSlot: 'relic', attributes: { intellect: 36 } } };
+
+  it('is unchanged naked', () => {
+    for (const className of ALL_CLASS_NAMES) {
+      expect(computeDerivedStats({ className, level: 20, equipment: {}, items: tome }).healingMultiplier).toBe(1);
+    }
+  });
+
+  it('grows a Priest’s heals by the same percentage as its damage', () => {
+    const naked = computeDerivedStats({ className: 'Priest', level: 20, equipment: {}, items: tome });
+    const geared = computeDerivedStats({ className: 'Priest', level: 20, equipment: { relic: 'tome' }, items: tome });
+    expect(geared.healingMultiplier).toBeCloseTo(geared.damage / naked.damage, 5);
+  });
+
+  it('comes from gear Intellect for any class', () => {
+    const knight = computeDerivedStats({ className: 'Knight', level: 20, equipment: { relic: 'tome' }, items: tome });
+    expect(knight.healingMultiplier).toBeCloseTo(1 + 18 / 20);
   });
 });
 
