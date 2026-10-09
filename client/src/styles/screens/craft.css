@@ -302,9 +302,6 @@
 .cr-item.is-noart .cr-item__initials {
   display: flex;
 }
-/* The kit maps common→legendary; the game also has janky and heirloom. */
-.gc-item[data-rarity="janky"] { --rarity: #6f6a62; }
-.gc-item[data-rarity="heirloom"] { --rarity: #e9bc18; }
 
 /* ── Recipe list ─────────────────────────────────────────── */
 

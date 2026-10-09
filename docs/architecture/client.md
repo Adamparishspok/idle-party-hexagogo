@@ -73,49 +73,98 @@ Each player has a `PlayerSession` with character state, unlocks, combat log, and
 
 **Parchment**: a fixed 8000×8000 plane at z=0 with the tiled parchment texture. Each frame its world position is set to `camWorld × (1 − 0.3)` so it follows the camera at 70% rate — i.e. apparent shift on screen is only 30% of the world's, giving the "deeper" parallax feel. The texture is **per-map** (`/parchment-artwork/{mapId}.png`, uploaded in the admin Maps tab): `loadParchment(mapId)` loads it on init and reloads on map switch, discarding stale loads if the map changes mid-fetch.
 
-## RoomView (replaces TileInfoModal)
+## RoomView
 
-Clicking a tile opens `client/src/ui/RoomView.ts` with three states:
+Clicking a tile opens `client/src/ui/RoomView.ts` (styles in `styles/screens/map.css`). It has three states:
 
-- **Current room (you're here)** — near-full-screen, background image (`/room-bg-artwork/{zoneId}-{col}-{row}.png` with `/room-bg-artwork/{zoneId}.png` fallback), party-grouped player list (your party in a gold-bordered box, then one bordered box per other party), shop/talk affordances, click any player to open the user popup.
-- **Remote room (discovered)** — smaller centered popup with name/type, the same party-grouped player list (when other parties' players are on the tile), and a "Go to room" button.
-- **Undiscovered** — same small popup with an "unexplored" hint.
+- **Current room** — a full-screen "place" view inside `#screen-map`.
+  - It sits at z 400, deliberately outside `ModalStack`, so the nav, chat and perch stay on top. Its bottom padding clears `--perch-height`.
+  - Backdrop chain: `/room-bg-artwork/{zone}-{col}-{row}.png` → `/room-bg-artwork/{zone}.png` → `/zone-artwork/{zone}.png`, painted over a CSS dusk scene.
+  - Shows the outlined room name, the zone, and a "You are here" pill.
+  - Parties render as cards of portrait frames. Your party lists you first, passed in by MapScreen via `roomView.self` because you aren't in `otherPlayers`.
+  - Actions are kit buttons in the order Talk → Shop → Enter dungeon → Enter {destination}; the first is the gold primary.
+- **Remote room (discovered)** — a `.gc-modal` parchment preview. The room name sits on the title tab, with what's known about the room, small party cards, and a gold "Travel here" primary.
+- **Undiscovered** — the same preview with an "unexplored" note.
 
-Grouping logic lives in `RoomView.groupPlayersByParty` and depends on `partyId` arriving on each `OtherPlayerState`. Each rendered tile passes through `renderPartyBox(members, label, partyClass)`.
+Grouping logic lives in `RoomView.groupPlayersByParty` and depends on `partyId` arriving on each `OtherPlayerState`.
 
-Travelling from a remote-room view to your party arriving at that tile triggers an arrival expand animation (`.room-view-arrival` class with timed CSS transition). Shop, NPC, and dungeon affordances on the current-room view are gated on `playerOnTile && state?.shopDefinition` / `tileDef?.npcId` / `tileDef?.dungeonId` respectively — wired in `MapScreen.setOnTileClick`.
+Travelling from a remote-room preview until your party arrives at that tile plays an arrival expand animation. Shop, NPC, dungeon and transition actions only appear in the current room (`playerOnTile && state?.shopDefinition` / `tileDef?.npcId` / `tileDef?.dungeonId` / `transitions`).
+
+**Room popups.** `NpcTalkPopup`, `ShopPopup` and `DungeonEntryPopup` are `.gc-modal` parchment dialogs. They draw items with `renderKitItem()` (`ui/KitItem.ts`), which falls back to an emoji or initials glyph when art is missing.
+- NpcTalkPopup follows the quest-dialog layout: round portrait, objective lines in the accent colour, a Rewards divider with item/XP/gold frames, and the action as the bottom-edge primary. It shows one quest in full and lists the NPC's other quests as rows that switch focus.
+- ShopPopup has Buy/Sell tabs and a grid of item frames with prices. The detail view has a −/+/Max stepper and an outlined total that turns red when you can't afford it.
 
 ## Dungeons (client)
 
-When the current room is linked to a dungeon (`tileDef.dungeonId`, looked up via `WorldCache.getDungeon(id)` — catalog fetched once from `GET /api/dungeons`), `RoomView` shows an "Enter {name}" button. Tapping it opens `DungeonEntryPopup` (flavor, floor count, requirements preview, eject warning); confirming sends `enter_dungeon`. Entry is server-authoritative — failures come back as an `error` message. While inside a dungeon, `ServerStateMessage.dungeon` (`DungeonRunInfo`) is set: `CombatScreen` swaps the run bar for an in-dungeon banner (dungeon name + "Floor X / Y" + a "Leave Dungeon" button, owner/leader-gated like Run), and `MapScreen.tryMove` blocks overworld travel until the party bails out. See `docs/architecture/content.md` → Dungeon system for the server side.
+When the current room is linked to a dungeon (`tileDef.dungeonId`, looked up via `WorldCache.getDungeon(id)` — catalog fetched once from `GET /api/dungeons`), `RoomView` shows an "Enter {name}" button. Tapping it opens `DungeonEntryPopup` (flavor, floor count, requirements preview, eject warning); confirming sends `enter_dungeon`. Entry is server-authoritative — failures come back as an `error` message. While inside a dungeon, `ServerStateMessage.dungeon` (`DungeonRunInfo`) is set: `CombatScreen` replaces its Run button with a dungeon pill at the top of the battlefield (dungeon name + "Floor X / Y" + a "Leave Dungeon" button, owner/leader-gated like Run), and `MapScreen.tryMove` blocks overworld travel until the party bails out. See `docs/architecture/content.md` → Dungeon system for the server side.
 
 ## Multi-map travel (client)
 
 The client renders only the map the party is on. `ServerStateMessage.currentMapId` drives `WorldCache.setCurrentMap`; when it changes, `ThreeWorldMap` rebuilds its grid from the new map's tiles, recenters the camera, snaps the party sprite (no tween across the discontinuity), and filters the other-player flag overlay to that map (`OtherPlayerState.mapId`). When the current room has `transitions`, `RoomView` shows one "Enter {destination}" button per exit (destination names resolved via `WorldCache.getTileByGuid`); tapping one sends `enter_transition` with that target `tileId` (owner/leader-gated, blocked inside a dungeon). No confirm popup — transitions have no requirements. See `docs/architecture/content.md` → Multi-map for the server side. (A zoomed-out overworld/map-select for players is out of scope — issue #168.)
 
-## Inventory screen (merged Char + Items)
+## Character screen (merged Char + Items)
 
-`CharItemsScreen` is a single scrollable column containing the old Char and Items screens together: hero card with class portrait (loaded from `/class-artwork/{class}.png`), equipped gear, skill loadout (slots per the class's content-driven slot schedule, fetched via `WorldCache.getSlotSchedule`; clicking opens a popup with all unlocked skills of the matching type plus any skills currently granted by equipped items/sets — no auto-shuffle on placement), condensed stat card (ATK/DR/MR/HP with click-to-show tooltips), and inventory grid. Skill points are gone — skills auto-unlock at each skill's content-defined `unlockLevel`; equipping the slots is the only constraint. See `docs/architecture/content.md` → Skill system for the full content model.
+`CharItemsScreen` lives in container `#screen-items`, with styles in `styles/screens/character.css` (prefix `ci-`). The screen is one `.ci-scroll.screen-scroll` region holding a column of panels:
 
-The inventory grid groups items with visible headers when sorted by Rarity or Type (Newest stays chronological). Clicking an item opens a popup with full details and equip/unequip/drop actions.
+1. **Character sheet** — parchment, titled with the player's name.
+   - Equipment slots are `.gc-item` rarity frames in two columns around the class art.
+   - Outlined Health/Attack stats and a "Level N · Class" line.
+   - DR/MR/Gold chips that explain themselves on tap.
+   - The skill loadout strip, which opens the skill picker. Slots follow the class's content-driven slot schedule from `WorldCache.getSlotSchedule`.
+   - XP and an XP-per-hour counter, whose reset confirms in a kit modal.
+   - The class passive.
+2. **Mailbox and proposed-trade rows** — only shown when there are any.
+3. **Inventory panel** — parchment, with search, a Type/Rarity/Newest segmented sort (saved per user), and a grid of rarity frames grouped under dividers when sorted by Type or Rarity.
 
-Legacy sessionStorage `activeScreen=character` migrates to `items` on load.
+Item frames come from `renderItemFrame` / `renderEmptySlotFrame` (`ui/ItemIcon.ts`), and item details from `renderItemDetail` (`ui/ItemPopup.ts`); both are styled in `styles/screens/items.css`. Missing art shows the item's initials, never a placeholder image.
+
+Every popup (item details, destroy, inventory-full, skill picker) is a kit `.gc-modal`, one open at a time, registered with `ModalStack`. The legacy `renderItemIcon` / `renderItemPopupContent` and `styles/item-legacy.css` remain only for callers that haven't moved to the kit yet.
+
+Skill points are gone. Skills auto-unlock at each skill's content-defined `unlockLevel`, and equipping slots is the only constraint (see `content.md` → Skill system).
+
+## Craft screen
+
+`CraftingScreen.ts` (styles in `styles/screens/craft.css`, prefix `cr-`) builds a fixed skeleton once: a craft-skill header with a level medallion and an XP bar, then one `.screen-scroll` region holding the Workbench (queue) and Recipes sections.
+
+- **Rendering:** each region re-renders through a `setHtml` string diff, so state pushes that change nothing visible leave the DOM, scroll position and loaded art alone.
+- **Active job:** its progress bar, time left and whole-queue ETA are driven by a requestAnimationFrame loop from `activeProgress.startedAtMs`.
+- **Recipe rows:** buttons that open a kit `.gc-modal` parchment detail.
+  - The detail re-renders from each state push and uses `canQueueRecipe` to enable the gold Craft button or explain why not.
+  - It stays open so recipes can be queued repeatedly.
+- **Missing art:** item frames whose art fails switch to initials, and the failed id is remembered so it isn't re-requested.
 
 ## ChatPopout (global overlay)
 
-`client/src/ui/ChatPopout.ts` is mounted into `#chat-popout-root` (a `position: fixed; inset: 0; pointer-events: none` ancestor outside `#app`). On desktop: floating window with grabbable header, freely resizable, geometry persisted to `localStorage['chatPopoutGeometry']`; clamped to viewport. On mobile: full-screen or fixed bottom-sheet (toggle via the popup's layout button; preference persisted to `chatPopoutMobileLayout`).
+`client/src/ui/ChatPopout.ts` (styles in `styles/screens/chat.css`) is mounted into `#chat-popout-root`, a `position: fixed; inset: 0; pointer-events: none` ancestor outside `#app`.
 
-Mobile sheet mode also sets `body.dataset.chatLayout = 'sheet'` so the screen container can dock — when both `data-chat-open="1"` and `data-chat-layout="sheet"` are set, `#screen-container` flex-shrinks by `chat-sheet-height + nav-height + xpbar-height` and `#persistent-xp-bar` gets `margin-top: auto` so the nav+xpbar pin to the actual viewport bottom. The result is that chat slots cleanly between screen content and nav instead of overlaying them. Drop shadows are removed on mobile so the chat reads as a top-level layout bar.
+**Desktop:** a floating slate window with a draggable header and a resize grip. Geometry persists to `localStorage['chatPopoutGeometry']` and is clamped to the viewport. The layout button maximises the window above `--chrome-bottom`.
 
-Filters per channel (color-coded), unified timeline with timestamps. Sender names and channel tags are clickable: sender opens the user popup via `setOnUserClick`, tag switches the composer send channel (DMs auto-fill the target with the "other party"). Server-channel messages render as plain spans (no popup, no channel switch).
+**Mobile:** either a bottom sheet docked at `--chrome-bottom` or full screen (`chatPopoutMobileLayout`). Sheet mode sets `body[data-chat-layout="sheet"]`, so `#screen-container` shrinks by `--chat-sheet-height + --chrome-bottom` and the chrome stays pinned to the bottom of the viewport. While the sheet is docked, the combat screen hides its log feed.
+
+**Timeline:**
+- Channel filters are `.gc-chip` toggles.
+- Messages render as grouped bubbles: same sender, channel and thread within 3 minutes share one header row of sender, channel tag and time.
+- Your own messages are right-aligned in gold; server lines are centred and not clickable; day dividers are pills.
+- The sender name opens the user popup via `setOnUserClick`. The channel tag switches the composer's send channel, and for DMs fills in the other player as the target.
+
+**Scrolling:** the feed sticks to the bottom only while you're within 80px of it; otherwise a "New messages" pill appears. Opening, changing filters, or sending your own message always snaps to the bottom.
+
+**Composer:** a channel `<select>` styled as a chip, a `.gc-input`, and a green Send `.gc-btn`, all 56px tall. Incoming messages append without re-rendering, so focus and typed text are preserved.
 
 Whenever the popout is open with `dm` selected as the send channel, it reports that thread to `ChatFocusTracker` (`client/src/network/ChatFocusTracker.ts`) so the server suppresses DM notifications for it — see [`notifications.md`](notifications.md).
 
 ## NotificationCenter (global overlay)
 
-`client/src/ui/NotificationCenter.ts` is mounted into `#notification-center-root` (another fixed root outside `#app`, alongside `#chat-popout-root`), so — like `ChatPopout` — it survives every screen switch. A bell button fixed at top-right shows an unread-count badge; clicking it opens a dropdown (via `ModalStack`) listing the inbox newest-first. Each row's main area marks it read on click and, for party/friend-request/DM notifications, navigates to the relevant screen; a small "×" per row dismisses (permanently removes) it, and the header has "Mark all read" plus a confirm-gated "Clear all". Live pushes (`GameClient.onNotification`) also spawn an auto-dismissing toast in a separate fixed stack, sharing the same mark-read/navigate click behavior, independent of whether the dropdown is open. Full details in [`notifications.md`](notifications.md).
+`client/src/ui/NotificationCenter.ts` (styles in `styles/screens/notifications.css`) is mounted into `#notification-center-root`, so it survives every screen switch. The bell button's own styling lives in `game-chrome.css`: a 44px octagon with an SVG bell, sitting in the top HUD.
 
-Notification channel/category preferences are a modal opened from a new "Notifications" button on `SettingsScreen` (`client/src/ui/NotificationPreferences.ts`) — a category × channel checkbox grid following the same visual language as the existing Player Options popup.
+**Dropdown.** Clicking the bell opens a slate dropdown, promoted via `ModalStack`.
+- **Header:** a title and `.gc-close`, then "Mark all read" (steel) and a confirm-gated "Clear all" (red). Both are disabled when there's nothing to act on.
+- **Rows:** `.gc-row` entries, newest first, with an octagon category icon (`.gc-octicon`), title, body, relative time, and a gold unread dot. Tapping a row marks it read and navigates for party, friend-request and DM notifications. A 44px "×" dismisses it permanently.
+- **Rendering:** the list only rebuilds when its entries, read state, or the minute change. Escape closes the dropdown.
+
+**Toasts.** Live pushes (`GameClient.onNotification`) spawn slide-in toast cards with a 6s draining lifetime bar. Tapping a toast marks it read and navigates; its "×" only hides the toast.
+
+Notification channel/category preferences are a parchment modal opened from Settings → Notifications (`client/src/ui/NotificationPreferences.ts`), built from `.gc-switch` toggles. Full details in [`notifications.md`](notifications.md).
 
 ## Combat screen
 
@@ -165,21 +214,59 @@ Cube coordinates (q, r, s) where q + r + s = 0, flat-top hexagons, HEX_SIZE = 40
 
 Hex distance heuristic with cross-track tie-breaker.
 
-## Other players on map
+## Map overlay (markers, controls)
 
-Each state message includes `otherPlayers: { username, col, row, mapId?, zone, className?, partyId?, inDungeon?, dungeonName? }[]`. Players on a different map than the viewer are filtered out (so co-located `col,row` on another map don't render). `ThreeWorldMap` renders party flags per occupied tile in the same zone (deterministic color hash so distinct parties read distinctly), and a "+N" badge on the player's own tile so other-room players aren't hidden behind the party bubble. Positions update on each player's own battle cycle. `partyId` flows through to `TileClickInfo.playersHere` so `RoomView` can group co-located players into one box per party. A party delving a dungeon stays parked at the entrance tile; `inDungeon`/`dungeonName` drive a 🗝️ marker on that tile's flag (`.three-map-dungeon-key`) and a "🗝️ Delving {name}" tag on the party's box in the room popup, so it reads as "inside" rather than "standing around."
+Each state message includes `otherPlayers: { username, col, row, mapId?, zone, className?, partyId?, inDungeon?, dungeonName? }[]`. Players on a different map than the viewer are filtered out.
 
-## Zoom controls
+The map overlay (`.wm-overlay`, styles in `styles/screens/map.css`) hosts WorldQuest-style portrait markers.
 
-Mobile-friendly +/− zoom buttons on the map screen, wired to `CanvasWorldMap.adjustZoom()`.
+**Your party.** Your class portrait in a gold octagon frame, with:
+- a level pip and your outlined name;
+- a "+N" pip for other players in the room;
+- a fighting ping or defeat state, driven by `data-visual`.
+
+**Other parties.** One marker per occupied room in the current zone: the first player's portrait, with the frame tinted by a per-room hue, plus a count pip. A key pip shows while that party is delving the room's dungeon (`inDungeon` / `dungeonName`).
+
+**Behaviour:**
+- Markers counter-scale via `--wm-marker-scale` (1/zoom) so they stay a fixed screen size.
+- `handleClick` resolves taps on a marker to that marker's room before falling back to the hex hit-test.
+- The other-party layer is rewritten only when its markup changes.
+
+**Controls.** MapScreen adds kit steel zoom in / zoom out / recentre buttons. A perch-row Room button calls `ThreeWorldMap.openCurrentRoom()` and turns gold when the current room has a shop, NPC, dungeon or transition.
+
+The WebGL tile rendering (hex bake, parchment, tile art) is unchanged and due for its own painted-map design pass (`ideas/ui-revamp-worldquest.md`).
+
+## Title screen and out-of-game flow
+
+The out-of-game screens share a title-screen shell in `client/src/ui/TitleShell.ts`. They are Login, Username, Verify, Approve, Offline and Suspended.
+
+- `titleShellHtml()` wraps a screen's card markup in:
+  - a CSS-painted backdrop;
+  - the game logo (`/logo-artwork/idle-party.png`, with an outlined wordmark fallback);
+  - a parchment card.
+- `setTitleStatus()` drives the status seal, and `setButtonBusy()` handles button loading states.
+- These screens toggle state with the `hidden` attribute. The shell's one scroll region is padded for safe-area insets, because there's no nav or perch before entering the game.
+
+ClassSelectScreen reuses the backdrop (`TITLE_BACKDROP_HTML`) with a scroll-snap carousel that becomes a grid on desktop.
+
+Settings rows are big `.gc-row`-style buttons. Settings popups use `.gc-modal`, and boolean settings use the `.gc-switch` toggle. The shared back header (`#screen-header`) is styled in `styles/screens/screen-header.css`.
 
 ## Desktop font scaling
 
-`@media (min-width: 768px)` media query increases font sizes for all UI elements on desktop. A four-tier font-size scale (`--fs-xs/sm/md/lg`) drives sizing globally with mobile/desktop overrides.
+The type scale in `tokens.css` is mobile-first and doesn't change on desktop. Screens widen their layouts at `min-width: 768px` instead: grids gain columns and content is capped to a readable width.
 
 ## Visual style
 
-Pixel/retro RPG — Silkscreen body font + Pixelify Sans display font (replaced Press Start 2P in the May overhaul; the new fonts fix the 6/G readability problem). CSS custom properties for theming, CSS keyframe animations for battle states, global `b, strong { font-weight: normal }` reset since bold was illegible at small pixel sizes. All UI is vanilla HTML/CSS (no framework).
+A painted-fantasy mobile-game look modelled on WorldQuest, at Rovio-level polish.
+
+- **Type:** Lilita One for display (titles, buttons, numbers) and Oswald for UI and body text. The floor is 13px and body text is 17px; display text gets an outline (`--text-stroke`).
+- **Tokens:** `client/src/styles/tokens.css`.
+- **Component kit:** `client/src/styles/components.css`, previewed in the dev-only `client/styleguide.html`.
+- **Shell:** `game-chrome.css`.
+- **Screens:** each screen has its own stylesheet under `client/src/styles/screens/`, imported from its TS module.
+- **Legacy:** `pixel-theme.css` keeps only rules no rebuilt screen has replaced yet (base layout, admin dashboard, a few shared item-grid rules). Each rebuild deletes its legacy section rather than overriding it.
+
+All UI is vanilla HTML/CSS (no framework). See `ideas/ui-revamp-worldquest.md` for the quality bar, remaining work, and the art list.
 
 ## Client UI state persistence
 

@@ -979,8 +979,8 @@
   text-shadow: none;
   color: inherit;
 }
-.soc-item[data-rarity="janky"] { --rarity: #808080; }
-.soc-item[data-rarity="heirloom"] { --rarity: #e9bc18; }
+.soc-item[data-rarity="janky"] { --rarity: var(--rarity-janky); }
+.soc-item[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
 button.soc-item:focus-visible {
   outline: 3px solid var(--gold-500);
   outline-offset: 2px;

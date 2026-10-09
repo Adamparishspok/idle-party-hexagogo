@@ -66,15 +66,18 @@ type scale was used in 4 places, and touch targets were routinely <40px.
 
 ### Screen order
 
+First pass complete (2026-10-08). Next: visual QA on real data, promote the per-screen `gc-` patterns into the kit, the painted world-map pass, and art.
+
+
 1. Combat (reference implementation) — **done**
-2. Character / inventory (parchment paper doll, item grid, skill loadout)
-3. Map + RoomView
-4. Popups: item, user, monster, NPC talk, shop, dungeon entry, trade, profile
-5. Social: party, guild, leaderboard
-6. Craft
-7. Chat pop-out + notifications
-8. Settings, notification preferences, patch notes
-9. Login, username, class select, offline, suspension
+2. Character / inventory (parchment paper doll, item grid, skill loadout) — **done**
+3. Map chrome + RoomView — **done** (painted map rendering still to do)
+4. Popups: item, user, monster, NPC talk, shop, dungeon entry, trade, profile — **done**
+5. Social: party, guild, leaderboard — **done**
+6. Craft — **done**
+7. Chat pop-out + notifications — **done**
+8. Settings, notification preferences, patch notes — **done**
+9. Login, username, class select, offline, suspension — **done**
 
 ## Art needed (generate when tooling is available)
 

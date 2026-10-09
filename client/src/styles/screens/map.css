@@ -30,10 +30,6 @@
 .gc-coin--sm { --coin: 16px; }
 .gc-coin--lg { --coin: 32px; }
 
-/* The game has two rarities the kit doesn't paint yet. */
-.gc-item[data-rarity="heirloom"] { --rarity: var(--gold-500); }
-.gc-item[data-rarity="janky"] { --rarity: #6d7480; }
-
 /* Emoji / initials painted on the frame when there's no item art. */
 .gc-item__glyph {
   position: absolute;
@@ -62,16 +58,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Kit close buttons are 44px; every close in this area meets the 48px floor. */
-.rv-place__close,
-.rv-preview .gc-close,
-.npc-modal .gc-close,
-.dg-modal .gc-close,
-.shop-modal .gc-close {
-  width: var(--tap-min);
-  height: var(--tap-min);
 }
 
 /* ── Map screen shell ──────────────────────────────────────── */
@@ -1330,8 +1316,8 @@
 .shop-detail__rarity[data-rarity="rare"] { --rarity: var(--rarity-rare); }
 .shop-detail__rarity[data-rarity="epic"] { --rarity: var(--rarity-epic); }
 .shop-detail__rarity[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
-.shop-detail__rarity[data-rarity="heirloom"] { --rarity: var(--gold-700); }
-.shop-detail__rarity[data-rarity="janky"] { --rarity: #6d7480; }
+.shop-detail__rarity[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
+.shop-detail__rarity[data-rarity="janky"] { --rarity: var(--rarity-janky); }
 
 /* Shared item stats render light-on-dark: sit them on a dark inset card. */
 .shop-detail__stats {

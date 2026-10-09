@@ -130,8 +130,8 @@
 
 .gc-close {
   position: relative;
-  width: 44px;
-  height: 44px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   padding: 0;
   border: 2px solid var(--ink-700);
   border-radius: var(--r-sm);
@@ -386,6 +386,8 @@
 .gc-item[data-rarity="rare"] { --rarity: var(--rarity-rare); }
 .gc-item[data-rarity="epic"] { --rarity: var(--rarity-epic); }
 .gc-item[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
+.gc-item[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
+.gc-item[data-rarity="janky"] { --rarity: var(--rarity-janky); }
 .gc-item--empty {
   --rarity: #6d7480;
 }

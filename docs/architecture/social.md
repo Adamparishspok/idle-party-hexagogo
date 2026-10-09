@@ -2,6 +2,18 @@
 
 The Social bottom-nav tab opens a **fly-out submenu** with three sub-views (Party, Guild, Leaderboard). Chat moved out of Social entirely in the May 2026 overhaul — it's now a global pop-out toggled from a dedicated **Chat** nav button (see [`client.md`](client.md) → ChatPopout).
 
+## Screen structure
+
+The Social screen (`client/src/screens/SocialScreen.ts`, styles in `client/src/styles/screens/social.css`) is built on the component kit.
+
+- **Tabs:** a `.gc-tabs` segmented control at the top switches Party / Guild / Leaderboard. It stays in sync with the bottom-nav fly-out through `setSubTab`, and carries live badges for pending party invites and incoming friend requests.
+- **Player rows:** `.gc-row` rows with an octagon class portrait (online dot, level badge) and a class · zone subtitle. The zone name comes from `WorldCache.getZoneName`. Tapping a row opens the player card.
+- **Empty states:** each one carries a single primary action (e.g. a solo party's "Find Adventurers" opens the Leaderboard filtered to Room).
+- **Formation editor:** mirrors the combat screen. Grid rows are lanes and grid column 2 is the front line, drawn on top facing the enemy.
+- **Leaderboard:** shows each player's overall rank by level, with medals for the top 3 and your own row highlighted. Search and filter chips are pinned above the scrolling list.
+- **Dialogs:** the player card (formerly the positioned user popup), View Player, trade and gift are parchment `.gc-modal` dialogs built on `openSocModal()` in `client/src/screens/social/`, closing on X, backdrop or Escape. Their logic lives in `TradeModal`, `GiftModal` and `ProfileModal` in that folder.
+- **Trades:** the trade bag is still snapshotted when the dialog opens (#342). The trade dialog follows state updates even when Social isn't the active screen.
+
 ## Sub-tabs
 
 ### Party (default)

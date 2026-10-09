@@ -116,6 +116,8 @@
   --rarity-rare: #3d8bff;
   --rarity-epic: #a35cff;
   --rarity-legendary: #ff9f1a;
+  --rarity-heirloom: #e9bc18;
+  --rarity-janky: #7a706a;
 
   /* ── Iron / steel (shell chrome, see game-chrome.css) ─── */
   --gc-iron-950: #121318;

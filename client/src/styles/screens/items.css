@@ -15,8 +15,8 @@
 :is(.gc-item-detail, .gc-rarity-text)[data-rarity="rare"] { --rarity: var(--rarity-rare); }
 :is(.gc-item-detail, .gc-rarity-text)[data-rarity="epic"] { --rarity: var(--rarity-epic); }
 :is(.gc-item-detail, .gc-rarity-text)[data-rarity="legendary"] { --rarity: var(--rarity-legendary); }
-:is(.gc-item, .gc-item-detail, .gc-rarity-text)[data-rarity="heirloom"] { --rarity: var(--gold-500); }
-:is(.gc-item, .gc-item-detail, .gc-rarity-text)[data-rarity="janky"] { --rarity: #7a706a; }
+:is(.gc-item, .gc-item-detail, .gc-rarity-text)[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
+:is(.gc-item, .gc-item-detail, .gc-rarity-text)[data-rarity="janky"] { --rarity: var(--rarity-janky); }
 
 /* Item name in its rarity color, outlined so pale tiers read on parchment. */
 .gc-rarity-text {
