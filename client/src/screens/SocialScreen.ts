@@ -91,6 +91,7 @@ export class SocialScreen implements Screen {
 
   /** Wired by App.ts to open the chat popout pre-filled for a DM target. */
   private onDmRequest?: (username: string) => void;
+  private onVisitHome?: (username: string) => void;
 
   private trade: TradeModal;
   private gift: GiftModal;
@@ -192,6 +193,10 @@ export class SocialScreen implements Screen {
   }
 
   /** Wire an external handler that opens the global chat popout to a DM. */
+  setOnVisitHome(cb: (username: string) => void): void {
+    this.onVisitHome = cb;
+  }
+
   setOnDmRequest(cb: (username: string) => void): void {
     this.onDmRequest = cb;
   }
@@ -316,6 +321,7 @@ export class SocialScreen implements Screen {
       actions.push(act('trade', 'Trade'));
     }
     actions.push(act('gift', 'Send Gift'));
+    actions.push(act('visit_home', 'Visit Home', 'steel'));
     actions.push(isBlocked ? act('unblock', 'Unblock', 'steel') : act('block', 'Block', 'red'));
 
     const modal = openSocModal({
@@ -358,6 +364,10 @@ export class SocialScreen implements Screen {
         case 'unblock': this.gameClient.sendUnblockUser(username); break;
         case 'trade': this.openTradeModal(username); break;
         case 'gift': this.openGiftModal(username); break;
+        case 'visit_home':
+          if (this.onVisitHome) this.onVisitHome(username);
+          else this.gameClient.sendEnterHome(username);
+          break;
       }
       this.dismissPopup();
     });

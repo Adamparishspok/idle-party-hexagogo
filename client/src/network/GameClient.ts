@@ -1,5 +1,5 @@
 import type { ServerStateMessage, ServerEquipBlockedMessage,
-  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage } from '@idle-party-rpg/shared';
+  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage } from '@idle-party-rpg/shared';
 
 const RECONNECT_DELAY = 2000;
 
@@ -550,6 +550,54 @@ export class GameClient {
 
   sendDismissHenchman(instanceId: string): void {
     this.sendRaw({ type: 'dismiss_henchman', instanceId });
+  }
+
+  // --- Housing ---
+
+  sendBuyHouse(houseId: string): void {
+    this.sendHousing({ type: 'buy_house', houseId });
+  }
+
+  sendSellHouse(): void {
+    this.sendHousing({ type: 'sell_house' });
+  }
+
+  /** Omit `owner` to open your own home. */
+  sendEnterHome(owner?: string): void {
+    this.sendHousing(owner ? { type: 'enter_home', owner } : { type: 'enter_home' });
+  }
+
+  sendLeaveHome(): void {
+    this.sendHousing({ type: 'leave_home' });
+  }
+
+  sendHomeStore(itemId: string, quantity: number): void {
+    this.sendHousing({ type: 'home_store', itemId, quantity });
+  }
+
+  sendHomeWithdraw(itemId: string, quantity: number): void {
+    this.sendHousing({ type: 'home_withdraw', itemId, quantity });
+  }
+
+  /** `itemId: null` returns the shelf's item to the chest. */
+  sendHomeDisplay(slot: number, itemId: string | null): void {
+    this.sendHousing({ type: 'home_display', slot, itemId });
+  }
+
+  sendCampfireSit(): void {
+    this.sendHousing({ type: 'campfire_sit' });
+  }
+
+  sendCampfireStand(): void {
+    this.sendHousing({ type: 'campfire_stand' });
+  }
+
+  sendHomeInvite(username: string): void {
+    this.sendHousing({ type: 'home_invite', username });
+  }
+
+  private sendHousing(msg: ClientHousingMessage): void {
+    this.sendRaw({ ...msg });
   }
 
   // --- Chat ---

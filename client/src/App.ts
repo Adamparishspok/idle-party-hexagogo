@@ -22,6 +22,8 @@ import { ChatPopout } from './ui/ChatPopout';
 import { PersistentXpBar } from './ui/PersistentXpBar';
 import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
+import { HomeView } from './ui/HomeView';
+import { WellRestedChip } from './ui/WellRestedChip';
 import { WelcomeBackModal } from './ui/WelcomeBackModal';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 import { wireGameSounds } from './audio/SoundEvents';
@@ -491,9 +493,12 @@ export class App {
       hud.setSettingsActive(id === 'settings');
       sessionStorage.setItem('activeScreen', id);
     };
-    const hud = new TopHud(this.gameClient, this.worldCache, () => goToRoot('settings'));
+    const home = new HomeView(document.getElementById('screen-container')!, this.gameClient);
+    socialScreen.setOnVisitHome((username) => home.requestEnter(username));
+    const hud = new TopHud(this.gameClient, this.worldCache, () => goToRoot('settings'), () => home.requestEnter());
     hud.setSettingsActive(savedScreen === 'settings');
     new PersistentXpBar(this.gameClient, () => goToRoot('items'));
+    new WellRestedChip(this.gameClient, this.xpBarEl);
 
     // Wire popout → nav so closing the popout from its own button clears the
     // overlay-active state, and unread mail lights up the Chat tab badge.
@@ -521,6 +526,9 @@ export class App {
           break;
         case 'dm_reply':
           socialScreen.startDm(target.username);
+          break;
+        case 'home':
+          home.requestEnter(target.owner);
           break;
         case 'none':
           break;

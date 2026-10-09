@@ -31,6 +31,21 @@ function categoryIcon(category: NotificationCategory): string {
   </span>`;
 }
 
+export type ClientNavigationTarget = NotificationNavigationTarget | { kind: 'home'; owner: string };
+
+const HOME_INVITE_OWNER_KEYS = ['owner', 'ownerUsername', 'fromUsername'] as const;
+
+/** Shared resolution plus client-only targets the shared resolver doesn't know yet (home invites). */
+export function resolveClientNavigation(entry: Pick<NotificationEntry, 'category' | 'eventKey' | 'payload'>): ClientNavigationTarget {
+  if (entry.eventKey === 'home_invite') {
+    for (const key of HOME_INVITE_OWNER_KEYS) {
+      const owner = entry.payload?.[key];
+      if (typeof owner === 'string' && owner) return { kind: 'home', owner };
+    }
+  }
+  return resolveNotificationNavigation(entry);
+}
+
 function relativeTime(ms: number): string {
   const diff = Date.now() - ms;
   const mins = Math.floor(diff / 60000);
@@ -61,7 +76,7 @@ export class NotificationCenter {
 
   constructor(
     private gameClient: GameClient,
-    private onNavigate: (target: NotificationNavigationTarget) => void,
+    private onNavigate: (target: ClientNavigationTarget) => void,
   ) {
     this.root = document.getElementById('notification-center-root')!;
 
@@ -247,7 +262,7 @@ export class NotificationCenter {
   private navigateFor(id: string): void {
     const entry = this.notifications.find(n => n.id === id);
     if (!entry) return;
-    const target = resolveNotificationNavigation(entry);
+    const target = resolveClientNavigation(entry);
     if (target.kind === 'none') return;
     this.onNavigate(target);
     this.closeDropdown();
@@ -278,7 +293,7 @@ export class NotificationCenter {
     };
     const activate = () => {
       this.gameClient.sendMarkNotificationRead(notification.id);
-      const target = resolveNotificationNavigation(notification);
+      const target = resolveClientNavigation(notification);
       if (target.kind !== 'none') this.onNavigate(target);
       dismiss();
     };

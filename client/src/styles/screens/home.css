@@ -1,0 +1,591 @@
+/* ── Home: a full-screen place over every screen, under the HUD, perch and nav ── */
+
+.home-place {
+  --hearth: #ff9a3c;
+  position: absolute;
+  inset: 0;
+  z-index: 450;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: calc(var(--hud-height) + env(safe-area-inset-top, 0px)) var(--s-4) calc(var(--perch-height) + var(--s-2));
+  overflow: hidden;
+  color: #fff;
+  /* Cosy CSS room until the house has interior art: timber walls, plank floor, hearth light. */
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 2px, transparent 2px 64px),
+    linear-gradient(180deg, #2b1a10 0%, #4a2e1b 52%, #3a2416 52.4%, #5a3a22 53%, #3b2414 100%);
+  animation: gc-fade-in var(--dur-med) var(--ease-out);
+}
+body[data-nav-depth]:not([data-nav-depth="1"]) .home-place {
+  display: none !important;
+}
+.home-place__bg,
+.home-place__glow,
+.home-place__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.home-place__bg {
+  z-index: -3;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.home-place__glow {
+  z-index: -2;
+  background: radial-gradient(ellipse 70% 45% at 50% 58%, rgba(255, 150, 60, 0.38) 0%, rgba(255, 120, 40, 0.12) 45%, transparent 75%);
+  transition: opacity var(--dur-med) var(--ease-out);
+  opacity: 0.8;
+}
+.home-place__glow.is-warm { opacity: 1; }
+.home-place__vignette {
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 100% 75% at 50% 55%, transparent 40%, rgba(0, 0, 0, 0.55) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, transparent 24%, transparent 55%, rgba(0, 0, 0, 0.7) 100%);
+}
+
+.home-place__head,
+.home-place__scroll,
+.home-place__actions,
+.home-place__notice {
+  width: 100%;
+  max-width: 560px;
+  margin-inline: auto;
+}
+.home-place__head {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0 56px;
+  text-align: center;
+}
+.home-place__badge {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, #ffd27a, #e0861e);
+  font-family: var(--display-font);
+  font-size: var(--t-caption);
+  line-height: 1.2;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+}
+.home-place__badge.is-visit {
+  background: linear-gradient(180deg, var(--teal-300, #7fe0e6), var(--teal-700, #1d6f78));
+}
+.home-place__name {
+  margin: 0;
+  font-family: var(--display-font);
+  font-weight: 700;
+  font-size: clamp(26px, 7.5vw, 38px);
+  line-height: 1.05;
+  color: #fff;
+  text-shadow: var(--text-stroke);
+  overflow-wrap: anywhere;
+}
+.home-place__close {
+  position: absolute;
+  top: calc(var(--hud-height) + env(safe-area-inset-top, 0px) + var(--s-2));
+  right: var(--s-3);
+  z-index: 2;
+}
+.home-place__notice {
+  flex-shrink: 0;
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--gold-700);
+  border-radius: var(--r-md);
+  background: rgba(20, 14, 8, 0.85);
+  font-size: var(--t-body);
+  text-align: center;
+  color: var(--gold-300);
+  animation: gc-pop-in 240ms var(--ease-spring);
+}
+
+.home-place__scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px var(--s-2);
+}
+
+.home-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--display-font);
+  font-size: var(--t-label);
+  color: var(--gold-300);
+  text-shadow: var(--text-stroke-sm);
+}
+
+/* ── Trophy shelf: framed slots standing on a wooden plank ── */
+
+.home-shelf {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.home-shelf__plank {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-3) 18px;
+}
+.home-shelf__plank::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  border: 2px solid var(--ink-900);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #a87344 0%, #7a4e2a 55%, #4e3018 100%);
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.home-shelf__slot {
+  cursor: default;
+}
+button.home-shelf__slot {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+button.home-shelf__slot:active { transform: scale(0.92); }
+button.home-shelf__slot:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+.home-shelf__plus {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.55);
+}
+.home-shelf__plus svg { width: 22px; height: 22px; }
+@media (hover: hover) {
+  button.home-shelf__slot:hover { --gc-frame-edge: var(--gc-frame-edge-gold); }
+}
+
+/* ── Hearth: the campfire with seated occupants in a ring ── */
+
+.home-hearth {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 4 / 3;
+  min-height: 220px;
+  margin: 0 auto;
+}
+.home-fire {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  width: 104px;
+  height: 120px;
+  transform: translate(-50%, -62%);
+}
+.home-fire__glow {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 220px;
+  height: 120px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 70%, rgba(255, 170, 70, 0.55) 0%, rgba(255, 110, 30, 0.2) 45%, transparent 70%);
+  animation: home-glow 2.4s ease-in-out infinite alternate;
+}
+.home-fire__flame {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  border-radius: 50% 50% 46% 46% / 62% 62% 38% 38%;
+  transform-origin: 50% 100%;
+}
+.home-fire__flame--back {
+  width: 74px;
+  height: 96px;
+  margin-left: -37px;
+  background: radial-gradient(ellipse at 50% 80%, #ff7a1a 0%, #e0461a 55%, rgba(160, 30, 10, 0) 72%);
+  animation: home-flicker 1.4s ease-in-out infinite alternate;
+}
+.home-fire__flame--mid {
+  width: 52px;
+  height: 74px;
+  margin-left: -26px;
+  background: radial-gradient(ellipse at 50% 80%, #ffd25a 0%, #ff9a2a 55%, rgba(255, 110, 30, 0) 75%);
+  animation: home-flicker 1.1s ease-in-out infinite alternate-reverse;
+}
+.home-fire__flame--core {
+  width: 28px;
+  height: 44px;
+  margin-left: -14px;
+  background: radial-gradient(ellipse at 50% 85%, #fffbe0 0%, #ffe48a 50%, rgba(255, 210, 90, 0) 78%);
+  animation: home-flicker 0.8s ease-in-out infinite alternate;
+}
+.home-fire__spark {
+  position: absolute;
+  left: 50%;
+  bottom: 50px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffd27a;
+  box-shadow: 0 0 6px #ff9a3c;
+  opacity: 0;
+  animation: home-spark 2.2s ease-out infinite;
+}
+.home-fire__spark:nth-of-type(5) { margin-left: -14px; animation-delay: 0.7s; }
+.home-fire__spark:nth-of-type(6) { margin-left: 12px; animation-delay: 1.4s; }
+.home-fire__log {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 92px;
+  height: 16px;
+  margin-left: -46px;
+  border: 2px solid var(--ink-900);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #8a5a32 0%, #5a3418 100%);
+}
+.home-fire__log--a { transform: rotate(14deg); }
+.home-fire__log--b { transform: rotate(-14deg); }
+.home-fire__stones {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 116px;
+  height: 22px;
+  margin-left: -58px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 10% 50%, #6b6f78 0 9px, transparent 10px),
+    radial-gradient(circle at 30% 70%, #565a63 0 9px, transparent 10px),
+    radial-gradient(circle at 50% 80%, #6b6f78 0 9px, transparent 10px),
+    radial-gradient(circle at 70% 70%, #565a63 0 9px, transparent 10px),
+    radial-gradient(circle at 90% 50%, #6b6f78 0 9px, transparent 10px);
+  z-index: -1;
+}
+.home-hearth.is-sitting .home-fire__glow {
+  width: 260px;
+}
+
+@keyframes home-flicker {
+  0% { transform: scale(1, 1) skewX(0deg); }
+  50% { transform: scale(0.94, 1.06) skewX(-3deg); }
+  100% { transform: scale(1.05, 0.95) skewX(3deg); }
+}
+@keyframes home-glow {
+  from { opacity: 0.75; }
+  to { opacity: 1; }
+}
+@keyframes home-spark {
+  0% { opacity: 0; transform: translate(0, 0); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate(6px, -70px); }
+}
+
+.home-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.home-occupant {
+  --mf: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: calc(var(--mf) + 24px);
+}
+.home-occupant .gc-portrait {
+  --portrait-size: var(--mf);
+}
+.home-occupant.is-sitting .gc-portrait {
+  filter: drop-shadow(0 0 8px rgba(255, 160, 60, 0.75));
+}
+.home-occupant__name {
+  max-width: 100%;
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-hint {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: var(--t-small);
+  line-height: 1.4;
+  text-align: center;
+  color: #f5e3c0;
+  text-shadow: var(--text-stroke-sm);
+}
+.home-rested {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 2px solid var(--ink-900);
+  background: linear-gradient(180deg, #4a3a78, #2a2050);
+  font-family: var(--display-font);
+  font-size: var(--t-small);
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  box-shadow: 0 0 10px rgba(255, 210, 120, 0.45);
+}
+.home-rested__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gold-300);
+  box-shadow: 0 0 6px var(--gold-500);
+}
+
+.home-gathered {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.home-gathered__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2) var(--s-3);
+}
+
+/* ── Chest (owner only) ── */
+
+.home-chest {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 2px solid rgba(245, 200, 66, 0.55);
+  border-radius: var(--r-lg);
+  background: rgba(24, 16, 10, 0.72);
+  backdrop-filter: blur(3px);
+}
+.home-chest__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.home-chest__count {
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-small);
+  color: #e2d6b8;
+  font-variant-numeric: tabular-nums;
+}
+.home-deposit-btn {
+  padding: 0 var(--s-4);
+}
+.home-chest__grid,
+.home-sheet__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  justify-items: center;
+  gap: var(--s-3) var(--s-2);
+}
+.home-chest__item,
+.home-sheet__grid .gc-item {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.home-chest__item:active,
+.home-sheet__grid .gc-item:active { transform: scale(0.92); }
+.home-chest__item:focus-visible,
+.home-sheet__grid .gc-item:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
+/* ── Actions pinned above the perch ── */
+
+.home-place__actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.home-place__row {
+  display: flex;
+  gap: var(--s-2);
+}
+.home-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-min);
+  padding: 0 var(--s-3);
+  gap: 6px;
+  font-size: var(--t-label);
+}
+.home-btn svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+/* ── Sheets over the home ── */
+
+.home-sheet__panel {
+  width: min(100%, 440px);
+}
+.home-sheet__notice {
+  flex-shrink: 0;
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--gold-700);
+  border-radius: var(--r-md);
+  background: rgba(245, 200, 66, 0.25);
+  font-size: var(--t-body);
+  text-align: center;
+  color: var(--parch-ink);
+}
+.home-sheet__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.home-sheet__lead {
+  margin: 0;
+  text-align: center;
+  color: var(--parch-ink-soft);
+}
+.home-sheet__hero {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.home-sheet__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.home-sheet__name {
+  margin: 0;
+  font-family: var(--display-font);
+  font-weight: 700;
+  font-size: var(--t-title);
+  line-height: 1.15;
+  color: var(--parch-ink);
+}
+.home-sheet__sub {
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+}
+.home-qty {
+  justify-content: center;
+}
+.home-invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.home-invite-send {
+  flex-shrink: 0;
+  padding: 0 var(--s-4);
+}
+.home-manage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  text-align: center;
+}
+.home-manage__art {
+  width: 120px;
+  height: 120px;
+}
+.home-manage__art .house-art__emoji { font-size: 64px; }
+.home-manage__facts {
+  justify-content: center;
+}
+.home-manage__refund {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--parch-ink);
+}
+.home-sell-question {
+  margin: 0;
+  font-family: var(--display-font);
+  font-size: var(--t-title);
+  color: var(--parch-ink);
+}
+
+/* Refusal toast when a home can't be entered (no view open to hold the message). */
+.home-toast {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--hud-height) + env(safe-area-inset-top, 0px) + var(--s-2));
+  z-index: 1200;
+  max-width: min(92vw, 420px);
+  transform: translateX(-50%);
+  padding: var(--s-2) var(--s-4);
+  border: 2px solid var(--gold-700);
+  border-radius: var(--r-md);
+  background: rgba(20, 14, 8, 0.92);
+  font-size: var(--t-body);
+  text-align: center;
+  color: var(--gold-300);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
+  animation: gc-fade-in var(--dur-med) var(--ease-out);
+}
+
+@media (min-width: 768px) {
+  .home-place { padding-inline: var(--s-6); }
+  .home-occupant { --mf: 64px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-place,
+  .home-place__notice,
+  .home-toast,
+  .home-fire__glow,
+  .home-fire__flame,
+  .home-fire__spark {
+    animation: none;
+  }
+  .home-fire__spark { display: none; }
+  .home-place__glow,
+  button.home-shelf__slot,
+  .home-chest__item,
+  .home-sheet__grid .gc-item {
+    transition: none;
+  }
+}
