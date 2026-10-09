@@ -3,7 +3,9 @@
  * (player card, View Player, trade, gift). Built on the kit (components.css);
  * see SocialScreen.ts and screens/social/ for the markup.
  *
- * Prefix: `soc-`. Patterns worth promoting to the kit are marked PROMOTE.
+ * Prefix: `soc-`. Tags, portraits, empty states, chips, steppers, item
+ * frames and the modal footer come from the kit. Patterns still worth
+ * promoting are marked PROMOTE.
  */
 
 #screen-social {
@@ -206,148 +208,6 @@
   flex: 0 0 auto;
 }
 
-/* PROMOTE: .gc-tag — small status pill (You / Friend / Leader / Blocked). */
-.soc-tag {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 var(--s-2);
-  border-radius: var(--r-pill);
-  border: 2px solid var(--ink-900);
-  font-family: var(--display-font);
-  font-size: var(--t-caption);
-  line-height: 1;
-  color: #fff;
-  text-shadow: var(--text-stroke-sm);
-  white-space: nowrap;
-  background: linear-gradient(180deg, #8b93a3, #555c6b);
-}
-.soc-tag--gold { background: linear-gradient(180deg, #ffe58a, #e09a1e); }
-.soc-tag--green { background: linear-gradient(180deg, var(--green-300), var(--green-700)); }
-.soc-tag--red { background: linear-gradient(180deg, var(--red-300), var(--red-700)); }
-.soc-tag--teal { background: linear-gradient(180deg, var(--teal-300), var(--teal-700)); }
-
-/* ── Portrait (octagon class-portrait frame) ─────────────────
-   PROMOTE: .gc-portrait — .gc-frame + clipped art over an initial, with an
-   online dot and corner level badge. */
-
-.soc-portrait {
-  --size: 52px;
-  position: relative;
-  flex-shrink: 0;
-  display: inline-block;
-  width: var(--size);
-  height: var(--size);
-}
-.soc-portrait--md { --size: 64px; }
-.soc-portrait--lg { --size: 80px; }
-.soc-portrait--xl { --size: 104px; --gc-frame-w: 4px; }
-.soc-portrait.is-self { --gc-frame-edge: var(--gc-frame-edge-gold); }
-.soc-portrait__initial,
-.soc-portrait__img {
-  position: absolute;
-  inset: var(--gc-frame-w);
-  width: calc(100% - 2 * var(--gc-frame-w));
-  height: calc(100% - 2 * var(--gc-frame-w));
-  clip-path: var(--gc-octagon);
-}
-.soc-portrait__initial {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--display-font);
-  font-size: calc(var(--size) * 0.46);
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.75);
-  text-shadow: var(--text-stroke-sm);
-}
-.soc-portrait__img {
-  object-fit: cover;
-  object-position: top;
-}
-.soc-portrait__level {
-  position: absolute;
-  right: -6px;
-  bottom: -6px;
-  min-width: 28px;
-  height: 28px;
-  font-size: var(--t-caption);
-}
-.soc-portrait--xl .soc-portrait__level {
-  min-width: 36px;
-  height: 36px;
-  font-size: var(--t-small);
-}
-.soc-dot {
-  position: absolute;
-  left: -2px;
-  bottom: -2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 3px solid var(--ink-900);
-  background: #6d7480;
-}
-.soc-dot.is-online {
-  background: radial-gradient(circle at 35% 30%, var(--green-300), var(--green-500) 70%);
-  box-shadow: 0 0 6px rgba(158, 240, 122, 0.7);
-}
-.soc-portrait--xl .soc-dot {
-  width: 22px;
-  height: 22px;
-  left: 2px;
-  bottom: 2px;
-}
-
-/* ── Empty states ────────────────────────────────────────── */
-/* PROMOTE: .gc-empty — emblem + headline + line + one primary action. */
-
-.soc-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--s-2);
-  padding: var(--s-5) var(--s-4);
-  border-radius: var(--r-lg);
-  border: 2px dashed var(--slate-500);
-  background: radial-gradient(ellipse at 50% 0%, rgba(245, 200, 66, 0.1) 0%, transparent 65%), rgba(28, 32, 41, 0.6);
-  text-align: center;
-  animation: soc-rise var(--dur-med) var(--ease-out);
-}
-.soc-empty__emblem {
-  width: 80px;
-  height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: var(--s-1);
-  --gc-frame-edge: var(--gc-frame-edge-gold);
-}
-.soc-empty__emblem > span {
-  display: flex;
-  width: 44px;
-  height: 44px;
-  color: var(--gold-300);
-}
-.soc-empty__emblem svg {
-  width: 100%;
-  height: 100%;
-}
-.soc-empty__title {
-  font-family: var(--display-font);
-  font-size: var(--t-title);
-  line-height: 1.15;
-  color: #fff;
-  text-shadow: var(--text-stroke-sm);
-}
-.soc-empty__body {
-  max-width: 34ch;
-  margin: 0 0 var(--s-2);
-  font-size: var(--t-body);
-  line-height: 1.4;
-  color: #c3cbdb;
-}
-
 /* ── Formation (3×3 party grid) ──────────────────────────── */
 
 .soc-formation {
@@ -454,8 +314,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.soc-cell .soc-portrait {
-  --size: 44px;
+.soc-cell .gc-portrait {
+  --portrait-size: 44px;
 }
 .soc-cell__role {
   position: absolute;
@@ -575,46 +435,9 @@
   align-items: center;
   gap: var(--s-2);
 }
-/* PROMOTE: .gc-chips / .gc-chip — scrollable toggle-chip filter row. */
-.soc-chips {
+/* Filter chips (kit .gc-chips) take the row's spare width. */
+.soc-lb__chips {
   flex: 1;
-  min-width: 0;
-  display: flex;
-  gap: var(--s-1);
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-.soc-chips::-webkit-scrollbar {
-  display: none;
-}
-.soc-chip {
-  flex-shrink: 0;
-  min-height: var(--tap-min);
-  padding: 0 var(--s-3);
-  border: 2px solid var(--slate-500);
-  border-radius: var(--r-pill);
-  background: var(--slate-800);
-  font-family: var(--display-font);
-  font-size: var(--t-small);
-  color: #a9b3c7;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast);
-}
-.soc-chip:active {
-  transform: translateY(1px) scale(0.97);
-}
-.soc-chip:focus-visible {
-  outline: 3px solid var(--gold-300);
-  outline-offset: 2px;
-}
-.soc-chip[aria-pressed="true"] {
-  border-color: var(--ink-900);
-  background: linear-gradient(180deg, var(--wood-300), var(--wood-500));
-  color: #fff6df;
-  text-shadow: var(--text-stroke-sm);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 0 var(--wood-900);
 }
 .soc-sort {
   flex-shrink: 0;
@@ -689,24 +512,6 @@
   gap: var(--s-3);
   padding: var(--s-2) 2px;
 }
-/* PROMOTE: .gc-modal__footer — pinned in-panel action stack for dialogs
-   with more buttons than the overlapping .gc-modal__actions row holds. */
-.soc-modal__footer {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  padding-top: var(--s-3);
-}
-.soc-modal__footer:empty {
-  display: none;
-}
-.soc-modal__footer-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: var(--s-2);
-}
-
 .soc-hero {
   display: flex;
   flex-direction: column;
@@ -940,50 +745,8 @@
   font-size: var(--t-caption);
   color: var(--parch-ink-soft);
 }
-/* PROMOTE: .gc-stepper — −/qty/+ with 48px buttons. */
-.soc-stepper {
+.soc-pick .gc-stepper {
   grid-area: step;
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-}
-.soc-stepper__btn {
-  font-size: var(--t-title);
-  padding-bottom: 2px;
-}
-.soc-stepper__val {
-  min-width: 28px;
-  text-align: center;
-  font-family: var(--display-font);
-  font-size: var(--t-title);
-  color: var(--parch-ink);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Item frames: initial / emoji under the art, and the two rarities the
-   kit doesn't paint. PROMOTE the rarity pair into .gc-item. */
-.soc-item__initial {
-  position: absolute;
-  inset: var(--gc-frame-w);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--display-font);
-  font-size: var(--t-label);
-  color: rgba(255, 255, 255, 0.6);
-  text-shadow: var(--text-stroke-sm);
-  pointer-events: none;
-}
-.soc-item__emoji {
-  font-size: var(--t-heading);
-  text-shadow: none;
-  color: inherit;
-}
-.soc-item[data-rarity="janky"] { --rarity: var(--rarity-janky); }
-.soc-item[data-rarity="heirloom"] { --rarity: var(--rarity-heirloom); }
-button.soc-item:focus-visible {
-  outline: 3px solid var(--gold-500);
-  outline-offset: 2px;
 }
 
 /* ── View Player ─────────────────────────────────────────── */
@@ -1001,13 +764,6 @@ button.soc-item:focus-visible {
 }
 .soc-doll__col > :nth-child(6) {
   margin-top: var(--s-2);
-}
-.soc-doll__slot-label {
-  font-size: var(--t-caption);
-  color: rgba(255, 255, 255, 0.35);
-}
-.soc-doll__slot-icon {
-  opacity: 0.45;
 }
 .soc-doll__figure {
   position: relative;
@@ -1089,8 +845,8 @@ button.soc-item:focus-visible {
   align-items: center;
   gap: var(--s-3);
 }
-.soc-mini .soc-portrait {
-  --size: 44px;
+.soc-mini .gc-portrait {
+  --portrait-size: 44px;
 }
 .soc-mini__name {
   flex: 1;
@@ -1136,12 +892,10 @@ button.soc-item:focus-visible {
     animation-duration: 1ms;
   }
   .soc-section--alert,
-  .soc-empty,
   .soc-offer__item {
     animation: none;
   }
   .soc-cell,
-  .soc-chip,
   .soc-pick {
     transition: none;
   }
@@ -1159,8 +913,8 @@ button.soc-item:focus-visible {
   .soc-cell {
     min-height: 112px;
   }
-  .soc-cell .soc-portrait {
-    --size: 56px;
+  .soc-cell .gc-portrait {
+    --portrait-size: 56px;
   }
   .soc-cell__name {
     font-size: var(--t-small);

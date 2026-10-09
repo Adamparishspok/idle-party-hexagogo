@@ -183,7 +183,7 @@ export class TradeModal {
     `);
     modal.footer.innerHTML = `
       ${primary}
-      ${secondary.length ? `<div class="soc-modal__footer-row">${secondary.join('')}</div>` : ''}
+      ${secondary.length ? `<div class="gc-modal__footer-row">${secondary.join('')}</div>` : ''}
     `;
   }
 

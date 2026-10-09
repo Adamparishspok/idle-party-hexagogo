@@ -20,7 +20,7 @@ export class TopHud {
     this.container = document.getElementById('top-hud')!;
     this.container.innerHTML = `
       <div class="hud-currency" aria-label="Gold">
-        <span class="hud-currency-icon hud-gold-icon" aria-hidden="true"></span>
+        <span class="hud-currency-icon gc-coin" aria-hidden="true"></span>
         <span class="hud-currency-value">0</span>
       </div>
       <div class="hud-location">

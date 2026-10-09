@@ -38,10 +38,10 @@ export function pickerHtml(
         ${effect ? `<div class="soc-pick__effect">${esc(effect)}</div>` : ''}
       </div>
       <div class="soc-pick__have">Have ×${have}</div>
-      <div class="soc-stepper" role="group" aria-label="${esc(name)} quantity">
-        <button type="button" class="gc-btn gc-btn--steel gc-btn--icon soc-stepper__btn" data-action="${action}-dec" data-item-id="${esc(id)}" aria-label="One fewer"${sel === 0 ? ' disabled' : ''}>−</button>
-        <span class="soc-stepper__val" aria-live="polite">${sel}</span>
-        <button type="button" class="gc-btn gc-btn--green gc-btn--icon soc-stepper__btn" data-action="${action}-inc" data-item-id="${esc(id)}" aria-label="One more"${sel >= have ? ' disabled' : ''}>+</button>
+      <div class="gc-stepper" role="group" aria-label="${esc(name)} quantity">
+        <button type="button" class="gc-btn gc-btn--steel gc-btn--icon gc-stepper__btn" data-action="${action}-dec" data-item-id="${esc(id)}" aria-label="One fewer"${sel === 0 ? ' disabled' : ''}>−</button>
+        <span class="gc-stepper__val" aria-live="polite">${sel}</span>
+        <button type="button" class="gc-btn gc-btn--green gc-btn--icon gc-stepper__btn" data-action="${action}-inc" data-item-id="${esc(id)}" aria-label="One more"${sel >= have ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
   }).join('')}</div>`;

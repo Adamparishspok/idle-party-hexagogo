@@ -200,7 +200,7 @@ describe('RoomView modal pipeline', () => {
     const self = parent.querySelector('.rv-party--self') as HTMLElement;
     const names = Array.from(self.querySelectorAll('.room-party-member')).map(el => el.getAttribute('data-username'));
     expect(names).toEqual(['me', 'pal']);
-    expect(self.querySelector('.rv-member__level')?.textContent).toBe('7');
+    expect(self.querySelector('.gc-portrait__level')?.textContent).toBe('7');
     expect(parent.querySelectorAll('.rv-party--other').length).toBe(1);
     (self.querySelector('[data-username="me"]') as HTMLElement).click();
     expect(onUser).toHaveBeenCalledWith('me', expect.anything(), 3, 4);

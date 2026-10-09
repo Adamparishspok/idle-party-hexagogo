@@ -30,12 +30,12 @@ export function openSocModal(opts: { title: string; variant?: string; onClose?: 
       <div class="gc-title-tab gc-modal__title soc-modal__title">${esc(opts.title)}</div>
       <button type="button" class="gc-close gc-modal__close" aria-label="Close"></button>
       <div class="gc-modal__body soc-modal__body"></div>
-      <div class="soc-modal__footer"></div>
+      <div class="gc-modal__footer"></div>
     </div>
   `;
   const panel = root.querySelector<HTMLElement>('.soc-modal__panel')!;
   const body = root.querySelector<HTMLElement>('.soc-modal__body')!;
-  const footer = root.querySelector<HTMLElement>('.soc-modal__footer')!;
+  const footer = root.querySelector<HTMLElement>('.gc-modal__footer')!;
   const titleEl = root.querySelector<HTMLElement>('.soc-modal__title')!;
 
   let closed = false;
