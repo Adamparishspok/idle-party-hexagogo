@@ -186,7 +186,7 @@ app.get('/api/notifications/vapid-public-key', requireAuth, (_req, res) => {
   res.json({ publicKey: getVapidPublicKey() });
 });
 
-// Whether email notifications can actually be delivered — false only in production without SES configured
+// Whether email notifications can actually be delivered — false only in production without Resend configured
 app.get('/api/notifications/email-configured', requireAuth, (_req, res) => {
   res.json({ configured: isEmailConfigured() });
 });

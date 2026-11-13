@@ -46,7 +46,7 @@ sudo bash setup-prod.sh
 
 The script will:
 1. Validate that node (22+), npm, nginx, and git are installed
-2. Prompt for instance name, domain, session secret, AWS SES credentials, and other config
+2. Prompt for instance name, domain, session secret, Resend API key, admin emails, and other config
 3. Clone the repo to `/opt/idle-party-rpg` and build
 4. Install and start a systemd service (`idle-party-rpg`)
 5. Configure nginx as a reverse proxy with WebSocket support
@@ -80,7 +80,7 @@ else needs configuring.
 Each instance needs its own `PORT` (the script scans sibling installs, suggests
 the next free one, and refuses a collision) and its own `APP_URL`, which drives
 both magic-link redirects and the CORS origin. `SESSION_SECRET` should be distinct
-per instance. The SES credentials can be shared. Note that magic-link emails are
+per instance. The Resend key can be shared. Note that magic-link emails are
 branded "Idle Party RPG" regardless of instance — only the link URL differs.
 
 ### Environment Variables
@@ -90,10 +90,8 @@ branded "Idle Party RPG" regardless of instance — only the link URL differs.
 | `PORT` | Server port (default: 3001) | No |
 | `SESSION_SECRET` | Session encryption key | Yes |
 | `APP_URL` | Public URL (e.g. `https://play.hexagogo.com`) | Yes |
-| `AWS_ACCESS_KEY_ID` | AWS credentials for SES | Yes |
-| `AWS_SECRET_ACCESS_KEY` | AWS credentials for SES | Yes |
-| `AWS_REGION` | AWS region (default: us-east-1) | No |
-| `SES_FROM_EMAIL` | Email sender address | Yes |
+| `RESEND_API_KEY` | Resend API key for magic-link and notification email | Yes |
+| `EMAIL_FROM` | Sender, on a domain verified in Resend (e.g. `Idle Party <noreply@example.com>`) | Yes |
 | `ADMIN_EMAILS` | Comma-separated emails that are automatically **super admins** — the bootstrap set for the World Manager. Super admins grant `admin`/`superadmin` to everyone else from the dashboard. | Yes |
 | `INVITE_ONLY` | `true` restricts sign-in to admins plus the admin-managed invite list | No |
 
@@ -217,7 +215,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 
 ### Notifications
 - [x] Pluggable notification framework (category registry, per-user channel preferences, capped persisted inbox, save/restore)
-- [x] Channel drivers: in-app (live toast + inbox), browser push (Web Push/VAPID), email (via SES)
+- [x] Channel drivers: in-app (live toast + inbox), browser push (Web Push/VAPID), email (via Resend)
 - [x] Party notifications (invite received, kicked, promoted, demoted, ownership transferred, member joined/left)
 - [x] DM notifications (suppressed while actively viewing that conversation)
 - [x] Friend-request notifications (received + accepted)
@@ -250,7 +248,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Quest types (kill, collect, visit)
 - [x] Quest rewards (XP, gold, item)
 - [x] Quest scope (solo party only OR party-shared), prerequisites, weekly-repeatable
-- [x] Quest log (perched Quests button with a ready ! / active count badge, or Settings → Quest Log: active quests with ready-to-turn-in first and where to turn them in; completed quests behind a toggle)
+- [x] Quest log (perched Quests button with a ready ! / active count badge: active quests with ready-to-turn-in first and where to turn them in; completed quests behind a toggle)
 - [ ] Quest chains / storylines
 
 ### Dungeons
@@ -265,7 +263,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 ### Server
 - [x] Node.js/TypeScript server
 - [x] Per-player game state (independent battle timers, movement, unlocks)
-- [x] Email-based magic link authentication (dev auto-verify, prod via AWS SES)
+- [x] Email-based magic link authentication (dev auto-verify, prod via Resend)
 - [x] Session cookies (express-session, 30-day expiry, httpOnly)
 - [x] Account system (email + username, username changeable)
 - [x] WebSocket auth via session cookie (no WS login messages)
