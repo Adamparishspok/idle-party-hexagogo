@@ -10,7 +10,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-ses": "^3.997.0",
     "@idle-party-rpg/shared": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cors": "^2.8.6",

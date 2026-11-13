@@ -9,6 +9,27 @@ import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
 import { renderArtworkSection, wireArtworkSection } from '../components/ArtworkSection';
 
+const ZONE_ART: { kind: 'room-bg' | 'combat-bg' | 'zone'; prefix: string; legend: string; hint: string }[] = [
+  {
+    kind: 'room-bg',
+    prefix: 'zf-art-room',
+    legend: 'Room Backdrop',
+    hint: 'Wide backdrop behind the room view for every room in this zone. A single room can override it from the Map Editor.',
+  },
+  {
+    kind: 'combat-bg',
+    prefix: 'zf-art-combat',
+    legend: 'Combat Backdrop',
+    hint: 'Wide backdrop behind the combat stage for every room in this zone. A single room can override it from the Map Editor.',
+  },
+  {
+    kind: 'zone',
+    prefix: 'zf-art-zone',
+    legend: 'Zone Art (fallback)',
+    hint: 'Last resort only: shown behind the room view or combat stage when the matching backdrop above is missing.',
+  },
+];
+
 export class ZonesTab implements Tab {
   render(container: HTMLElement, ctx: AdminContext): void {
     const content = ctx.getDisplayContent();
@@ -100,10 +121,13 @@ export class ZonesTab implements Tab {
         <legend>Encounter Table ${readOnly ? '' : '<button class="admin-btn admin-btn-sm" id="zf-add-encounter" type="button">+ Encounter</button>'}</legend>
         <div id="zf-encounters-list">${encRows}</div>
       </fieldset>
-      <fieldset class="admin-form-fieldset">
-        <legend>Artwork</legend>
-        ${renderArtworkSection({ kind: 'zone', id: z.id })}
-      </fieldset>
+      ${ZONE_ART.map(art => `
+        <fieldset class="admin-form-fieldset">
+          <legend>${art.legend}</legend>
+          <p class="admin-form-hint">${art.hint}</p>
+          ${renderArtworkSection({ kind: art.kind, id: z.id, idPrefix: art.prefix })}
+        </fieldset>
+      `).join('')}
     `;
     const actionsHtml = readOnly
       ? `<div class="admin-modal-actions admin-modal-actions-readonly">
@@ -138,7 +162,7 @@ export class ZonesTab implements Tab {
 
     this.wireRemovers(root);
     root.querySelector('#zf-save')?.addEventListener('click', () => this.saveForm(root, ctx, modal.close));
-    wireArtworkSection(root, { kind: 'zone', id: z.id });
+    for (const art of ZONE_ART) wireArtworkSection(root, { kind: art.kind, id: z.id, idPrefix: art.prefix });
   }
 
   private wireRemovers(root: HTMLElement): void {

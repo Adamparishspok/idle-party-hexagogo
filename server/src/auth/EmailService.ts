@@ -1,60 +1,40 @@
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
-
 const isProd = process.env.NODE_ENV === 'production';
-
-let sesClient: SESClient | null = null;
-
-function getSesClient(): SESClient {
-  if (!sesClient) {
-    sesClient = new SESClient({
-      region: process.env.AWS_REGION ?? 'us-east-1',
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    });
-  }
-  return sesClient;
-}
 
 /** Whether email can actually be delivered right now. Dev mode always "sends" (console log), so this only bites in production. */
 export function isEmailConfigured(): boolean {
   if (!isProd) return true;
-  return Boolean(process.env.SES_FROM_EMAIL && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
+  return Boolean(process.env.EMAIL_FROM && process.env.RESEND_API_KEY);
 }
 
-/** Shared SES send — dev mode logs instead of sending. */
-async function sendSesEmail(to: string, subject: string, html: string, text: string, devLogLabel: string): Promise<void> {
+/** Shared Resend send — dev mode logs instead of sending. */
+async function sendEmail(to: string, subject: string, html: string, text: string, devLogLabel: string): Promise<void> {
   if (!isProd) {
     console.log(`[EmailService] DEV MODE — ${devLogLabel} for ${to}:`);
     console.log(`  ${text}`);
     return;
   }
 
-  const fromEmail = process.env.SES_FROM_EMAIL;
-  if (!fromEmail) {
-    throw new Error('SES_FROM_EMAIL not configured');
+  const from = process.env.EMAIL_FROM;
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!from || !apiKey) {
+    throw new Error('EMAIL_FROM / RESEND_API_KEY not configured');
   }
 
-  const client = getSesClient();
-  await client.send(new SendEmailCommand({
-    Source: fromEmail,
-    Destination: { ToAddresses: [to] },
-    Message: {
-      Subject: { Data: subject },
-      Body: {
-        Html: { Data: html },
-        Text: { Data: text },
-      },
-    },
-  }));
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, html, text }),
+  });
+  if (!res.ok) {
+    throw new Error(`Resend send failed: ${res.status} ${await res.text()}`);
+  }
 }
 
 export async function sendMagicLinkEmail(email: string, token: string): Promise<void> {
   const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
   const approveUrl = `${appUrl}/approve?token=${token}`;
 
-  await sendSesEmail(
+  await sendEmail(
     email,
     'Idle Party RPG — Sign In',
     `
@@ -80,7 +60,7 @@ export async function sendMagicLinkEmail(email: string, token: string): Promise<
 export async function sendNotificationEmail(email: string, title: string, body: string): Promise<void> {
   const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
 
-  await sendSesEmail(
+  await sendEmail(
     email,
     `Idle Party RPG — ${title}`,
     `

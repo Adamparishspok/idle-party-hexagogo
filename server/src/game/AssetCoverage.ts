@@ -1,4 +1,4 @@
-import { ASSET_KINDS, MANAGED_ASSET_KINDS, ASSET_KIND_INFO, ALL_CLASS_NAMES, EQUIP_SLOTS, canonicalAssetId } from '@idle-party-rpg/shared';
+import { ASSET_KINDS, MANAGED_ASSET_KINDS, ASSET_KIND_INFO, ALL_CLASS_NAMES, EQUIP_SLOTS, NAV_ICON_IDS, CLASS_ICON_EXTRA_IDS, canonicalAssetId } from '@idle-party-rpg/shared';
 import type { AssetKind, ManagedAssetKind, AssetKindInfo, AssetFallback } from '@idle-party-rpg/shared';
 import type { ContentStore } from './ContentStore.js';
 import type { AssetStore } from './AssetStore.js';
@@ -13,12 +13,6 @@ import type { AssetStore } from './AssetStore.js';
  * does-the-file-exist check reports thousands of false positives, so every
  * entry reports both whether it has art of its own and what it really renders.
  */
-
-/** Nav destinations that draw a PNG. Chat uses a chevron glyph, so it has no icon. */
-const NAV_ICON_IDS = ['combat', 'map', 'items', 'craft', 'social', 'settings'] as const;
-
-/** Placeholder glyphs the class-icon set carries beyond the real classes. */
-const CLASS_ICON_EXTRA_IDS = ['Unknown', 'Server'] as const;
 
 /** Matches `CombatScreen`'s legacy name-slug fallback for monster art. */
 function slugify(name: string): string {
@@ -99,11 +93,7 @@ export interface AssetCoverageOptions {
 interface RequiredId {
   id: string;
   label: string;
-  /**
-   * Zones this id is associated with, for `idFrom: 'zoneId'` fallbacks. A list
-   * because a shop can be placed in rooms across several zones, and the client
-   * fetches its art by whichever zone the player is standing in.
-   */
+  /** Zones this id is associated with, for `idFrom: 'zoneId'` fallbacks. */
   zoneIds?: string[];
   /** Room type, for `idFrom: 'tileType'` fallbacks. */
   tileType?: string;
@@ -143,8 +133,6 @@ function requiredIdsFor(kind: AssetKind, info: AssetKindInfo, content: ContentSt
     case 'sets': return fromContent(content.getAllSets());
     case 'tileTypes': return fromContent(content.getAllTileTypes());
     case 'maps': return content.getMaps().map(map => ({ id: map.id, label: map.name }));
-    // Unreachable while `shop` sits in DEFERRED_ASSET_KINDS; kept so the switch
-    // stays exhaustive over AssetIdSource.
     case 'shops': return fromContent(content.getAllShops());
     case 'npcs':
       // An NPC pointing at its own artwork URL already has a portrait, whether
@@ -208,8 +196,7 @@ function overrideIdsFor(info: AssetKindInfo, content: ContentStore): Set<string>
 
 /**
  * Alternate keys a kind's own fallback chain still resolves — monster art filed
- * under a slug of the monster's name, shop art filed under the zone id the room
- * view actually fetches. The client renders both, so calling either an orphan
+ * under a slug of the monster's name. The client renders it, so calling it an orphan
  * would invite an admin (or an MCP client acting on the report) to delete art
  * the game is using.
  */

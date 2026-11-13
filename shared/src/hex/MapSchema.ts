@@ -40,7 +40,7 @@ export interface WorldTileDefinition {
   shopId?: string;
   /** Optional NPC assigned to this room. */
   npcId?: string;
-  /** Optional dungeon entry assigned to this room. Admin link only — entry runtime not yet wired. */
+  /** Optional dungeon whose entrance is in this room. */
   dungeonId?: string;
   /**
    * Item ID required to traverse.

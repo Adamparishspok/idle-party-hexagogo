@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="git@github.com:lucashutyler/idle-party-hexagogo.git"
+REPO_URL="https://github.com/Adamparishspok/idle-party-hexagogo.git"
 SERVICE_USER="idlerpg"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt}"
 
@@ -169,15 +169,13 @@ if [[ "$SKIP_ENV" == "false" ]]; then
   PORT="${PORT:-$SUGGESTED_PORT}"
 
   echo ""
-  echo "AWS SES configuration (required for email authentication):"
-  read -rp "AWS_ACCESS_KEY_ID: " AWS_ACCESS_KEY_ID
-  [[ -z "$AWS_ACCESS_KEY_ID" ]] && error "AWS_ACCESS_KEY_ID is required for production email auth."
-  read -rp "AWS_SECRET_ACCESS_KEY: " AWS_SECRET_ACCESS_KEY
-  [[ -z "$AWS_SECRET_ACCESS_KEY" ]] && error "AWS_SECRET_ACCESS_KEY is required for production email auth."
-  read -rp "SES_FROM_EMAIL (e.g. noreply@hexagogo.com): " SES_FROM_EMAIL
-  [[ -z "$SES_FROM_EMAIL" ]] && error "SES_FROM_EMAIL is required for production email auth."
-  read -rp "AWS_REGION [us-east-1]: " AWS_REGION
-  AWS_REGION="${AWS_REGION:-us-east-1}"
+  echo "Resend configuration (required for email authentication):"
+  read -rp "RESEND_API_KEY: " RESEND_API_KEY
+  [[ -z "$RESEND_API_KEY" ]] && error "RESEND_API_KEY is required for production email auth."
+  read -rp "EMAIL_FROM (e.g. Idle Party <noreply@$DOMAIN>): " EMAIL_FROM
+  [[ -z "$EMAIL_FROM" ]] && error "EMAIL_FROM is required for production email auth."
+  read -rp "ADMIN_EMAILS (comma-separated super admins): " ADMIN_EMAILS
+  [[ -z "$ADMIN_EMAILS" ]] && error "ADMIN_EMAILS is required to reach the World Manager."
 
   echo ""
 fi
@@ -239,10 +237,9 @@ if [[ "$SKIP_ENV" == "false" ]]; then
 PORT=$PORT
 SESSION_SECRET=$SESSION_SECRET
 APP_URL=$APP_URL
-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-AWS_REGION=$AWS_REGION
-SES_FROM_EMAIL=$SES_FROM_EMAIL
+RESEND_API_KEY=$RESEND_API_KEY
+EMAIL_FROM=$EMAIL_FROM
+ADMIN_EMAILS=$ADMIN_EMAILS
 EOF
   chmod 600 "$INSTALL_DIR/.env"
   info "Wrote $INSTALL_DIR/.env"

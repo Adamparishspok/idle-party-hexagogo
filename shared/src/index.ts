@@ -280,6 +280,7 @@ export type {
   ClientMessage,
 } from './systems/BattleTypes.js';
 export {
+  COMBAT_TICK_MS,
   RESULT_PAUSE,
   MOVE_DURATION,
   RUN_AVAILABLE_ROUNDS,
@@ -512,6 +513,8 @@ export {
   isAudioAssetKind,
   canonicalAssetId,
   UI_CHROME_IDS,
+  NAV_ICON_IDS,
+  CLASS_ICON_EXTRA_IDS,
   SFX_IDS,
 } from './assets/AssetKinds.js';
 export type {

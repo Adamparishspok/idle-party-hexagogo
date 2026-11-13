@@ -15,6 +15,9 @@ import { HEX_SIZE, getHexCorners } from '@idle-party-rpg/shared';
 
 export type FogState = 'open' | 'haze' | 'fog';
 
+/** A landmark drawn from what a room holds rather than its type. */
+export type RoomBuilding = 'cave' | 'bank' | 'houses' | 'shop';
+
 export interface PaintTile {
   /** Cube key — stable identity, also the RNG seed. */
   key: string;
@@ -33,6 +36,8 @@ export interface PaintTile {
   neighborKeys: string[];
   /** Emoji glyph for types with no procedural recipe. */
   icon?: string;
+  /** Replaces the type's tall props (trees, houses, peaks) with this landmark. */
+  building?: RoomBuilding;
 }
 
 export interface PaintOptions {
@@ -112,6 +117,8 @@ function hexPath(ctx: CanvasRenderingContext2D, t: PaintTile): void {
 
 // ─── Terrain recipes ─────────────────────────────────────────────
 
+type PropPainter = (ctx: CanvasRenderingContext2D, t: PaintTile, r: () => number) => void;
+
 interface Recipe {
   /** Paint order — higher layers paint over lower ones at borders. */
   layer: number;
@@ -119,16 +126,18 @@ interface Recipe {
   /** Lighter/darker dab colors for brush texture. */
   light: string;
   dark: string;
-  props?: (ctx: CanvasRenderingContext2D, t: PaintTile, r: () => number) => void;
+  props?: PropPainter;
+  /** Ground-level props that stay under a room's building. */
+  flatProps?: boolean;
 }
 
 const WATER_TYPES = new Set(['water']);
 const isLand = (t: PaintTile) => t.type !== 'void' && !WATER_TYPES.has(t.type);
 
 const RECIPES: Record<string, Recipe> = {
-  beach: { layer: 0, base: '#ecd39a', light: '#f7e6b8', dark: '#d8b878', props: pebbles },
-  desert: { layer: 1, base: '#e2c271', light: '#f0d792', dark: '#c9a352', props: dunes },
-  plains: { layer: 2, base: '#86c94a', light: '#a6dc62', dark: '#6aac38', props: grassTufts },
+  beach: { layer: 0, base: '#ecd39a', light: '#f7e6b8', dark: '#d8b878', props: pebbles, flatProps: true },
+  desert: { layer: 1, base: '#e2c271', light: '#f0d792', dark: '#c9a352', props: dunes, flatProps: true },
+  plains: { layer: 2, base: '#86c94a', light: '#a6dc62', dark: '#6aac38', props: grassTufts, flatProps: true },
   hedge: { layer: 3, base: '#4f9a35', light: '#69b445', dark: '#3a7a28', props: hedges },
   forest: { layer: 3, base: '#4c9b3a', light: '#66b24a', dark: '#357a2a', props: pines },
   town: { layer: 4, base: '#8fc451', light: '#a9d867', dark: '#72a63e', props: houses },
@@ -136,6 +145,23 @@ const RECIPES: Record<string, Recipe> = {
   lava_field: { layer: 5, base: '#4a2c24', light: '#5e3a2e', dark: '#2e1a15', props: lavaCracks },
   mountain: { layer: 6, base: '#a08a68', light: '#bba57e', dark: '#7d6a4e', props: peaks },
   volcano: { layer: 7, base: '#4a2f28', light: '#5d3b31', dark: '#2c1b17', props: volcanoCone },
+};
+
+/** True when the map paints this type with its own look, so its color and icon go unused. */
+export function hasBuiltInLook(typeId: string): boolean {
+  return typeId === 'void' || WATER_TYPES.has(typeId) || Object.prototype.hasOwnProperty.call(RECIPES, typeId);
+}
+
+/** Changes whenever a tile's painted look would. */
+export function paintFingerprint(t: PaintTile): string {
+  return `${t.type}|${t.fog}|${t.dimmed ? 1 : 0}|${t.zone}|${t.building ?? ''}|${t.color}|${t.icon ?? ''}`;
+}
+
+const BUILDINGS: Record<RoomBuilding, PropPainter> = {
+  cave: caveMouth,
+  bank: bankHall,
+  houses: estate,
+  shop: marketStall,
 };
 
 function recipeFor(t: PaintTile): Recipe {
@@ -211,7 +237,11 @@ export function paintTerrain(ctx: CanvasRenderingContext2D, tiles: PaintTile[], 
     for (const t of propTiles) {
       const rec = RECIPES[t.type];
       const r = rng(hashString(t.key) ^ 0x9e3779b9);
-      if (rec?.props) rec.props(ctx, t, r);
+      const building = t.building ? BUILDINGS[t.building] : undefined;
+      if (building) {
+        if (rec?.props && rec.flatProps) rec.props(ctx, t, r);
+        building(ctx, t, r);
+      } else if (rec?.props) rec.props(ctx, t, r);
       else if (t.icon) drawIcon(ctx, t);
     }
   }
@@ -565,6 +595,112 @@ function caveMouth(ctx: CanvasRenderingContext2D, t: PaintTile, _r: () => number
   ctx.lineTo(x - 10, y);
   ctx.closePath();
   ctx.fill();
+}
+
+function dirtPad(ctx: CanvasRenderingContext2D, t: PaintTile): void {
+  ctx.fillStyle = '#d9bd86';
+  ctx.beginPath();
+  ctx.ellipse(t.x, t.y + 8, HEX_SIZE * 0.55, HEX_SIZE * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function bankHall(ctx: CanvasRenderingContext2D, t: PaintTile, _r: () => number): void {
+  dirtPad(ctx, t);
+  const x = t.x;
+  const y = t.y + 12;
+  const w = 40;
+  const h = 18;
+  groundShadow(ctx, x, y, w * 0.6);
+  ctx.fillStyle = '#b9b4a8';
+  ctx.fillRect(x - w / 2 - 2, y - 3, w + 4, 3);
+  ctx.fillStyle = '#ece6d6';
+  ctx.fillRect(x - w / 2, y - h - 3, w, h);
+  ctx.fillStyle = '#c9c1ab';
+  for (let i = 0; i < 4; i++) ctx.fillRect(x - w / 2 + 4 + i * 10, y - h - 3, 3, h);
+  ctx.fillStyle = '#4a3a2a';
+  ctx.fillRect(x - 4, y - 13, 8, 10);
+  ctx.fillStyle = '#d8d0bc';
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2 - 4, y - h - 3);
+  ctx.lineTo(x, y - h - 17);
+  ctx.lineTo(x + w / 2 + 4, y - h - 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.moveTo(x, y - h - 17);
+  ctx.lineTo(x + w / 2 + 4, y - h - 3);
+  ctx.lineTo(x, y - h - 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#f2c230';
+  ctx.strokeStyle = '#a77a12';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(x, y - h - 9, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function estate(ctx: CanvasRenderingContext2D, t: PaintTile, r: () => number): void {
+  dirtPad(ctx, t);
+  const roofs = ['#b8452f', '#3f6fae', '#a5662f'];
+  const spots = [{ x: -15, y: 0 }, { x: 14, y: -4 }, { x: 0, y: 14 }];
+  for (const p of spots) {
+    house(ctx, t.x + p.x, t.y + p.y, 10 + r() * 3, roofs[Math.floor(r() * roofs.length)]);
+  }
+  const sx = t.x + 24;
+  const sy = t.y + 16;
+  ctx.fillStyle = '#6b4526';
+  ctx.fillRect(sx - 1, sy - 14, 2.4, 14);
+  ctx.fillStyle = '#f4ead2';
+  ctx.strokeStyle = '#6b4526';
+  ctx.lineWidth = 1;
+  ctx.fillRect(sx - 6, sy - 15, 12, 7);
+  ctx.strokeRect(sx - 6, sy - 15, 12, 7);
+  ctx.fillStyle = '#b8452f';
+  ctx.fillRect(sx - 4, sy - 13, 8, 3);
+}
+
+function marketStall(ctx: CanvasRenderingContext2D, t: PaintTile, r: () => number): void {
+  dirtPad(ctx, t);
+  const x = t.x;
+  const y = t.y + 12;
+  const w = 34;
+  groundShadow(ctx, x, y, w * 0.6);
+  ctx.fillStyle = '#6b4526';
+  ctx.fillRect(x - w / 2, y - 22, 3, 22);
+  ctx.fillRect(x + w / 2 - 3, y - 22, 3, 22);
+  ctx.fillStyle = '#a5743f';
+  ctx.fillRect(x - w / 2, y - 9, w, 9);
+  ctx.fillStyle = '#7d5530';
+  ctx.fillRect(x - w / 2, y - 9, w, 2);
+  const goods = ['#e0533a', '#f2c230', '#7cc043', '#e88a2d'];
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = goods[Math.floor(r() * goods.length)];
+    ctx.beginPath();
+    ctx.arc(x - w / 2 + 6 + i * 7.3, y - 10.5, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const stripes = 6;
+  const sw = (w + 6) / stripes;
+  for (let i = 0; i < stripes; i++) {
+    ctx.fillStyle = i % 2 === 0 ? '#d8432f' : '#f6efe0';
+    ctx.beginPath();
+    ctx.moveTo(x - w / 2 - 3 + i * sw, y - 22);
+    ctx.lineTo(x - w / 2 - 3 + (i + 1) * sw, y - 22);
+    ctx.lineTo(x - w / 2 - 3 + (i + 1) * sw - 1.5, y - 30);
+    ctx.lineTo(x - w / 2 - 3 + i * sw + 1.5, y - 30);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x - w / 2 - 3 + (i + 0.5) * sw, y - 22, sw / 2, 0, Math.PI);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#8a5a2b';
+  ctx.fillRect(x + w / 2 + 3, y - 7, 8, 7);
+  ctx.fillStyle = '#6b4526';
+  ctx.fillRect(x + w / 2 + 3, y - 4, 8, 1.2);
 }
 
 function lavaCracks(ctx: CanvasRenderingContext2D, t: PaintTile, r: () => number): void {

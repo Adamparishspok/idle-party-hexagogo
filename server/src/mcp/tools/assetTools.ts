@@ -100,7 +100,7 @@ export function registerAssetTools(server: McpServer, deps: McpToolDeps): void {
   server.registerTool(
     'get_asset_coverage',
     {
-      description: 'Report which content is missing artwork, broken down by asset kind. Counts required ids, how many have art of their own, how many still render real art through a fallback (rooms fall back to room-type art, combat backdrops to zone art), plus orphaned files left by deleted content. Use this to find art gaps before authoring.',
+      description: 'Report which content is missing artwork, broken down by asset kind. Counts required ids, how many have art of their own, how many still render real art through a fallback (rooms fall back to room-type art, room and combat backdrops to zone art), plus orphaned files left by deleted content. Use this to find art gaps before authoring.',
       inputSchema: {
         kind: ASSET_KIND_ENUM.optional().describe('Restrict the report to a single asset kind.'),
         includeEntries: z.boolean().optional().describe('Include the per-id detail list, not just per-kind counts.'),

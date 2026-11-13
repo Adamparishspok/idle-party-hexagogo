@@ -48,7 +48,7 @@ export function describeAssetKinds() {
     })
   );
   // Surfaced so a client can see these kinds exist and are coming, rather than
-  // concluding the game has no shop or set artwork at all.
+  // concluding the game has no set artwork at all.
   const deferred = DEFERRED_ASSET_KINDS.map(kind => ({
     kind,
     label: ASSET_KIND_INFO[kind].label,

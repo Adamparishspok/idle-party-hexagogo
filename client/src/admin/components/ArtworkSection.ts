@@ -29,6 +29,12 @@ export interface ArtworkSectionOpts {
   id: string;
   /** DOM id prefix so multiple sections can coexist; defaults to `if-art-${kind}`. */
   idPrefix?: string;
+  /** Called after a successful upload or removal. */
+  onChange?: () => void;
+  /** Called after a successful upload, with the stored file's cache-busted URL. */
+  onUploaded?: (url: string) => void;
+  /** Called after a successful removal. */
+  onRemoved?: () => void;
 }
 
 function escapeAttr(s: string): string {
@@ -54,6 +60,7 @@ export function renderArtworkSection(opts: ArtworkSectionOpts): string {
               onerror="this.style.display='none'" data-artwork-preview>`
     : `<div class="admin-art-preview-empty">No artwork yet — save first to enable upload.</div>`;
   return `
+    <div class="admin-art-section" data-artwork-section="${prefix}">
     <input type="hidden" data-artwork-id value="${escapeAttr(opts.id)}">
     <input type="hidden" data-artwork-kind value="${opts.kind}">
     ${preview}
@@ -62,14 +69,16 @@ export function renderArtworkSection(opts: ArtworkSectionOpts): string {
       <button class="admin-btn admin-btn-sm" id="${prefix}-upload" type="button">Upload</button>
       <button class="admin-btn admin-btn-sm admin-btn-danger" id="${prefix}-remove" type="button">Remove Artwork</button>
     </div>
+    </div>
   `;
 }
 
 /** Wire upload/remove handlers. Call once per modal after the body is mounted. */
 export function wireArtworkSection(root: HTMLElement, opts: ArtworkSectionOpts): void {
   const prefix = opts.idPrefix ?? `if-art-${opts.kind}`;
-  root.querySelector(`#${prefix}-upload`)?.addEventListener('click', () => uploadArtwork(root, opts));
-  root.querySelector(`#${prefix}-remove`)?.addEventListener('click', () => removeArtwork(root, opts));
+  const section = root.querySelector<HTMLElement>(`[data-artwork-section="${prefix}"]`) ?? root;
+  section.querySelector(`#${prefix}-upload`)?.addEventListener('click', () => uploadArtwork(section, opts));
+  section.querySelector(`#${prefix}-remove`)?.addEventListener('click', () => removeArtwork(section, opts));
 }
 
 async function uploadArtwork(root: HTMLElement, opts: ArtworkSectionOpts): Promise<void> {
@@ -93,11 +102,14 @@ async function uploadArtwork(root: HTMLElement, opts: ArtworkSectionOpts): Promi
     // The response carries the stored file's URL already stamped with its
     // write time, so the preview refreshes without a cache-busting guess.
     const data = await res.json().catch(() => ({}));
+    const url: string = data?.asset?.url ?? `${publicArtworkUrl(opts.kind, id)}?t=${Date.now()}`;
     const preview = root.querySelector('[data-artwork-preview]') as HTMLImageElement | HTMLAudioElement | null;
     if (preview) {
-      preview.src = data?.asset?.url ?? `${publicArtworkUrl(opts.kind, id)}?t=${Date.now()}`;
+      preview.src = url;
       preview.style.display = '';
     }
+    opts.onUploaded?.(url);
+    opts.onChange?.();
   } catch {
     alert('Network error uploading artwork.');
   }
@@ -119,6 +131,8 @@ async function removeArtwork(root: HTMLElement, opts: ArtworkSectionOpts): Promi
     alert('Artwork removed.');
     const preview = root.querySelector('[data-artwork-preview]') as HTMLImageElement | null;
     if (preview) preview.style.display = 'none';
+    opts.onRemoved?.();
+    opts.onChange?.();
   } catch {
     alert('Network error removing artwork.');
   }

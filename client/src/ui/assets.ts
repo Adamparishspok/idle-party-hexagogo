@@ -25,6 +25,28 @@ export function artworkUrl(kind: AssetKind, id: string): string {
   return assetPublicPath(kind, id);
 }
 
+/** An authored URL override first, then the managed upload for `kind`. */
+export function entityArtUrls(kind: AssetKind, id: string, override?: string): string[] {
+  const urls = override ? [override] : [];
+  if (id) urls.push(artworkUrl(kind, id));
+  return urls;
+}
+
+export function npcArtUrls(npc: { id: string; artworkUrl?: string }): string[] {
+  return entityArtUrls('npc', npc.id, npc.artworkUrl);
+}
+
+export function henchmanArtUrls(h: { henchmanId: string; artworkUrl?: string }): string[] {
+  return entityArtUrls('henchman', h.henchmanId, h.artworkUrl);
+}
+
+const IMG_CHAIN_ONERROR = "var l=JSON.parse(this.dataset.fallbacks||'[]');if(l.length){this.dataset.fallbacks=JSON.stringify(l.slice(1));this.src=l[0];}else{this.remove();}";
+
+/** `src` plus the attributes that walk the rest of `urls` on error and remove the <img> when all fail. */
+export function imgChainAttrs(urls: readonly string[]): string {
+  return `src="${escapeAttr(urls[0] ?? '')}" data-fallbacks="${escapeAttr(JSON.stringify(urls.slice(1)))}" onerror="${IMG_CHAIN_ONERROR}"`;
+}
+
 /** placehold.co fallback. Keeps text short to stay readable in small slots. */
 export function placeholderUrl(label: string, opts?: { w?: number; h?: number; bg?: string; fg?: string }): string {
   const w = opts?.w ?? 256;

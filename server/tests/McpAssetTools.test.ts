@@ -285,7 +285,7 @@ describe('getAssetCoverage', () => {
 
     expect(result.kinds.length).toBe(MANAGED_ASSET_KINDS.length);
     expect(result.summary.kinds).toBe(MANAGED_ASSET_KINDS.length);
-    expect(result.kinds.map(k => k.kind)).not.toContain('shop');
+    expect(result.kinds.map(k => k.kind)).not.toContain('set');
     expect(result.summary.required).toBeGreaterThan(0);
     expect(Number.isNaN(Date.parse(result.generatedAt))).toBe(false);
   });

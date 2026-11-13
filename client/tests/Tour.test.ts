@@ -3,7 +3,6 @@ import type { ServerStateMessage } from '@idle-party-rpg/shared';
 import { TOUR_DONE_KEY, TOUR_STEPS, Tour, isNewPlayer, isTourDone, startTourWhenClear } from '../src/ui/Tour';
 import { SettingsScreen } from '../src/screens/SettingsScreen';
 import type { GameClient } from '../src/network/GameClient';
-import type { WorldCache } from '../src/network/WorldCache';
 
 function navWith(...ids: string[]): void {
   document.body.innerHTML = `<nav>${ids.map(id => `<button class="nav-tab" data-screen="${id}"></button>`).join('')}</nav>`;
@@ -155,7 +154,7 @@ describe('Settings replay tour row', () => {
     document.body.innerHTML = '<div id="settings"></div>';
     const gameClient = { lastState: null, subscribe: () => () => {} } as unknown as GameClient;
     const onReplay = vi.fn();
-    new SettingsScreen('settings', gameClient, {} as WorldCache, () => {}, undefined, onReplay);
+    new SettingsScreen('settings', gameClient, () => {}, onReplay);
     const row = document.querySelector('#btn-replay-tour') as HTMLButtonElement;
     expect(row.classList.contains('gc-row')).toBe(true);
     row.click();

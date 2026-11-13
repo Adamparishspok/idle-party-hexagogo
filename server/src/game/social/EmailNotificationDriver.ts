@@ -1,7 +1,7 @@
 import { sendNotificationEmail } from '../../auth/EmailService.js';
 import type { NotificationChannelDriver, NotificationDeliveryContext } from './NotificationService.js';
 
-/** Sends via the account's verified login email (reuses the SES-backed EmailService). */
+/** Sends via the account's verified login email (reuses the Resend-backed EmailService). */
 export class EmailNotificationDriver implements NotificationChannelDriver {
   readonly channel = 'email' as const;
 

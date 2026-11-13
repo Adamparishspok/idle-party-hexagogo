@@ -1,9 +1,10 @@
 import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
 import type { ClassName, DamageType, HenchmanDefinition, SkillDefinition } from '@idle-party-rpg/shared';
-import { ALL_CLASS_NAMES } from '@idle-party-rpg/shared';
+import { ALL_CLASS_NAMES, assetPublicPath } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
+import { renderArtworkSection, wireArtworkSection } from '../components/ArtworkSection';
 
 const EMOJI_PALETTE = [
   '🗡️', '⚔️', '🛡️', '🏹', '🪓', '🔨', '🔱', '🪄', '🔮', '📜',
@@ -87,10 +88,10 @@ export class HenchmenTab implements Tab {
     });
   }
 
-  /** The photo when one is authored — the emoji is the alt text, so it shows if the URL 404s. */
+  /** The emoji is the alt text, so it shows if the URL 404s. */
   private portraitHtml(h: HenchmanDefinition): string {
-    if (!h.artworkUrl) return escapeHtml(h.emoji);
-    return `<img src="${escapeHtml(h.artworkUrl)}" alt="${escapeHtml(h.emoji)}"
+    const src = h.artworkUrl || assetPublicPath('henchman', h.id);
+    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(h.emoji)}"
       style="width:28px;height:28px;object-fit:cover;border-radius:var(--admin-radius-sm);vertical-align:middle;">`;
   }
 
@@ -141,13 +142,15 @@ export class HenchmenTab implements Tab {
         <legend>Portrait</legend>
         <div class="admin-form-grid">
           <label>Emoji<input type="text" id="hf-emoji" value="${escapeHtml(h.emoji)}" maxlength="8" placeholder="🗡️"></label>
-          <label>Photo URL (optional)
-            <input type="text" id="hf-artworkUrl" value="${escapeHtml(h.artworkUrl ?? '')}" placeholder="/henchman-artwork/${escapeHtml(h.id || 'my_henchman')}.png">
+          <label>Photo URL override (optional)
+            <input type="text" id="hf-artworkUrl" value="${escapeHtml(h.artworkUrl ?? '')}" placeholder="Leave empty to use the uploaded photo">
+            <span class="admin-form-hint">Shown instead of the uploaded photo when set.</span>
           </label>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
           ${paletteButtons}
         </div>
+        ${renderArtworkSection({ kind: 'henchman', id: h.id, idPrefix: 'hf-art' })}
       </fieldset>
       <fieldset class="admin-form-fieldset">
         <legend>Skill Loadout <span id="hf-skill-count" class="admin-form-hint"></span></legend>
@@ -179,7 +182,8 @@ export class HenchmenTab implements Tab {
     const root = modal.body;
 
     root.querySelector('#hf-cancel')?.addEventListener('click', modal.close);
-    root.querySelector('#hf-save')?.addEventListener('click', () => this.saveForm(root, ctx, modal.close));
+    root.querySelector('#hf-save')?.addEventListener('click', () => this.saveForm(root, ctx, henchman, modal.close));
+    wireArtworkSection(root, { kind: 'henchman', id: h.id, idPrefix: 'hf-art' });
 
     const emojiInput = root.querySelector<HTMLInputElement>('#hf-emoji');
     root.querySelectorAll<HTMLButtonElement>('.hf-emoji-pick').forEach(btn => {
@@ -231,7 +235,7 @@ export class HenchmenTab implements Tab {
     apply();
   }
 
-  private async saveForm(root: HTMLElement, ctx: AdminContext, close: () => void): Promise<void> {
+  private async saveForm(root: HTMLElement, ctx: AdminContext, existing: HenchmanDefinition | null, close: () => void): Promise<void> {
     const existingId = (root.querySelector('#hf-id') as HTMLInputElement).value.trim();
     const name = (root.querySelector('#hf-name') as HTMLInputElement).value.trim();
     const className = (root.querySelector('#hf-className') as HTMLSelectElement).value as ClassName;
@@ -252,6 +256,7 @@ export class HenchmenTab implements Tab {
     });
 
     const henchmanDef: HenchmanDefinition = {
+      ...existing,
       id, name, className, level, maxHp, baseDamage, skillIds, emoji,
       description: description || undefined,
       damageType: damageType ? (damageType as DamageType) : undefined,

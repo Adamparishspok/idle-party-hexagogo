@@ -9,16 +9,13 @@ import type {
 } from '@idle-party-rpg/shared';
 import { canAcceptQuest, getObjectiveTarget } from '@idle-party-rpg/shared';
 import { objectiveText } from './QuestText';
-import { artworkUrl } from './assets';
+import { imgChainAttrs, npcArtUrls } from './assets';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import { renderKitItem } from './ItemIcon';
 import '../styles/screens/map.css';
 
 type QuestKind = 'ready' | 'progress' | 'available';
 interface QuestEntry { def: QuestDefinition; kind: QuestKind; progress?: QuestProgressEntry }
-
-/** Inline onerror for an <img> with a `data-fallbacks` JSON list (see RoomView). */
-const IMG_CHAIN_ONERROR = "var l=JSON.parse(this.dataset.fallbacks||'[]');if(l.length){this.dataset.fallbacks=JSON.stringify(l.slice(1));this.src=l[0];}else{this.remove();}";
 
 /**
  * NPC dialog in the WorldQuest quest style: parchment modal with the NPC's
@@ -229,13 +226,11 @@ export class NpcTalkPopup {
     if (body) body.scrollTop = scrollTop;
   }
 
-  /** NPC portrait: authored artworkUrl → /npc-artwork/{id}.png → emoji. */
   private renderPortrait(npc: NpcDefinition): string {
-    const urls = [npc.artworkUrl, artworkUrl('npc', encodeURIComponent(npc.id))].filter((u): u is string => !!u);
     return `
       <div class="gc-modal__portrait npc-modal__portrait">
         <span class="npc-modal__emoji" aria-hidden="true">${this.escape(npc.emoji)}</span>
-        <img src="${this.escape(urls[0])}" alt="" data-fallbacks="${this.escape(JSON.stringify(urls.slice(1)))}" onerror="${IMG_CHAIN_ONERROR}" />
+        <img alt="" ${imgChainAttrs(npcArtUrls(npc))} />
       </div>`;
   }
 

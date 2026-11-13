@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { QuestProgressEntry, ServerStateMessage } from '@idle-party-rpg/shared';
 import { BottomNav, questBadgeFor } from '../src/ui/BottomNav';
 import { QuestLog } from '../src/ui/QuestLog';
-import { SettingsScreen } from '../src/screens/SettingsScreen';
 import { tapSoundFor } from '../src/audio/SoundEvents';
 import type { GameClient } from '../src/network/GameClient';
 import type { WorldCache } from '../src/network/WorldCache';
@@ -107,17 +106,9 @@ describe('perched Quests button', () => {
     expect(t.button().getAttribute('aria-label')).toBe('Quests');
   });
 
-  it('opens a single Quest Log shared with Settings', () => {
+  it('opens a single Quest Log however often it is tapped', () => {
     const t = setup();
-    const settings = new SettingsScreen('settings', t.gameClient, t.worldCache, () => {}, t.questLog);
-
     t.button().click();
-    t.button().click();
-    (document.querySelector('#btn-quest-log') as HTMLButtonElement).click();
-    expect(document.querySelectorAll('.quest-log-modal')).toHaveLength(1);
-
-    settings.onDeactivate();
-    expect(document.querySelector('.quest-log-modal')).toBeNull();
     t.button().click();
     expect(document.querySelectorAll('.quest-log-modal')).toHaveLength(1);
   });

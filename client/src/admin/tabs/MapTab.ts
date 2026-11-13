@@ -1,5 +1,6 @@
 import {
   HexTile,
+  cubeToKey,
   offsetToCube,
   cubeToPixel,
   pixelToCube,
@@ -27,6 +28,14 @@ import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { entryRequirementsHtml, readEntryRequirements, summarizeEntryRequirements } from '../components/EntryRequirements';
+import { renderArtworkSection, wireArtworkSection } from '../components/ArtworkSection';
+import { adminPaintTiles, contentRoomLookups, roomMarkerGlyphs } from '../map/mapPaint';
+import type { ContentRoomLookups } from '../map/mapPaint';
+import { artworkUrl } from '../../ui/assets';
+import { CanvasTerrainLayer } from '../../ui/map/CanvasTerrainLayer';
+import { createSeaCanvas } from '../../ui/map/terrainPainter';
+import type { PaintTile } from '../../ui/map/terrainPainter';
+import { TileArtCache, tileArtUrls } from '../../ui/map/tileArt';
 
 // Maps CUBE_DIRECTIONS index → hex corner indices for the shared edge.
 const DIR_TO_EDGE: [number, number][] = [
@@ -38,6 +47,28 @@ const DIR_TO_EDGE: [number, number][] = [
   [1, 2],
 ];
 
+const SEA_FALLBACK_COLOR = '#2f86bf';
+/** World units one backdrop repeat spans, matching the game's sea. */
+const BACKDROP_REPEAT = 256;
+const MARKER_MIN_ZOOM = 0.3;
+const VIEW_MODE_KEY = 'admin-map-view';
+
+type MapViewMode = 'painted' | 'flat';
+
+const ROOM_ART_KINDS = [
+  { kind: 'tile', label: 'Map art', hint: 'Replaces the painted room on the world map.' },
+  { kind: 'room-bg', label: 'Room backdrop', hint: 'Behind the room view. Falls back to the zone backdrop.' },
+  { kind: 'combat-bg', label: 'Combat backdrop', hint: 'Behind combat in this room. Falls back to the zone backdrop.' },
+] as const;
+
+function loadViewMode(): MapViewMode {
+  try {
+    return localStorage.getItem(VIEW_MODE_KEY) === 'flat' ? 'flat' : 'painted';
+  } catch {
+    return 'painted';
+  }
+}
+
 interface AdjacentSlot {
   col: number;
   row: number;
@@ -47,7 +78,25 @@ interface AdjacentSlot {
 export class MapTab implements Tab {
   private mapTiles: HexTile[] = [];
   private worldTileDefs = new Map<string, WorldTileDefinition>();
+  /** Room by cube key, for the painter's art lookup. */
+  private defsByCubeKey = new Map<string, WorldTileDefinition>();
   private adjacentSlots: AdjacentSlot[] = [];
+
+  private viewMode: MapViewMode = loadViewMode();
+  private terrain: CanvasTerrainLayer | null = null;
+  private terrainMapId: string | null = null;
+  private paintTiles: PaintTile[] = [];
+  private lookups: ContentRoomLookups | null = null;
+  private tileArt = new TileArtCache(keys => {
+    this.terrain?.markTileKeysDirty(keys);
+    this.requestDraw();
+  });
+  /** Freshly uploaded map art by room id, so the map shows it without a reload. */
+  private artOverrides = new Map<string, string>();
+  private backdrop: { mapId: string; pattern: CanvasPattern | null } | null = null;
+  private hoverKey: string | null = null;
+  private drawRaf: number | null = null;
+  private drawCtx: AdminContext | null = null;
 
   private mapCanvas: HTMLCanvasElement | null = null;
   private mapCtx: CanvasRenderingContext2D | null = null;
@@ -77,8 +126,15 @@ export class MapTab implements Tab {
     if (this.mouseUpHandler) window.removeEventListener('mouseup', this.mouseUpHandler);
     if (this.keydownHandler) window.removeEventListener('keydown', this.keydownHandler);
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    if (this.drawRaf !== null) cancelAnimationFrame(this.drawRaf);
     this.resizeHandler = this.mouseMoveHandler = this.mouseUpHandler = this.keydownHandler = null;
     this.saveTimeout = null;
+    this.drawRaf = null;
+    this.terrain?.dispose();
+    this.terrain = null;
+    this.terrainMapId = null;
+    this.backdrop = null;
+    this.hoverKey = null;
     this.mapCanvas = null;
     this.mapCtx = null;
     this.mapInitialized = false;
@@ -102,6 +158,7 @@ export class MapTab implements Tab {
               <button class="admin-btn admin-btn-sm" id="map-zoom-in">+</button>
               <button class="admin-btn admin-btn-sm" id="map-zoom-out">−</button>
               <button class="admin-btn admin-btn-sm" id="map-reset">Reset</button>
+              <button class="admin-btn admin-btn-sm" id="map-view-toggle" title="Painted shows the map as players see it; flat shows plain room-type colors">${this.viewMode === 'painted' ? 'View: Painted' : 'View: Flat'}</button>
               <span id="map-hover-info" class="admin-map-info"></span>
             </div>
             <div id="map-pick-banner" class="admin-map-pick-banner" style="display:none"></div>
@@ -125,15 +182,43 @@ export class MapTab implements Tab {
       this.selectedMapId = content.world.defaultMapId ?? maps[0]?.id ?? DEFAULT_MAP_ID;
     }
     this.worldTileDefs.clear();
+    this.defsByCubeKey.clear();
     const tiles: HexTile[] = [];
+    const rooms: WorldTileDefinition[] = [];
     for (const tileDef of content.world.tiles) {
       if (tileDef.mapId !== this.selectedMapId) continue;
       const coord = offsetToCube({ col: tileDef.col, row: tileDef.row });
       tiles.push(new HexTile(coord, tileDef.type, tileDef.zone));
       this.worldTileDefs.set(`${tileDef.col},${tileDef.row}`, tileDef);
+      this.defsByCubeKey.set(cubeToKey(coord), tileDef);
+      rooms.push(tileDef);
     }
     this.mapTiles = tiles;
+    this.lookups = contentRoomLookups(content);
+    this.paintTiles = adminPaintTiles(content, rooms, this.lookups);
     this.computeAdjacentSlots();
+    this.syncTerrain();
+  }
+
+  private syncTerrain(): void {
+    if (!this.terrain) return;
+    this.terrain.setTiles(this.paintTiles, this.terrainMapId !== this.selectedMapId);
+    this.terrainMapId = this.selectedMapId;
+  }
+
+  private getTileArt(tile: PaintTile): CanvasImageSource | null {
+    const def = this.defsByCubeKey.get(tile.key);
+    const urls = tileArtUrls({ id: def?.id ?? '', type: tile.type });
+    const override = def?.id ? this.artOverrides.get(def.id) : undefined;
+    return this.tileArt.get(override ? [override, ...urls] : urls, tile.key);
+  }
+
+  private requestDraw(): void {
+    if (this.drawRaf !== null) return;
+    this.drawRaf = requestAnimationFrame(() => {
+      this.drawRaf = null;
+      if (this.drawCtx) this.draw(this.drawCtx);
+    });
   }
 
   private computeAdjacentSlots(): void {
@@ -168,6 +253,12 @@ export class MapTab implements Tab {
     this.mapCanvas = document.getElementById('admin-map-canvas') as HTMLCanvasElement;
     if (!this.mapCanvas) return;
     this.mapCtx = this.mapCanvas.getContext('2d');
+    this.drawCtx = ctx;
+    this.terrain = new CanvasTerrainLayer({
+      getArt: tile => this.getTileArt(tile),
+      onBaked: () => this.requestDraw(),
+    });
+    this.syncTerrain();
 
     const resizeCanvas = () => {
       if (!this.mapCanvas) return;
@@ -214,7 +305,13 @@ export class MapTab implements Tab {
     this.mapCanvas.addEventListener('wheel', e => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      this.mapZoom = Math.max(0.05, Math.min(3, this.mapZoom * delta));
+      const rect = this.mapCanvas!.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const next = Math.max(0.05, Math.min(3, this.mapZoom * delta));
+      const k = next / this.mapZoom;
+      this.mapOffset = { x: mx - (mx - this.mapOffset.x) * k, y: my - (my - this.mapOffset.y) * k };
+      this.mapZoom = next;
       this.draw(ctx);
     });
 
@@ -274,6 +371,12 @@ export class MapTab implements Tab {
       };
       this.draw(ctx);
     });
+    document.getElementById('map-view-toggle')?.addEventListener('click', e => {
+      this.viewMode = this.viewMode === 'painted' ? 'flat' : 'painted';
+      try { localStorage.setItem(VIEW_MODE_KEY, this.viewMode); } catch { /* storage blocked */ }
+      (e.currentTarget as HTMLButtonElement).textContent = this.viewMode === 'painted' ? 'View: Painted' : 'View: Flat';
+      this.draw(ctx);
+    });
     (document.getElementById('map-selector') as HTMLSelectElement | null)?.addEventListener('change', (e) => {
       this.switchMap(ctx, (e.target as HTMLSelectElement).value);
     });
@@ -282,6 +385,11 @@ export class MapTab implements Tab {
       if (this.isDragging) return;
       const rect = this.mapCanvas!.getBoundingClientRect();
       this.updateHoverInfo(e.clientX - rect.left, e.clientY - rect.top);
+    });
+    this.mapCanvas.addEventListener('mouseleave', () => {
+      if (this.hoverKey === null) return;
+      this.hoverKey = null;
+      this.requestDraw();
     });
   }
 
@@ -303,7 +411,13 @@ export class MapTab implements Tab {
     const worldY = (my - this.mapOffset.y) / zoom;
     const hoveredCube = pixelToCube({ x: worldX, y: worldY });
     const hoveredOffset = cubeToOffset(hoveredCube);
-    const tileDef = this.worldTileDefs.get(`${hoveredOffset.col},${hoveredOffset.row}`);
+    const hoverKey = `${hoveredOffset.col},${hoveredOffset.row}`;
+    const tileDef = this.worldTileDefs.get(hoverKey);
+    const nextHover = tileDef ? hoverKey : null;
+    if (nextHover !== this.hoverKey) {
+      this.hoverKey = nextHover;
+      this.requestDraw();
+    }
     if (tileDef) {
       infoEl.textContent = `${tileDef.name} — ${tileDef.zone} (${hoveredOffset.col}, ${hoveredOffset.row})`;
       return;
@@ -415,15 +529,17 @@ export class MapTab implements Tab {
     const canvas = this.mapCanvas;
     if (!c || !canvas) return;
 
-    c.clearRect(0, 0, canvas.width, canvas.height);
-    c.fillStyle = '#1a1d23';
-    c.fillRect(0, 0, canvas.width, canvas.height);
-
     const content = ctx.getDisplayContent();
     const corners = getHexCorners(HEX_SIZE);
     const zoom = this.mapZoom;
     const ox = this.mapOffset.x;
     const oy = this.mapOffset.y;
+    const painted = this.viewMode === 'painted';
+
+    this.drawBackground(c, canvas, painted);
+    if (painted) {
+      this.terrain?.draw(c, { offsetX: ox, offsetY: oy, zoom, width: canvas.width, height: canvas.height });
+    }
 
     const zoneMap = new Map<string, string>();
     for (const tile of this.mapTiles) {
@@ -445,7 +561,6 @@ export class MapTab implements Tab {
       else otherTiles.push(tile);
     }
 
-    // Adjacent slots (only when editable)
     const showSlots = !ctx.isReadOnly();
     for (const slot of (showSlots ? this.adjacentSlots : [])) {
       const pixel = cubeToPixel(slot.coord);
@@ -453,15 +568,15 @@ export class MapTab implements Tab {
       const sy = pixel.y * zoom + oy;
       if (!this.inBounds(sx, sy, canvas, zoom)) continue;
       this.drawHex(c, corners, sx, sy, zoom);
-      c.fillStyle = 'rgba(255,255,255,0.04)';
+      c.fillStyle = painted ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)';
       c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.15)';
+      c.strokeStyle = painted ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)';
       c.lineWidth = 1;
       c.setLineDash([4, 4]);
       c.stroke();
       c.setLineDash([]);
       const plusSize = 14 * zoom;
-      c.strokeStyle = 'rgba(255,255,255,0.35)';
+      c.strokeStyle = painted ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.35)';
       c.lineWidth = Math.max(1.5, 3 * zoom);
       c.beginPath();
       c.moveTo(sx - plusSize, sy); c.lineTo(sx + plusSize, sy);
@@ -469,69 +584,147 @@ export class MapTab implements Tab {
       c.stroke();
     }
 
-    for (const tile of otherTiles) {
-      this.drawTile(c, tile, corners, ox, oy, zoom, content);
+    if (painted) {
+      if (selectedZone) {
+        c.beginPath();
+        for (const tile of otherTiles) {
+          const pixel = cubeToPixel(tile.coord);
+          const sx = pixel.x * zoom + ox;
+          const sy = pixel.y * zoom + oy;
+          if (!this.inBounds(sx, sy, canvas, zoom)) continue;
+          this.addHex(c, corners, sx, sy, zoom);
+        }
+        c.fillStyle = 'rgba(14,16,28,0.38)';
+        c.fill();
+        this.drawZoneGlow(c, canvas, selectedHexTile ? [...zoneTiles, selectedHexTile] : zoneTiles, selectedZone, zoneMap, corners, 0.6);
+      }
+    } else {
+      for (const tile of otherTiles) this.drawFlatTile(c, tile, corners, ox, oy, zoom, content);
+      if (selectedZone) {
+        this.drawZoneGlow(c, canvas, selectedHexTile ? [...zoneTiles, selectedHexTile] : zoneTiles, selectedZone, zoneMap, corners, 1);
+      }
+      for (const tile of zoneTiles) this.drawFlatTile(c, tile, corners, ox, oy, zoom, content);
+      this.drawFlatZoneBorders(c, canvas, zoneMap, corners);
     }
 
-    if (selectedZone) {
-      const all = selectedHexTile ? [...zoneTiles, selectedHexTile] : zoneTiles;
-      const edges: { x0: number; y0: number; x1: number; y1: number }[] = [];
-      for (const tile of all) {
-        const pixel = cubeToPixel(tile.coord);
-        const sx = pixel.x * zoom + ox;
-        const sy = pixel.y * zoom + oy;
-        if (!this.inBounds(sx, sy, canvas, zoom, 4)) continue;
-        for (let dir = 0; dir < 6; dir++) {
-          const neighbor = getNeighbor(tile.coord, dir);
-          const nOff = cubeToOffset(neighbor);
-          const nZone = zoneMap.get(`${nOff.col},${nOff.row}`);
-          if (nZone === selectedZone) continue;
-          const [ei0, ei1] = DIR_TO_EDGE[dir];
-          edges.push({
-            x0: sx + corners[ei0].x * zoom, y0: sy + corners[ei0].y * zoom,
-            x1: sx + corners[ei1].x * zoom, y1: sy + corners[ei1].y * zoom,
-          });
-        }
-      }
-      c.save();
-      c.lineCap = 'round';
-      const passes = [
-        { width: Math.max(20, 40 * zoom), alpha: 0.04 },
-        { width: Math.max(14, 28 * zoom), alpha: 0.08 },
-        { width: Math.max(8, 16 * zoom), alpha: 0.15 },
-        { width: Math.max(4, 8 * zoom), alpha: 0.25 },
-        { width: Math.max(2, 4 * zoom), alpha: 0.4 },
-      ];
-      for (const pass of passes) {
-        c.strokeStyle = `rgba(255,255,255,${pass.alpha})`;
-        c.lineWidth = pass.width;
-        c.beginPath();
-        for (const e of edges) { c.moveTo(e.x0, e.y0); c.lineTo(e.x1, e.y1); }
+    if (this.hoverKey && this.hoverKey !== (selectedHexTile ? this.tileKey(selectedHexTile) : null)) {
+      const def = this.worldTileDefs.get(this.hoverKey);
+      if (def) {
+        const pixel = cubeToPixel(offsetToCube({ col: def.col, row: def.row }));
+        this.drawHex(c, corners, pixel.x * zoom + ox, pixel.y * zoom + oy, zoom);
+        c.strokeStyle = 'rgba(255,255,255,0.7)';
+        c.lineWidth = Math.max(1.5, 2 * zoom);
         c.stroke();
       }
-      c.restore();
     }
 
-    for (const tile of zoneTiles) {
-      this.drawTile(c, tile, corners, ox, oy, zoom, content);
+    if (selectedHexTile) {
+      const pixel = cubeToPixel(selectedHexTile.coord);
+      const sx = pixel.x * zoom + ox;
+      const sy = pixel.y * zoom + oy;
+      if (painted) this.drawPaintedSelection(c, corners, sx, sy, zoom);
+      else this.drawFlatSelection(c, selectedHexTile, corners, sx, sy, zoom, zoneMap, content);
     }
 
-    // Yellow zone-boundary edges
+    this.drawMarkers(c, canvas, content, painted);
+  }
+
+  private drawBackground(c: CanvasRenderingContext2D, canvas: HTMLCanvasElement, painted: boolean): void {
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    if (!painted) {
+      c.fillStyle = '#1a1d23';
+      c.fillRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    c.fillStyle = SEA_FALLBACK_COLOR;
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    const pattern = this.backdropPattern(c);
+    if (!pattern) return;
+    const zoom = this.mapZoom;
+    c.save();
+    c.setTransform(zoom, 0, 0, zoom, this.mapOffset.x, this.mapOffset.y);
+    c.fillStyle = pattern;
+    c.fillRect(-this.mapOffset.x / zoom, -this.mapOffset.y / zoom, canvas.width / zoom, canvas.height / zoom);
+    c.restore();
+  }
+
+  /** The map's uploaded parchment, else the game's painted sea; one repeat spans BACKDROP_REPEAT world units. */
+  private backdropPattern(c: CanvasRenderingContext2D): CanvasPattern | null {
+    if (this.backdrop?.mapId === this.selectedMapId) return this.backdrop.pattern;
+    const mapId = this.selectedMapId;
+    const sea = createSeaCanvas(BACKDROP_REPEAT);
+    this.backdrop = { mapId, pattern: c.createPattern(sea, 'repeat') };
+    const img = new Image();
+    img.onload = () => {
+      if (this.backdrop?.mapId !== mapId || !this.mapCtx) return;
+      const pattern = this.mapCtx.createPattern(img, 'repeat');
+      if (pattern && typeof DOMMatrix !== 'undefined') {
+        pattern.setTransform(new DOMMatrix().scale(BACKDROP_REPEAT / img.width, BACKDROP_REPEAT / img.height));
+      }
+      this.backdrop = { mapId, pattern };
+      this.requestDraw();
+    };
+    img.src = artworkUrl('parchment', mapId);
+    return this.backdrop.pattern;
+  }
+
+  private drawZoneGlow(
+    c: CanvasRenderingContext2D, canvas: HTMLCanvasElement, tiles: HexTile[], zone: string,
+    zoneMap: Map<string, string>, corners: { x: number; y: number }[], strength: number,
+  ): void {
+    const zoom = this.mapZoom;
+    const edges: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    for (const tile of tiles) {
+      const pixel = cubeToPixel(tile.coord);
+      const sx = pixel.x * zoom + this.mapOffset.x;
+      const sy = pixel.y * zoom + this.mapOffset.y;
+      if (!this.inBounds(sx, sy, canvas, zoom, 4)) continue;
+      for (let dir = 0; dir < 6; dir++) {
+        const nOff = cubeToOffset(getNeighbor(tile.coord, dir));
+        if (zoneMap.get(`${nOff.col},${nOff.row}`) === zone) continue;
+        const [ei0, ei1] = DIR_TO_EDGE[dir];
+        edges.push({
+          x0: sx + corners[ei0].x * zoom, y0: sy + corners[ei0].y * zoom,
+          x1: sx + corners[ei1].x * zoom, y1: sy + corners[ei1].y * zoom,
+        });
+      }
+    }
+    c.save();
+    c.lineCap = 'round';
+    const passes = [
+      { width: Math.max(20, 40 * zoom), alpha: 0.04 },
+      { width: Math.max(14, 28 * zoom), alpha: 0.08 },
+      { width: Math.max(8, 16 * zoom), alpha: 0.15 },
+      { width: Math.max(4, 8 * zoom), alpha: 0.25 },
+      { width: Math.max(2, 4 * zoom), alpha: 0.4 },
+    ];
+    for (const pass of passes) {
+      c.strokeStyle = `rgba(255,255,255,${pass.alpha * strength})`;
+      c.lineWidth = pass.width;
+      c.beginPath();
+      for (const e of edges) { c.moveTo(e.x0, e.y0); c.lineTo(e.x1, e.y1); }
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  private drawFlatZoneBorders(
+    c: CanvasRenderingContext2D, canvas: HTMLCanvasElement, zoneMap: Map<string, string>, corners: { x: number; y: number }[],
+  ): void {
+    const zoom = this.mapZoom;
     c.save();
     c.strokeStyle = '#ffc845';
     c.lineWidth = Math.max(1.5, 2.5 * zoom);
     c.lineCap = 'round';
     for (const tile of this.mapTiles) {
       const pixel = cubeToPixel(tile.coord);
-      const sx = pixel.x * zoom + ox;
-      const sy = pixel.y * zoom + oy;
+      const sx = pixel.x * zoom + this.mapOffset.x;
+      const sy = pixel.y * zoom + this.mapOffset.y;
       if (!this.inBounds(sx, sy, canvas, zoom, 3)) continue;
-      const tileZone = tile.zone;
       for (let dir = 0; dir < 6; dir++) {
-        const neighbor = getNeighbor(tile.coord, dir);
-        const nOff = cubeToOffset(neighbor);
+        const nOff = cubeToOffset(getNeighbor(tile.coord, dir));
         const nZone = zoneMap.get(`${nOff.col},${nOff.row}`);
-        if (nZone === undefined || nZone === tileZone) continue;
+        if (nZone === undefined || nZone === tile.zone) continue;
         const [ei0, ei1] = DIR_TO_EDGE[dir];
         c.beginPath();
         c.moveTo(sx + corners[ei0].x * zoom, sy + corners[ei0].y * zoom);
@@ -540,50 +733,67 @@ export class MapTab implements Tab {
       }
     }
     c.restore();
-
-    if (selectedHexTile) {
-      const pixel = cubeToPixel(selectedHexTile.coord);
-      const sx = pixel.x * zoom + ox;
-      const sy = pixel.y * zoom + oy;
-      c.save();
-      c.shadowColor = 'rgba(0,0,0,0.5)';
-      c.shadowBlur = Math.max(4, 8 * zoom);
-      c.shadowOffsetY = Math.max(1, 3 * zoom);
-      this.drawHex(c, corners, sx, sy, zoom, 1.08);
-      const tt = content?.tileTypes?.[selectedHexTile.type];
-      c.fillStyle = tt
-        ? tt.color
-        : '#' + (TILE_CONFIGS[selectedHexTile.type as TileType]?.color ?? 0x333333).toString(16).padStart(6, '0');
-      c.fill();
-      c.restore();
-      this.drawHex(c, corners, sx, sy, zoom, 1.08);
-      c.strokeStyle = 'rgba(255,255,255,0.25)';
-      c.lineWidth = Math.max(1, 1.5 * zoom);
-      c.stroke();
-      const tileZone = selectedHexTile.zone;
-      const scale = 1.08;
-      c.strokeStyle = '#ffc845';
-      c.lineWidth = Math.max(2, 3 * zoom);
-      c.lineCap = 'round';
-      for (let dir = 0; dir < 6; dir++) {
-        const neighbor = getNeighbor(selectedHexTile.coord, dir);
-        const nOff = cubeToOffset(neighbor);
-        const nZone = zoneMap.get(`${nOff.col},${nOff.row}`);
-        if (nZone === undefined || nZone === tileZone) continue;
-        const [ei0, ei1] = DIR_TO_EDGE[dir];
-        c.beginPath();
-        c.moveTo(sx + corners[ei0].x * zoom * scale, sy + corners[ei0].y * zoom * scale);
-        c.lineTo(sx + corners[ei1].x * zoom * scale, sy + corners[ei1].y * zoom * scale);
-        c.stroke();
-      }
-      this.drawNonTraversableMarker(c, selectedHexTile, sx, sy, zoom, content);
-      this.drawStartMarker(c, selectedHexTile, sx, sy, zoom, content);
-      this.drawNpcMarker(c, selectedHexTile, sx, sy, zoom, content);
-      this.drawTransitionMarker(c, selectedHexTile, sx, sy, zoom);
-    }
   }
 
-  private drawTile(
+  private drawPaintedSelection(
+    c: CanvasRenderingContext2D, corners: { x: number; y: number }[], sx: number, sy: number, zoom: number,
+  ): void {
+    c.save();
+    this.drawHex(c, corners, sx, sy, zoom);
+    c.shadowColor = 'rgba(0,0,0,0.6)';
+    c.shadowBlur = Math.max(4, 8 * zoom);
+    c.strokeStyle = '#ffffff';
+    c.lineWidth = Math.max(2, 3.5 * zoom);
+    c.stroke();
+    c.shadowBlur = 0;
+    c.strokeStyle = '#ffc845';
+    c.lineWidth = Math.max(1, 1.5 * zoom);
+    c.stroke();
+    c.restore();
+  }
+
+  private drawFlatSelection(
+    c: CanvasRenderingContext2D, tile: HexTile, corners: { x: number; y: number }[],
+    sx: number, sy: number, zoom: number, zoneMap: Map<string, string>,
+    content: ReturnType<AdminContext['getDisplayContent']>,
+  ): void {
+    const scale = 1.08;
+    c.save();
+    c.shadowColor = 'rgba(0,0,0,0.5)';
+    c.shadowBlur = Math.max(4, 8 * zoom);
+    c.shadowOffsetY = Math.max(1, 3 * zoom);
+    this.drawHex(c, corners, sx, sy, zoom, scale);
+    c.fillStyle = this.flatColor(tile, content);
+    c.fill();
+    c.restore();
+    this.drawHex(c, corners, sx, sy, zoom, scale);
+    c.strokeStyle = 'rgba(255,255,255,0.25)';
+    c.lineWidth = Math.max(1, 1.5 * zoom);
+    c.stroke();
+    c.strokeStyle = '#ffc845';
+    c.lineWidth = Math.max(2, 3 * zoom);
+    c.lineCap = 'round';
+    for (let dir = 0; dir < 6; dir++) {
+      const nOff = cubeToOffset(getNeighbor(tile.coord, dir));
+      const nZone = zoneMap.get(`${nOff.col},${nOff.row}`);
+      if (nZone === undefined || nZone === tile.zone) continue;
+      const [ei0, ei1] = DIR_TO_EDGE[dir];
+      c.beginPath();
+      c.moveTo(sx + corners[ei0].x * zoom * scale, sy + corners[ei0].y * zoom * scale);
+      c.lineTo(sx + corners[ei1].x * zoom * scale, sy + corners[ei1].y * zoom * scale);
+      c.stroke();
+    }
+    this.drawNonTraversableMarker(c, tile, sx, sy, zoom, content);
+  }
+
+  private flatColor(tile: HexTile, content: ReturnType<AdminContext['getDisplayContent']>): string {
+    const tt = content?.tileTypes?.[tile.type];
+    return tt
+      ? tt.color
+      : '#' + (TILE_CONFIGS[tile.type as TileType]?.color ?? 0x333333).toString(16).padStart(6, '0');
+  }
+
+  private drawFlatTile(
     c: CanvasRenderingContext2D, tile: HexTile, corners: { x: number; y: number }[],
     ox: number, oy: number, zoom: number,
     content: ReturnType<AdminContext['getDisplayContent']>,
@@ -594,40 +804,99 @@ export class MapTab implements Tab {
     const sy = pixel.y * zoom + oy;
     if (!this.inBounds(sx, sy, canvas, zoom)) return;
     this.drawHex(c, corners, sx, sy, zoom);
-    const tt = content?.tileTypes?.[tile.type];
-    c.fillStyle = tt
-      ? tt.color
-      : '#' + (TILE_CONFIGS[tile.type as TileType]?.color ?? 0x333333).toString(16).padStart(6, '0');
+    c.fillStyle = this.flatColor(tile, content);
     c.fill();
     c.strokeStyle = '#2a2e36';
     c.lineWidth = 0.5;
     c.stroke();
     this.drawNonTraversableMarker(c, tile, sx, sy, zoom, content);
-    this.drawStartMarker(c, tile, sx, sy, zoom, content);
-    this.drawNpcMarker(c, tile, sx, sy, zoom, content);
-    this.drawTransitionMarker(c, tile, sx, sy, zoom);
   }
 
-  private drawNpcMarker(
-    c: CanvasRenderingContext2D, tile: HexTile, sx: number, sy: number, zoom: number,
-    content: ReturnType<AdminContext['getDisplayContent']>,
+  /** The game's room markers (same glyphs, same pill), plus the admin-only start star. */
+  private drawMarkers(
+    c: CanvasRenderingContext2D, canvas: HTMLCanvasElement,
+    content: ReturnType<AdminContext['getDisplayContent']>, painted: boolean,
   ): void {
     if (!content) return;
-    const offset = cubeToOffset(tile.coord);
-    const tileDef = this.worldTileDefs.get(`${offset.col},${offset.row}`);
-    if (!tileDef?.npcId) return;
-    const npc = content.npcs?.[tileDef.npcId];
-    if (!npc) return;
+    const zoom = this.mapZoom;
+    const meta = content.world.maps?.find(m => m.id === this.selectedMapId);
+    const start = meta?.startTile ?? content.world.startTile;
+    const lookups = this.lookups ?? contentRoomLookups(content);
+    for (const def of this.worldTileDefs.values()) {
+      const pixel = cubeToPixel(offsetToCube({ col: def.col, row: def.row }));
+      const sx = pixel.x * zoom + this.mapOffset.x;
+      const sy = pixel.y * zoom + this.mapOffset.y;
+      if (!this.inBounds(sx, sy, canvas, zoom)) continue;
+      if (zoom >= MARKER_MIN_ZOOM) {
+        const { icons, more } = roomMarkerGlyphs(def, lookups);
+        if (icons.length > 0) this.drawMarkerPill(c, sx, sy + HEX_SIZE * 0.55 * zoom, icons, more);
+      }
+      if (start.col === def.col && start.row === def.row) {
+        c.save();
+        c.font = `${Math.max(10, 16 * zoom)}px sans-serif`;
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        if (painted) {
+          c.lineWidth = 3;
+          c.strokeStyle = 'rgba(0,0,0,0.6)';
+          c.strokeText('★', sx, sy);
+        }
+        c.fillStyle = '#ffc845';
+        c.fillText('★', sx, sy);
+        c.restore();
+      }
+    }
+  }
+
+  private drawMarkerPill(c: CanvasRenderingContext2D, x: number, y: number, icons: string[], more: number): void {
     c.save();
-    c.font = `${Math.max(8, 14 * zoom)}px sans-serif`;
-    c.textAlign = 'center';
+    c.font = '15px sans-serif';
     c.textBaseline = 'middle';
-    c.fillText(npc.emoji, sx + HEX_SIZE * 0.4 * zoom, sy - HEX_SIZE * 0.4 * zoom);
+    const gap = 2;
+    const iconW = icons.map(i => c.measureText(i).width);
+    c.font = 'bold 11px sans-serif';
+    const moreText = more > 0 ? `+${more}` : '';
+    const moreW = moreText ? c.measureText(moreText).width + gap : 0;
+    const innerW = iconW.reduce((a, b) => a + b, 0) + gap * (icons.length - 1) + moreW;
+    const w = innerW + 14;
+    const h = 22;
+    const left = x - w / 2;
+    const top = y - h / 2;
+    const grad = c.createLinearGradient(0, top, 0, top + h);
+    grad.addColorStop(0, '#3a4256');
+    grad.addColorStop(1, '#1d2230');
+    c.shadowColor = 'rgba(0,0,0,0.55)';
+    c.shadowBlur = 4;
+    c.shadowOffsetY = 2;
+    c.beginPath();
+    c.roundRect(left, top, w, h, h / 2);
+    c.fillStyle = grad;
+    c.fill();
+    c.shadowColor = 'transparent';
+    c.lineWidth = 2;
+    c.strokeStyle = '#b8862b';
+    c.stroke();
+    let cx = left + 7;
+    c.font = '15px sans-serif';
+    c.textAlign = 'left';
+    icons.forEach((icon, i) => {
+      c.fillText(icon, cx, y + 1);
+      cx += iconW[i] + gap;
+    });
+    if (moreText) {
+      c.font = 'bold 11px sans-serif';
+      c.fillStyle = '#ffffff';
+      c.fillText(moreText, cx, y + 1);
+    }
     c.restore();
   }
 
   private drawHex(c: CanvasRenderingContext2D, corners: { x: number; y: number }[], sx: number, sy: number, zoom: number, scale = 1.0): void {
     c.beginPath();
+    this.addHex(c, corners, sx, sy, zoom, scale);
+  }
+
+  private addHex(c: CanvasRenderingContext2D, corners: { x: number; y: number }[], sx: number, sy: number, zoom: number, scale = 1.0): void {
     for (let i = 0; i < corners.length; i++) {
       const cx = sx + corners[i].x * zoom * scale;
       const cy = sy + corners[i].y * zoom * scale;
@@ -660,37 +929,9 @@ export class MapTab implements Tab {
     c.restore();
   }
 
-  private drawStartMarker(
-    c: CanvasRenderingContext2D, tile: HexTile, sx: number, sy: number, zoom: number,
-    content: ReturnType<AdminContext['getDisplayContent']>,
-  ): void {
-    if (!content) return;
-    const offset = cubeToOffset(tile.coord);
-    const meta = content.world.maps?.find(m => m.id === this.selectedMapId);
-    const start = meta?.startTile ?? content.world.startTile;
-    if (start.col === offset.col && start.row === offset.row) {
-      c.save();
-      c.font = `${Math.max(10, 16 * zoom)}px sans-serif`;
-      c.textAlign = 'center';
-      c.textBaseline = 'middle';
-      c.fillStyle = '#ffc845';
-      c.fillText('★', sx, sy);
-      c.restore();
-    }
-  }
-
-  private drawTransitionMarker(
-    c: CanvasRenderingContext2D, tile: HexTile, sx: number, sy: number, zoom: number,
-  ): void {
-    const offset = cubeToOffset(tile.coord);
-    const tileDef = this.worldTileDefs.get(`${offset.col},${offset.row}`);
-    if (!tileDef?.transitions?.length) return;
-    c.save();
-    c.font = `${Math.max(8, 14 * zoom)}px sans-serif`;
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.fillText('🕳️', sx - HEX_SIZE * 0.4 * zoom, sy - HEX_SIZE * 0.4 * zoom);
-    c.restore();
+  private tileKey(tile: HexTile): string {
+    const off = cubeToOffset(tile.coord);
+    return `${off.col},${off.row}`;
   }
 
   // ---- Sidebar ----
@@ -775,6 +1016,15 @@ export class MapTab implements Tab {
           ${addTransitionBtn}
         </div>`;
 
+    const artHtml = `<fieldset class="admin-form-fieldset admin-map-art"${readOnly ? ' disabled' : ''}>
+          <legend>Artwork</legend>
+          ${ROOM_ART_KINDS.map(a => `<div class="admin-map-art-kind" data-room-art="${a.kind}">
+            <div class="admin-form-label-text">${a.label}</div>
+            <div class="admin-form-hint">${a.hint}</div>
+            ${renderArtworkSection({ kind: a.kind, id: tile.id, idPrefix: `map-art-${a.kind}` })}
+          </div>`).join('')}
+        </fieldset>`;
+
     let startBtnHtml = '';
     if (!readOnly) {
       startBtnHtml = isStart
@@ -819,6 +1069,7 @@ export class MapTab implements Tab {
         <div id="sidebar-encounters-section" style="${tile.encounterTable?.length ? '' : 'display:none'}">
           ${this.encounterRowsHtml(tile, content ? Object.values(content.encounters) : [], readOnly)}
         </div>
+        ${artHtml}
         ${startBtnHtml}
         <div class="admin-map-sidebar-spacer"></div>
         ${deleteBtnHtml}
@@ -895,6 +1146,7 @@ export class MapTab implements Tab {
     });
 
     this.wireEncounterEvents(ctx);
+    this.wireRoomArt(sidebar, tile);
     document.getElementById('sidebar-set-start')?.addEventListener('click', () => this.setAsStartTile(ctx));
     document.getElementById('sidebar-delete')?.addEventListener('click', () => this.deleteSelectedTile(ctx));
     document.getElementById('sidebar-link-transition')?.addEventListener('click', () => {
@@ -913,6 +1165,32 @@ export class MapTab implements Tab {
         this.draw(ctx);
         this.renderSidebar(ctx);
       });
+    }
+  }
+
+  private wireRoomArt(sidebar: HTMLElement, tile: WorldTileDefinition): void {
+    const key = cubeToKey(offsetToCube({ col: tile.col, row: tile.row }));
+    const repaint = (): void => {
+      this.terrain?.markTileKeysDirty([key]);
+      this.requestDraw();
+    };
+    for (const a of ROOM_ART_KINDS) {
+      const root = sidebar.querySelector<HTMLElement>(`[data-room-art="${a.kind}"]`);
+      if (!root) continue;
+      const mapArt = a.kind === 'tile' && tile.id
+        ? {
+          onUploaded: (url: string) => {
+            this.artOverrides.set(tile.id, url);
+            repaint();
+          },
+          onRemoved: () => {
+            this.artOverrides.delete(tile.id);
+            this.tileArt.forget(artworkUrl('tile', tile.id));
+            repaint();
+          },
+        }
+        : {};
+      wireArtworkSection(root, { kind: a.kind, id: tile.id, idPrefix: `map-art-${a.kind}`, ...mapArt });
     }
   }
 

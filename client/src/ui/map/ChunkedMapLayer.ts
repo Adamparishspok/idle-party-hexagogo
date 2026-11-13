@@ -10,18 +10,13 @@
  */
 
 import * as THREE from 'three';
-import { HEX_SIZE } from '@idle-party-rpg/shared';
-import { paintTerrain, type PaintTile } from './terrainPainter';
+import type { PaintTile } from './terrainPainter';
+import { CHUNK_SIZE, TerrainTileIndex, bakeChunk, chunkBounds, chunkKey, lodScale } from './terrainChunks';
 
-/** Chunk edge in world units (≈ 8 × 7 hexes). */
-export const CHUNK_SIZE = 512;
-/** How far outside a chunk a tile's painted footprint can reach (props, foam). */
-const PAINT_MARGIN = HEX_SIZE * 2.6;
-/** Bake a little past each edge so texture filtering never shows a seam. */
-const SEAM_OVERLAP = 2;
+export { CHUNK_SIZE, lodScale };
+
 /** Max bake work per frame, so panning stays smooth while chunks fill in. */
 const FRAME_BUDGET_MS = 8;
-const LOD_SCALES = [2, 1, 0.5, 0.25, 0.125] as const;
 /** Mesh z — above the sea backdrop, below nothing (markers are DOM). */
 const CHUNK_Z = 2;
 
@@ -54,10 +49,6 @@ export interface LayerOptions {
   onBaked: () => void;
 }
 
-function chunkKey(cx: number, cy: number): string {
-  return `${cx},${cy}`;
-}
-
 function isTouchDevice(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true;
 }
@@ -65,11 +56,7 @@ function isTouchDevice(): boolean {
 export class ChunkedMapLayer {
   private scene: THREE.Scene;
   private opts: LayerOptions;
-  private tiles = new Map<string, PaintTile>();
-  /** Tiles bucketed by the chunk their center falls in. */
-  private buckets = new Map<string, PaintTile[]>();
-  /** Visual fingerprint per tile — a change marks overlapping chunks dirty. */
-  private fingerprints = new Map<string, string>();
+  private index = new TerrainTileIndex();
   private resident = new Map<string, ResidentChunk>();
   /** Chunks wanted by the last update, nearest first, with their target LOD. */
   private queue: { key: string; cx: number; cy: number; scale: number }[] = [];
@@ -91,48 +78,16 @@ export class ChunkedMapLayer {
    */
   setTiles(tiles: PaintTile[], reset = false): void {
     if (reset) this.clear();
-
-    const next = new Map<string, PaintTile>();
-    const nextFp = new Map<string, string>();
-    for (const t of tiles) {
-      next.set(t.key, t);
-      nextFp.set(t.key, fingerprint(t));
-    }
-
-    const changed: PaintTile[] = [];
-    for (const [key, fp] of nextFp) {
-      if (this.fingerprints.get(key) !== fp) changed.push(next.get(key)!);
-    }
-    for (const [key, t] of this.tiles) {
-      if (!next.has(key)) changed.push(t);
-    }
-
-    this.tiles = next;
-    this.fingerprints = nextFp;
-    this.buckets.clear();
-    for (const t of tiles) {
-      const k = chunkKey(Math.floor(t.x / CHUNK_SIZE), Math.floor(t.y / CHUNK_SIZE));
-      let b = this.buckets.get(k);
-      if (!b) { b = []; this.buckets.set(k, b); }
-      b.push(t);
-    }
-
-    this.markTilesDirty(changed);
+    this.markTilesDirty(this.index.setTiles(tiles));
   }
 
   /** Mark every chunk a set of tiles can paint into as needing a re-bake. */
   markTilesDirty(tiles: Iterable<PaintTile>): void {
     let any = false;
     for (const t of tiles) {
-      const x0 = Math.floor((t.x - PAINT_MARGIN) / CHUNK_SIZE);
-      const x1 = Math.floor((t.x + PAINT_MARGIN) / CHUNK_SIZE);
-      const y0 = Math.floor((t.y - PAINT_MARGIN) / CHUNK_SIZE);
-      const y1 = Math.floor((t.y + PAINT_MARGIN) / CHUNK_SIZE);
-      for (let cx = x0; cx <= x1; cx++) {
-        for (let cy = y0; cy <= y1; cy++) {
-          const rc = this.resident.get(chunkKey(cx, cy));
-          if (rc) { rc.dirty = true; any = true; }
-        }
+      for (const { cx, cy } of this.index.chunksTouching(t)) {
+        const rc = this.resident.get(chunkKey(cx, cy));
+        if (rc) { rc.dirty = true; any = true; }
       }
     }
     if (any && this.lastView) this.update(this.lastView);
@@ -141,14 +96,14 @@ export class ChunkedMapLayer {
   markTileKeysDirty(keys: Iterable<string>): void {
     const ts: PaintTile[] = [];
     for (const k of keys) {
-      const t = this.tiles.get(k);
+      const t = this.index.getTile(k);
       if (t) ts.push(t);
     }
     this.markTilesDirty(ts);
   }
 
   getTile(key: string): PaintTile | undefined {
-    return this.tiles.get(key);
+    return this.index.getTile(key);
   }
 
   /**
@@ -171,7 +126,7 @@ export class ChunkedMapLayer {
     const wanted: { key: string; cx: number; cy: number; scale: number; dist: number }[] = [];
     for (let cx = x0; cx <= x1; cx++) {
       for (let cy = y0; cy <= y1; cy++) {
-        if (!this.chunkHasContent(cx, cy)) continue;
+        if (!this.index.chunkHasContent(cx, cy)) continue;
         const key = chunkKey(cx, cy);
         const midX = (cx + 0.5) * CHUNK_SIZE;
         const midY = (cy + 0.5) * CHUNK_SIZE;
@@ -200,16 +155,6 @@ export class ChunkedMapLayer {
 
   // ─── Internals ───────────────────────────────────────────────
 
-  private chunkHasContent(cx: number, cy: number): boolean {
-    // A chunk paints tiles from its own bucket and its neighbours' (margin).
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        if (this.buckets.has(chunkKey(cx + dx, cy + dy))) return true;
-      }
-    }
-    return false;
-  }
-
   private scheduleBake(): void {
     if (this.bakeRaf !== null || this.disposed) return;
     this.bakeRaf = requestAnimationFrame(() => {
@@ -228,41 +173,11 @@ export class ChunkedMapLayer {
 
   private bake(cx: number, cy: number, scale: number): void {
     const key = chunkKey(cx, cy);
-    const minX = cx * CHUNK_SIZE - SEAM_OVERLAP;
-    const minY = cy * CHUNK_SIZE - SEAM_OVERLAP;
-    const size = CHUNK_SIZE + SEAM_OVERLAP * 2;
-    const px = Math.max(1, Math.ceil(size * scale));
-
-    // Gather every tile whose footprint can reach this chunk.
-    const tiles: PaintTile[] = [];
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const b = this.buckets.get(chunkKey(cx + dx, cy + dy));
-        if (!b) continue;
-        for (const t of b) {
-          if (t.x >= minX - PAINT_MARGIN && t.x <= minX + size + PAINT_MARGIN &&
-              t.y >= minY - PAINT_MARGIN && t.y <= minY + size + PAINT_MARGIN) {
-            tiles.push(t);
-          }
-        }
-      }
-    }
-
+    const { minX, minY, size } = chunkBounds(cx, cy);
     let rc = this.resident.get(key);
     const canvas = rc?.canvas ?? document.createElement('canvas');
-    canvas.width = px;
-    canvas.height = px;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, px, px);
-    const s = px / size;
-    ctx.setTransform(s, 0, 0, s, -minX * s, -minY * s);
-    paintTerrain(ctx, tiles, {
-      scale: s,
-      getTile: (k) => this.tiles.get(k),
-      getArt: this.opts.getArt,
-    });
+    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts.getArt)) return;
+    const px = canvas.width;
 
     if (!rc) {
       const texture = new THREE.CanvasTexture(canvas);
@@ -329,19 +244,6 @@ export class ChunkedMapLayer {
   private clear(): void {
     for (const rc of [...this.resident.values()]) this.destroyChunk(rc);
     this.queue = [];
-    this.fingerprints.clear();
+    this.index.clear();
   }
-}
-
-/** Smallest LOD scale that still covers the requested pixel density. */
-export function lodScale(pxPerWorldUnit: number): number {
-  let best: number = LOD_SCALES[0];
-  for (const s of LOD_SCALES) {
-    if (s >= pxPerWorldUnit) best = s;
-  }
-  return best;
-}
-
-function fingerprint(t: PaintTile): string {
-  return `${t.type}|${t.fog}|${t.dimmed ? 1 : 0}|${t.zone}`;
 }

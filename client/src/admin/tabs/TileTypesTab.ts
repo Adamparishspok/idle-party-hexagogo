@@ -6,8 +6,24 @@ import { escapeHtml, putAdmin, deleteAdmin, postAdmin } from '../api';
 import { openModal } from '../components/Modal';
 import { renderArtworkSection, wireArtworkSection } from '../components/ArtworkSection';
 import { entryRequirementsHtml, readEntryRequirements, summarizeEntryRequirements } from '../components/EntryRequirements';
+import { hasBuiltInLook } from '../../ui/map/terrainPainter';
+import type { PaintTile } from '../../ui/map/terrainPainter';
+import { TileArtCache, tileArtUrls } from '../../ui/map/tileArt';
+import { paintTypePreview } from '../map/typePreview';
+
+const FALLBACK_HINT = 'Only used if the map has no built-in look for this type.';
+
+type PreviewType = Pick<TileTypeDefinition, 'id' | 'color' | 'icon' | 'traversable'>;
 
 export class TileTypesTab implements Tab {
+  private previews = new Map<string, { canvas: HTMLCanvasElement; type: PreviewType }>();
+  private art = new TileArtCache(keys => {
+    for (const typeId of new Set([...keys].map(k => k.split('|')[0]))) {
+      const p = this.previews.get(typeId);
+      if (p?.canvas.isConnected) this.paintPreview(p.canvas, p.type);
+    }
+  });
+
   render(container: HTMLElement, ctx: AdminContext): void {
     const content = ctx.getDisplayContent();
     if (!content) {
@@ -33,13 +49,20 @@ export class TileTypesTab implements Tab {
         ? `<button class="admin-btn admin-btn-sm tile-type-view-btn" data-id="${escapeHtml(t.id)}">View</button>`
         : `<button class="admin-btn admin-btn-sm tile-type-edit-btn" data-id="${escapeHtml(t.id)}">Edit</button>`;
       const deleteBtn = readOnly ? '' : `<button class="admin-btn admin-btn-sm admin-btn-danger tile-type-delete-btn" data-id="${escapeHtml(t.id)}">Del</button>`;
+      const lookTag = hasBuiltInLook(t.id)
+        ? '<div class="tile-type-card-look" title="' + FALLBACK_HINT + '">Built-in look</div>'
+        : '';
       return `
         <div class="tile-type-card">
-          <div class="tile-type-card-preview${blockedClass}" style="--tile-color:${escapeHtml(t.color)}" title="${t.traversable ? '' : 'Non-traversable'}">
-            <div class="tile-type-card-hex"></div>
-            <div class="tile-type-card-icon">${escapeHtml(t.icon)}</div>
+          <canvas class="tile-type-card-painted" data-type-preview="${escapeHtml(t.id)}" aria-label="${escapeHtml(t.name)} as painted on the map"></canvas>
+          <div class="tile-type-card-meta">
+            <div class="tile-type-card-preview tile-type-card-preview-sm${blockedClass}" style="--tile-color:${escapeHtml(t.color)}" title="${t.traversable ? 'Flat color' : 'Flat color — non-traversable'}">
+              <div class="tile-type-card-hex"></div>
+              <div class="tile-type-card-icon">${escapeHtml(t.icon)}</div>
+            </div>
+            <div class="tile-type-card-name">${escapeHtml(t.name)}</div>
           </div>
-          <div class="tile-type-card-name">${escapeHtml(t.name)}</div>
+          ${lookTag}
           ${requiredItemTag}
           <div class="tile-type-card-actions">${editBtn}${deleteBtn}</div>
         </div>
@@ -63,6 +86,14 @@ export class TileTypesTab implements Tab {
       </div>
     `;
 
+    this.previews.clear();
+    for (const t of tileTypes) {
+      const canvas = container.querySelector<HTMLCanvasElement>(`canvas[data-type-preview="${CSS.escape(t.id)}"]`);
+      if (!canvas) continue;
+      this.previews.set(t.id, { canvas, type: t });
+      this.paintPreview(canvas, t);
+    }
+
     container.querySelectorAll<HTMLButtonElement>('.tile-type-edit-btn, .tile-type-view-btn').forEach(btn => {
       btn.addEventListener('click', () => this.openModal(btn.dataset.id!, ctx));
     });
@@ -85,15 +116,20 @@ export class TileTypesTab implements Tab {
     const initBlocked = existing ? existing.traversable === false : false;
     // Auto-generate IDs for new tile types — they're hidden from the UI; only the name matters.
     const id = existing?.id ?? crypto.randomUUID();
+    const builtIn = hasBuiltInLook(id);
     const formHtml = `
       <div class="tile-type-form">
-        <div class="tile-type-form-preview tile-type-card-preview${initBlocked ? ' is-blocked' : ''}" style="--tile-color:${escapeHtml(initColor)}">
-          <div class="tile-type-card-hex"></div>
-          <div class="tile-type-card-icon" id="ttf-preview-icon">${escapeHtml(existing?.icon ?? '?')}</div>
+        <div class="tile-type-form-previews">
+          <canvas class="tile-type-form-painted" id="ttf-painted" aria-label="As painted on the map"></canvas>
+          <div class="tile-type-form-preview tile-type-card-preview${initBlocked ? ' is-blocked' : ''}" style="--tile-color:${escapeHtml(initColor)}" title="Flat color">
+            <div class="tile-type-card-hex"></div>
+            <div class="tile-type-card-icon" id="ttf-preview-icon">${escapeHtml(existing?.icon ?? '?')}</div>
+          </div>
         </div>
         <div class="admin-form-grid">
           <input type="hidden" id="ttf-id" value="${escapeHtml(id)}">
           <label>Name<input type="text" id="ttf-name" value="${escapeHtml(existing?.name ?? '')}"></label>
+          ${builtIn ? `<div class="admin-form-hint">Color and icon: ${FALLBACK_HINT.charAt(0).toLowerCase()}${FALLBACK_HINT.slice(1)}</div>` : ''}
           <label>Icon (emoji)<input type="text" id="ttf-icon" value="${escapeHtml(existing?.icon ?? '')}"></label>
           <label class="tile-type-color-field">
             Color
@@ -150,12 +186,26 @@ export class TileTypesTab implements Tab {
     const colorText = root.querySelector<HTMLElement>('#ttf-color-text');
     const traversableInput = root.querySelector<HTMLInputElement>('#ttf-traversable');
 
+    const painted = root.querySelector<HTMLCanvasElement>('#ttf-painted');
+    const repaint = (): void => {
+      if (!painted) return;
+      this.paintPreview(painted, {
+        id,
+        color: colorInput?.value ?? initColor,
+        icon: iconInput?.value ?? '',
+        traversable: traversableInput?.checked ?? true,
+      });
+    };
+    repaint();
+
     iconInput?.addEventListener('input', () => {
       if (previewIcon) previewIcon.textContent = iconInput.value || '?';
+      repaint();
     });
     colorInput?.addEventListener('input', () => {
       if (previewBox) previewBox.style.setProperty('--tile-color', colorInput.value);
       if (colorText) colorText.textContent = colorInput.value;
+      repaint();
     });
     traversableInput?.addEventListener('change', () => {
       previewBox?.classList.toggle('is-blocked', !traversableInput.checked);
@@ -186,6 +236,10 @@ export class TileTypesTab implements Tab {
         alert(err instanceof Error ? err.message : 'Network error');
       }
     });
+  }
+
+  private paintPreview(canvas: HTMLCanvasElement, type: PreviewType): void {
+    paintTypePreview(canvas, type, (tile: PaintTile) => this.art.get(tileArtUrls({ id: '', type: tile.type }), `${type.id}|${tile.key}`));
   }
 
   private async deleteTileType(ctx: AdminContext, id: string): Promise<void> {

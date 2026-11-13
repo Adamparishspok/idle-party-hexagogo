@@ -384,9 +384,7 @@ export class App {
     const settingsScreen = new SettingsScreen(
       'screen-settings',
       this.gameClient,
-      this.worldCache,
       (id) => this.screenManager.push(id),
-      questLog,
       () => tour.start(),
     );
     const patchNotesScreen = new PatchNotesScreen('screen-patch-notes');

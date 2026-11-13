@@ -755,6 +755,45 @@ input[type="color"] { padding: 0; height: 32px; width: 56px; }
   margin-bottom: 8px;
 }
 
+.admin-art-section audio.admin-art-preview { max-width: 100%; width: 260px; max-height: none; }
+
+/* ---- Assets tab ---- */
+.admin-asset-gap td:first-child { color: var(--admin-danger); }
+.admin-asset-kind { font-size: 0.8em; color: var(--admin-text-muted); }
+.admin-asset-group {
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  padding: var(--admin-pad-section);
+  margin-bottom: var(--admin-gap);
+  background: var(--admin-panel);
+}
+.admin-asset-group > summary { cursor: pointer; font-weight: 600; }
+.admin-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--admin-gap);
+  margin: var(--admin-gap) 0;
+}
+.admin-asset-cell {
+  background: var(--admin-panel-2);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-sm);
+  padding: var(--admin-pad-section);
+  min-width: 0;
+}
+.admin-asset-cell-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.admin-asset-cell input[type="file"] { max-width: 100%; }
+.admin-asset-status { font-size: 0.8em; font-weight: 600; }
+.admin-asset-status--ok { color: var(--admin-success); }
+.admin-asset-status--warn { color: var(--admin-warning); }
+.admin-asset-status--missing { color: var(--admin-danger); }
+
 /* ---- Modal ---- */
 body.admin-modal-open { overflow: hidden; }
 .admin-modal-overlay {
@@ -1348,4 +1387,82 @@ body.admin-modal-open { overflow: hidden; }
   .admin-status-bar select { max-width: 140px; }
   .admin-stats { grid-template-columns: repeat(2, 1fr); }
   .admin-page-header { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---- Game Rules tab ---- */
+.game-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--admin-gap-loose);
+  align-items: start;
+}
+.game-rules-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--admin-gap-tight) var(--admin-gap);
+  margin: 0;
+  font-size: 0.9em;
+}
+.game-rules-list dt { color: var(--admin-text-muted); }
+.game-rules-list dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- Painted map previews ---- */
+.tile-type-card-painted {
+  display: block;
+  width: 128px;
+  height: 96px;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--admin-border);
+}
+.tile-type-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--admin-gap-tight);
+}
+.tile-type-card-preview.tile-type-card-preview-sm {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.tile-type-card-preview-sm .tile-type-card-icon { font-size: 0.9em; }
+.tile-type-card-look {
+  font-size: 0.78em;
+  color: var(--admin-text-muted);
+  cursor: help;
+}
+.tile-type-form-previews {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--admin-gap);
+  flex-shrink: 0;
+}
+.tile-type-form-painted {
+  display: block;
+  width: 110px;
+  height: 83px;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--admin-border);
+}
+.tile-type-form-previews .tile-type-form-preview {
+  width: 56px;
+  height: 56px;
+}
+.tile-type-form-previews .tile-type-form-preview .tile-type-card-icon { font-size: 1.3em; }
+.admin-map-art {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--admin-gap);
+}
+.admin-map-art-kind {
+  display: flex;
+  flex-direction: column;
+  gap: var(--admin-gap-tight);
+  min-width: 0;
+}
+.admin-map-art-kind input[type="file"] { max-width: 100%; }
+.admin-map-art-kind + .admin-map-art-kind {
+  border-top: 1px dashed var(--admin-border);
+  padding-top: var(--admin-gap);
 }

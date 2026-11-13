@@ -39,15 +39,11 @@ export function validateItemDefinition(item: ItemDefinition): string | null {
   return validateAttributes(item.attributes) ?? validateBagItem(item);
 }
 
-/** Set tiers may only grant non-negative, whole attribute points. */
+/** Set tiers grant whole attribute points; negatives are allowed, as on items. */
 export function validateSetDefinition(set: SetDefinition): string | null {
   for (const bp of set.breakpoints ?? []) {
-    const attrs = bp.bonuses?.attributes;
-    const error = validateAttributes(attrs);
+    const error = validateAttributes(bp.bonuses?.attributes);
     if (error) return `Tier @${bp.piecesRequired}: ${error}`;
-    for (const [key, value] of Object.entries(attrs ?? {})) {
-      if ((value as number) < 0) return `Tier @${bp.piecesRequired}: attribute ${key} can't be negative.`;
-    }
   }
   return null;
 }

@@ -21,6 +21,7 @@ import type {
 } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, postAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
+import { renderArtworkSection, wireArtworkSection } from '../components/ArtworkSection';
 
 /**
  * Draft-aware CRUD editor for skills-as-content (issue #267): per-class skill
@@ -276,6 +277,11 @@ export class SkillsTab implements Tab {
         </div>
         <div id="skf-options-list">${optionRows}</div>
       </fieldset>
+      <fieldset class="admin-form-fieldset">
+        <legend>Artwork</legend>
+        <div class="admin-form-hint">Icon on the equipped-skill slots and in the skill picker.</div>
+        ${renderArtworkSection({ kind: 'skill', id: s.id })}
+      </fieldset>
     `;
     const actionsHtml = readOnly
       ? `<div class="admin-modal-actions admin-modal-actions-readonly">
@@ -301,6 +307,7 @@ export class SkillsTab implements Tab {
     root.querySelector('#skf-save')?.addEventListener('click', () => {
       this.saveForm(root, ctx, modal.close);
     });
+    wireArtworkSection(root, { kind: 'skill', id: s.id });
 
     // Grant-only checkbox disables the unlock-level input.
     const grantCheck = root.querySelector<HTMLInputElement>('#skf-grantOnly');

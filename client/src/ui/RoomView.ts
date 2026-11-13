@@ -1,7 +1,7 @@
 import type { TileClickInfo } from './ThreeWorldMap';
 import { actionLabel } from './RoomActions';
 import type { RoomAction } from './RoomActions';
-import { artworkUrl } from './assets';
+import { artworkUrl, imgChainAttrs, npcArtUrls } from './assets';
 import { bringToFront, release } from './ModalStack';
 import { renderPortrait } from './Portrait';
 import '../styles/screens/map.css';
@@ -291,11 +291,12 @@ export class RoomView {
 
   /** Icon chip for a room action: NPC portrait or shop art over the shared glyph/coin. */
   private actionIcon(action: RoomAction): string {
-    const id = encodeURIComponent(action.targetId);
     if (action.kind === 'npc') {
+      const urls = npcArtUrls({ id: action.targetId, artworkUrl: action.artworkUrl });
       return `<span class="rv-action__chip"><span class="rv-action__emoji" aria-hidden="true">${this.escapeHtml(action.icon)}</span>`
-        + `<img class="rv-action__img" src="${artworkUrl('npc', id)}" alt="" onerror="this.remove()" /></span>`;
+        + `<img class="rv-action__img" alt="" ${imgChainAttrs(urls)} /></span>`;
     }
+    const id = encodeURIComponent(action.targetId);
     if (action.kind === 'shop') {
       return `<span class="rv-action__chip"><span class="gc-coin rv-action__coin" aria-hidden="true"></span>`
         + `<img class="rv-action__img" src="${artworkUrl('shop', id)}" alt="" onerror="this.remove()" /></span>`;

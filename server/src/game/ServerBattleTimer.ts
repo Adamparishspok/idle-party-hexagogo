@@ -1,4 +1,5 @@
 import {
+  COMBAT_TICK_MS,
   RESULT_PAUSE,
   MOVE_DURATION,
 } from '@idle-party-rpg/shared';
@@ -6,8 +7,6 @@ import type { BattleTimerState, BattleResult, BattleVisual } from '@idle-party-r
 import type { PartyCombatState } from '@idle-party-rpg/shared';
 import { processPartyTick } from '@idle-party-rpg/shared';
 import { ServerParty } from './ServerParty.js';
-
-const TICK_INTERVAL = 1000; // 1 second per combat tick
 
 export interface ServerBattleCallbacks {
   onBattleStart?: () => void;
@@ -66,14 +65,14 @@ export class ServerBattleTimer {
     this.setState('battle');
 
     // Start the tick loop
-    this.tickInterval = setInterval(() => this.processCombatTick(), TICK_INTERVAL);
+    this.tickInterval = setInterval(() => this.processCombatTick(), COMBAT_TICK_MS);
   }
 
   private processCombatTick(): void {
     if (!this.combatState || this.combatState.finished) return;
 
     const tickResult = processPartyTick(this.combatState);
-    this.battleDuration += TICK_INTERVAL;
+    this.battleDuration += COMBAT_TICK_MS;
 
     // Notify listeners of the tick (damage log entries, HP updates)
     this.onCombatTick?.(this.combatState, tickResult.logEntries);
@@ -87,7 +86,7 @@ export class ServerBattleTimer {
 
       const result: BattleResult = tickResult.result === 'victory' ? 'victory' : 'defeat';
       // Delay result transition by one tick so the killing blow animation plays first
-      this.resultTimeout = setTimeout(() => this.showBattleResult(result), TICK_INTERVAL);
+      this.resultTimeout = setTimeout(() => this.showBattleResult(result), COMBAT_TICK_MS);
     }
   }
 
