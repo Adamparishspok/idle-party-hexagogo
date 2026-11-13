@@ -49,7 +49,7 @@ import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
 import { buildPaintTiles, roomBuilding, type PaintTileInput } from './map/paintTiles';
 import { TileArtCache, tileArtUrls } from './map/tileArt';
-import { ROOM_ICONS, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
+import { ROOM_ICONS, WORLD_BOSS_ICON, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
 import type { RoomAction, RoomHome } from './RoomActions';
 
 export interface TileClickInfo {
@@ -195,6 +195,7 @@ export class ThreeWorldMap {
   private readyQuests: ReadonlySet<string> = new Set();
   private readyQuestKey = '';
   private home: RoomHome | undefined;
+  private bossTiles: ReadonlySet<string> = new Set();
   private markersDirty = true;
 
   // Party rendering. Movement is animated by a CSS transition on the
@@ -449,6 +450,12 @@ export class ThreeWorldMap {
     const home = roomHome(state.house);
     if (home?.tileId !== this.home?.tileId || home?.name !== this.home?.name) {
       this.home = home;
+      this.markersDirty = true;
+    }
+
+    const bossTiles = new Set((state.worldBosses ?? []).map(b => b.tileId));
+    if ([...bossTiles].sort().join(',') !== [...this.bossTiles].sort().join(',')) {
+      this.bossTiles = bossTiles;
       this.markersDirty = true;
     }
 
@@ -1400,20 +1407,28 @@ export class ThreeWorldMap {
     for (const [key, def] of this.worldTileDefs) {
       if (!this.worldCache.isUnlocked(def.col, def.row)) continue;
       const actions = getRoomActions(def, this.worldCache, this.readyQuests, this.home);
-      if (actions.length === 0) continue;
-      this.roomActions.set(key, actions);
-      markers.appendChild(this.buildMarker(def.col, def.row, actions));
+      const hasBoss = !!def.id && this.bossTiles.has(def.id);
+      if (actions.length === 0 && !hasBoss) continue;
+      if (actions.length > 0) this.roomActions.set(key, actions);
+      markers.appendChild(this.buildMarker(def.col, def.row, actions, hasBoss));
     }
     this.markersEl.replaceChildren(markers);
   }
 
-  private buildMarker(col: number, row: number, actions: RoomAction[]): HTMLElement {
+  private buildMarker(col: number, row: number, actions: RoomAction[], hasBoss: boolean): HTMLElement {
     const p = cubeToPixel(offsetToCube({ col, row }));
     const marker = document.createElement('div');
     marker.className = 'three-map-marker';
     marker.style.left = `${p.x}px`;
     marker.style.top = `${p.y + HEX_SIZE * 0.55}px`;
 
+    if (hasBoss) {
+      const boss = document.createElement('span');
+      boss.className = 'three-map-marker-icon three-map-marker-boss';
+      boss.textContent = WORLD_BOSS_ICON;
+      boss.title = 'World boss';
+      marker.appendChild(boss);
+    }
     const { shown, more } = markerGlyphs(actions);
     for (const action of shown) {
       const icon = document.createElement('span');

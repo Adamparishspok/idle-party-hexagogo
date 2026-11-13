@@ -1,4 +1,4 @@
-import type { PlayerBank, HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse } from '@idle-party-rpg/shared';
+import type { PlayerBank, HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse, WorldBossCooldown } from '@idle-party-rpg/shared';
 
 /** Progress baseline taken when a player's last connection closes; diffed on return. */
 export interface AwaySnapshot {
@@ -95,6 +95,8 @@ export interface PlayerSaveData {
   starterBagGranted?: boolean;
   /** Bank tabs. Absent → one empty tab (`normalizeBank`). */
   bank?: PlayerBank;
+  /** Retry cooldowns by world boss id. */
+  worldBossCooldowns?: Record<string, WorldBossCooldown>;
 }
 
 /**

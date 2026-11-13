@@ -123,4 +123,15 @@ describe('RoomStatusPanel', () => {
     status.update(makeStatus({ othersHere: 2 }));
     expect(chips()[0]).not.toBe(before);
   });
+
+  it('leads with the world boss: shared HP bar, then the retry wait while on cooldown', () => {
+    const status = mount();
+    status.update(makeStatus({ worldBoss: { name: 'Ashmaw', currentHp: 2500, maxHp: 10000 } }));
+    const boss = chips()[0];
+    expect(boss.textContent).toContain('Ashmaw · 25%');
+    expect((boss.querySelector('.room-status-chip-hp > span') as HTMLElement).style.width).toBe('25%');
+
+    status.update(makeStatus({ worldBoss: { name: 'Ashmaw', currentHp: 2500, maxHp: 10000, retryInMin: 7 } }));
+    expect(chips()[0].textContent).toContain('retry in 7 min');
+  });
 });

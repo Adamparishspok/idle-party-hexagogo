@@ -335,6 +335,7 @@ export const adminSwaggerSpec = {
     { name: 'Items', description: 'Item definition CRUD' },
     { name: 'Monsters', description: 'Monster definition CRUD' },
     { name: 'Zones', description: 'Zone definition CRUD' },
+    { name: 'World Bosses', description: 'World boss definition CRUD. Live HP and schedule are runtime state, not content.' },
     { name: 'Houses', description: 'Player house definition CRUD. Shops sell houses through ShopDefinition.houseIds.' },
     { name: 'Skills', description: 'Skill definition CRUD and per-class slot schedules' },
     { name: 'World', description: 'World map tile CRUD' },
@@ -669,6 +670,42 @@ export const adminSwaggerSpec = {
         responses: {
           200: { description: 'Zone deleted, returns all zones' },
           400: { description: 'Zone referenced by a tile or not found' },
+        },
+      },
+    },
+
+    // ── World bosses ──
+    '/api/admin/world-bosses': {
+      get: {
+        tags: ['World Bosses'],
+        summary: 'List all world bosses',
+        responses: { 200: { description: 'All world boss definitions keyed by ID' } },
+      },
+    },
+    '/api/admin/world-bosses/{id}': {
+      put: {
+        tags: ['World Bosses'],
+        summary: 'Add or update a world boss',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+        responses: {
+          200: { description: 'World boss saved, returns all world bosses' },
+          400: { description: 'Invalid world boss definition' },
+        },
+      },
+      delete: {
+        tags: ['World Bosses'],
+        summary: 'Delete a world boss',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'World boss deleted, returns all world bosses' },
+          400: { description: 'World boss not found' },
         },
       },
     },

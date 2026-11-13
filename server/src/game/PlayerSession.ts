@@ -53,6 +53,7 @@ import {
   STARTER_BAG_ITEM,
   normalizeBank,
   toClientBankState,
+  worldBossCooldownMs,
 } from '@idle-party-rpg/shared';
 import type {
   HiredHenchman,
@@ -99,6 +100,9 @@ import type {
   ItemRouting,
   PlayerBank,
   ClientBankState,
+  ClientWorldBoss,
+  WorldBossCooldown,
+  WorldBossDefinition,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -151,6 +155,7 @@ export class PlayerSession {
   private bags: BagSlots = normalizeBagSlots(undefined);
   private lostAndFound: Record<string, number> = {};
   private starterBagGranted = false;
+  private worldBossCooldowns: Record<string, WorldBossCooldown> = {};
   private bank: PlayerBank = normalizeBank(undefined);
   /** Copies lost since the last `consumeLostItems` — batched into one notification per battle. */
   private pendingLost: Record<string, number> = {};
@@ -193,6 +198,7 @@ export class PlayerSession {
   /** Callback to get the home this player is inside — set by PlayerManager. */
   getHomeVisit?: () => HomeView | undefined;
   getHomeLocation?: (house: PlayerHouse) => HomeLocation | undefined;
+  getWorldBosses?: () => ClientWorldBoss[];
 
   constructor(username: string, grids: WorldGrids, content: ContentStore, onQuestEvent?: (event: QuestEvent) => void) {
     this.username = username;
@@ -817,6 +823,7 @@ export class PlayerSession {
       questResolutions: questBlock.questResolutions,
       dungeon: this.getDungeonState?.() ?? undefined,
       bank: this.getBankState(),
+      worldBosses: this.getWorldBosses?.(),
     };
   }
 
@@ -1194,6 +1201,24 @@ export class PlayerSession {
   /** All dungeon IDs this player has cleared (for persistence). */
   getClearedDungeons(): string[] { return [...this.clearedDungeons]; }
 
+  /** This player's cooldown against one spawn of a world boss, if any. */
+  getWorldBossCooldown(bossId: string, spawnedAt: number): WorldBossCooldown | undefined {
+    const cooldown = this.worldBossCooldowns[bossId];
+    return cooldown?.spawnedAt === spawnedAt ? cooldown : undefined;
+  }
+
+  isOnWorldBossCooldown(bossId: string, spawnedAt: number, now: number = Date.now()): boolean {
+    return (this.getWorldBossCooldown(bossId, spawnedAt)?.until ?? 0) > now;
+  }
+
+  /** A failed attempt: the cooldown grows with each attempt against the same spawn. */
+  recordWorldBossDefeat(def: WorldBossDefinition, spawnedAt: number, now: number = Date.now()): WorldBossCooldown {
+    const attempts = (this.getWorldBossCooldown(def.id, spawnedAt)?.attempts ?? 0) + 1;
+    const cooldown = { spawnedAt, attempts, until: now + worldBossCooldownMs(def, attempts) };
+    this.worldBossCooldowns[def.id] = cooldown;
+    return cooldown;
+  }
+
   /** Returns publicly visible profile data (no HP, damage, gold, inventory). */
   getPublicProfile(): { className: string; level: number; equipment: Record<string, string | null>; skillLoadout: SkillLoadout } | null {
     if (!this.character) return null;
@@ -1418,6 +1443,7 @@ export class PlayerSession {
       wellRestedUntil: this.wellRestedUntil,
       lostAndFound: { ...this.lostAndFound },
       starterBagGranted: this.starterBagGranted,
+      worldBossCooldowns: { ...this.worldBossCooldowns },
       bank: { tabs: this.bank.tabs.map(tab => ({ ...tab })) },
     };
   }
@@ -1535,6 +1561,7 @@ export class PlayerSession {
     session['lostAndFound'] = { ...(data.lostAndFound ?? {}) };
     session['pendingLost'] = {};
     session['starterBagGranted'] = data.starterBagGranted ?? false;
+    session['worldBossCooldowns'] = { ...(data.worldBossCooldowns ?? {}) };
     session['bank'] = normalizeBank(data.bank);
 
     // Restore craft queue (lazy completion happens on next tick)

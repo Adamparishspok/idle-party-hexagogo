@@ -17,6 +17,7 @@ import type {
 } from './SocialTypes.js';
 import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
+import type { ClientWorldBoss } from './WorldBossTypes.js';
 import type { DerivedStats } from './AttributeTypes.js';
 import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
 import type { BankErrorCode, ClientBankState, ClientBankMessage } from './BankTypes.js';
@@ -220,6 +221,8 @@ export interface ServerStateMessage {
   dungeon?: DungeonRunInfo;
   /** The player's bank — present only while the party stands in a banker's room. */
   bank?: ClientBankState;
+  /** Every live world boss, with this player's retry cooldown. */
+  worldBosses?: ClientWorldBoss[];
   /** Server version identifier — changes on restart/deploy, triggers client reload on mismatch. */
   serverVersion: string;
 }

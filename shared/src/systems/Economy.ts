@@ -6,4 +6,5 @@ export type GoldSource =
   | 'shop_sell'
   | 'house_buy'
   | 'house_refund'
-  | 'bank_tab';
+  | 'bank_tab'
+  | 'world_boss';

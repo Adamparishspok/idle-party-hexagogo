@@ -1,8 +1,8 @@
 import { EconomyLedger } from './EconomyLedger.js';
 import { randomUUID } from 'crypto';
 import { WebSocket } from 'ws';
-import { offsetToCube, cubeDistance, cubeToKey } from '@idle-party-rpg/shared';
-import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition, VisiblePlayers } from '@idle-party-rpg/shared';
+import { offsetToCube, cubeDistance, cubeToKey, rewardAppliesToClass, rollDungeonRewards } from '@idle-party-rpg/shared';
+import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition, VisiblePlayers, WorldBossDefinition } from '@idle-party-rpg/shared';
 import { selectVisiblePlayers } from '@idle-party-rpg/shared';
 import { PlayerSession } from './PlayerSession.js';
 import type { WorldGrids } from './WorldGrids.js';
@@ -22,6 +22,7 @@ import { EmailNotificationDriver } from './social/EmailNotificationDriver.js';
 import { PartyBattleManager } from './PartyBattleManager.js';
 import { HousingService } from './housing/HousingService.js';
 import { BankService } from './bank/BankService.js';
+import { WorldBossSystem } from './WorldBossSystem.js';
 import type { ContentStore } from './ContentStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 
@@ -45,6 +46,7 @@ export class PlayerManager {
   readonly housing: HousingService;
   readonly bank: BankService;
   readonly economy = new EconomyLedger();
+  readonly worldBosses: WorldBossSystem;
   private getAllUsernames: () => string[];
   private readonly serverVersion = Date.now().toString();
 
@@ -101,6 +103,33 @@ export class PlayerManager {
       getSession: (username) => this.sessions.get(username),
       pushState: (username) => this.sendStateToPlayer(username),
     });
+    this.worldBosses = new WorldBossSystem({
+      getDefinitions: () => content.getAllWorldBosses(),
+      getMonster: (id) => content.getMonster(id),
+      reward: (username, def, share) => this.rewardWorldBoss(username, def, share),
+      onChanged: () => { for (const username of this.getOnlinePlayers()) this.sendStateToPlayer(username); },
+    });
+    this.partyBattles.setWorldBosses(this.worldBosses);
+  }
+
+  /** Pays offline contributors too: every session stays in memory. */
+  private rewardWorldBoss(username: string, def: WorldBossDefinition, share: number): void {
+    const session = this.sessions.get(username);
+    if (!session) return;
+    const xp = Math.round(def.rewardXp * share);
+    const gold = Math.round(def.rewardGold * share);
+    session.addLogEntry(`${def.name} defeated! Your share: ${xp} XP, ${gold} gold.`, 'victory');
+    session.grantXp(xp);
+    session.grantGold(gold, 'world_boss');
+    const className = session.getClassName();
+    for (const { itemId, quantity } of rollDungeonRewards((def.rewardItems ?? []).filter(r => rewardAppliesToClass(r, className)))) {
+      const item = this.content.getItem(itemId);
+      if (!item) continue;
+      const delivered = session.receiveItems(itemId, quantity).toInventory;
+      for (let i = 0; i < delivered; i++) session.addLogEntry(`${def.name}: ${item.name}!`, 'victory');
+    }
+    const lost = session.consumeLostItems();
+    if (Object.keys(lost).length > 0) this.notifyItemsLost(username, lost);
   }
 
   notifyItemsLost(username: string, lost: Record<string, number>): void {
@@ -543,6 +572,7 @@ export class PlayerManager {
     };
     session.getHomeVisit = () => this.housing.getHomeView(session.username);
     session.getHomeLocation = (house) => this.housing.homeLocation(house);
+    session.getWorldBosses = () => this.worldBosses.clientList((bossId, spawnedAt) => session.getWorldBossCooldown(bossId, spawnedAt));
   }
 
   /** Ensure a player is in a party. Auto-creates a solo party if needed. */

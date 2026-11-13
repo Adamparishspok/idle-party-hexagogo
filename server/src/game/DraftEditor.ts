@@ -16,17 +16,18 @@ import type {
   DungeonDefinition,
   HenchmanDefinition,
   HouseDefinition,
+  WorldBossDefinition,
   SkillDefinition,
   SkillSlot,
   DesignNote,
   WorldTileDefinition,
   WorldMapMeta,
 } from '@idle-party-rpg/shared';
-import { STARTER_BAG_ITEM, migrateLegacySet, migrateLegacySkill, findSetConflicts, zoneMapConflict, validateSkillDefinition, validateHouseDefinition, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES } from '@idle-party-rpg/shared';
+import { STARTER_BAG_ITEM, migrateLegacySet, migrateLegacySkill, findSetConflicts, zoneMapConflict, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES } from '@idle-party-rpg/shared';
 
 /** Content types editable through the generic (MCP) draft-write surface. Single source of truth — derive z.enum(...) lists from this array, don't hand-copy the literals. */
 export const DRAFT_CONTENT_TYPES = [
-  'monsters', 'items', 'sets', 'shops', 'henchmen', 'houses', 'recipes', 'npcs',
+  'monsters', 'items', 'sets', 'shops', 'henchmen', 'houses', 'worldBosses', 'recipes', 'npcs',
   'quests', 'dungeons', 'zones', 'encounters', 'tileTypes',
   'skills', 'designNotes',
 ] as const;
@@ -369,6 +370,39 @@ export class DraftEditor {
     if (err) return { success: false, status: 400, error: err };
     await this.persist(versionId, snapshot);
     return { success: true, snapshot, entries: snapshot.houses ?? [] };
+  }
+
+  // --- World boss CRUD ---
+
+  private upsertWorldBossCore(snapshot: ContentSnapshot, boss: WorldBossDefinition): string | null {
+    const invalid = validateWorldBossDefinition(boss);
+    if (invalid) return invalid;
+    snapshot.worldBosses ??= Object.values(this.liveContent().getAllWorldBosses());
+    const idx = snapshot.worldBosses.findIndex(b => b.id === boss.id);
+    if (idx >= 0) snapshot.worldBosses[idx] = boss; else snapshot.worldBosses.push(boss);
+    return null;
+  }
+
+  async upsertWorldBoss(versionId: string, boss: WorldBossDefinition): Promise<DraftResult<WorldBossDefinition>> {
+    const draft = await this.loadDraft(versionId);
+    if ('error' in draft) return { success: false, status: draft.status, error: draft.error };
+    const { snapshot } = draft;
+    const err = this.upsertWorldBossCore(snapshot, boss);
+    if (err) return { success: false, status: 400, error: err };
+    await this.persist(versionId, snapshot);
+    return { success: true, snapshot, entries: snapshot.worldBosses ?? [] };
+  }
+
+  async deleteWorldBoss(versionId: string, id: string): Promise<DraftResult<WorldBossDefinition>> {
+    const draft = await this.loadDraft(versionId);
+    if ('error' in draft) return { success: false, status: draft.status, error: draft.error };
+    const { snapshot } = draft;
+    snapshot.worldBosses ??= Object.values(this.liveContent().getAllWorldBosses());
+    const idx = snapshot.worldBosses.findIndex(b => b.id === id);
+    if (idx < 0) return { success: false, status: 400, error: 'World boss not found.' };
+    snapshot.worldBosses.splice(idx, 1);
+    await this.persist(versionId, snapshot);
+    return { success: true, snapshot, entries: snapshot.worldBosses };
   }
 
   // --- Recipe CRUD ---
@@ -906,6 +940,7 @@ export class DraftEditor {
       case 'shops': return snapshot.shops ?? [];
       case 'henchmen': return snapshot.henchmen ?? [];
       case 'houses': return snapshot.houses ?? [];
+      case 'worldBosses': return snapshot.worldBosses ?? [];
       case 'recipes': return snapshot.recipes ?? [];
       case 'npcs': return snapshot.npcs ?? [];
       case 'quests': return snapshot.quests ?? [];
@@ -930,6 +965,7 @@ export class DraftEditor {
       case 'shops': return this.upsertShopCore(snapshot, entry as ShopDefinition);
       case 'henchmen': return this.upsertHenchmanCore(snapshot, entry as HenchmanDefinition);
       case 'houses': return this.upsertHouseCore(snapshot, entry as HouseDefinition);
+      case 'worldBosses': return this.upsertWorldBossCore(snapshot, entry as WorldBossDefinition);
       case 'recipes': return this.upsertRecipeCore(snapshot, entry as RecipeDefinition);
       case 'npcs': return this.upsertNpcCore(snapshot, entry as NpcDefinition);
       case 'quests': return this.upsertQuestCore(snapshot, entry as QuestDefinition);
@@ -980,6 +1016,7 @@ export class DraftEditor {
       case 'shops': return this.deleteShop(versionId, id);
       case 'henchmen': return this.deleteHenchman(versionId, id);
       case 'houses': return this.deleteHouse(versionId, id);
+      case 'worldBosses': return this.deleteWorldBoss(versionId, id);
       case 'recipes': return this.deleteRecipe(versionId, id);
       case 'npcs': return this.deleteNpc(versionId, id);
       case 'quests': return this.deleteQuest(versionId, id);

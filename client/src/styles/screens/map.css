@@ -1585,6 +1585,21 @@ button.room-status-chip:active {
 .room-status-chip-label {
   display: none;
 }
+.room-status-chip-hp {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 5px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--ink-900);
+  overflow: hidden;
+}
+.room-status-chip-hp > span {
+  display: block;
+  height: 100%;
+  background: var(--red-500);
+}
 .room-status-chip-badge {
   position: absolute;
   right: -6px;

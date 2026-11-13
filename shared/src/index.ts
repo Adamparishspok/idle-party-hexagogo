@@ -569,6 +569,10 @@ export type {
   HomeLocation,
 } from './systems/HousingTypes.js';
 
+// World bosses
+export { worldBossCooldownMs, worldBossShare, validateWorldBossDefinition } from './systems/WorldBossTypes.js';
+export type { WorldBossDefinition, WorldBossState, WorldBossCooldown, ClientWorldBoss } from './systems/WorldBossTypes.js';
+
 // Core attributes and derived stats
 export {
   ATTRIBUTE_NAMES,

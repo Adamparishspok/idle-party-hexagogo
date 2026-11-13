@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateWorldBossDefinition, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
 import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
@@ -195,6 +195,19 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
   for (const house of snapshot.houses ?? []) {
     const invalid = validateHouseDefinition(house);
     if (invalid) problems.push(`House '${house.id}': ${invalid}`);
+  }
+
+  // --- World bosses ---
+  for (const boss of snapshot.worldBosses ?? []) {
+    const invalid = validateWorldBossDefinition(boss);
+    if (invalid) problems.push(`World boss '${boss.id}': ${invalid}`);
+    if (!monsterIds.has(boss.monsterId)) problems.push(`World boss '${boss.id}' monsterId references unknown monster '${boss.monsterId}'.`);
+    (boss.tileIds ?? []).forEach((tileId, index) => {
+      if (!tileById.has(tileId)) problems.push(`World boss '${boss.id}' tileIds references unknown room '${tileId}' (index ${index}).`);
+    });
+    (boss.rewardItems ?? []).forEach((reward, index) => {
+      if (!itemIds.has(reward.itemId)) problems.push(`World boss '${boss.id}' rewardItems references unknown item '${reward.itemId}' (index ${index}).`);
+    });
   }
 
   // --- Recipes ---

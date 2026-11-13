@@ -193,6 +193,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Class system (5 classes: Knight, Archer, Priest, Mage, Bard — weak solo, strong together)
 - [x] Damage types (physical/magical on monsters, Knight reduces physical, Priest reduces magical)
 - [x] Henchmen (hireable NPCs for solo players)
+- [x] World bosses (rare scheduled bosses with shared HP that many parties wear down; escalating retry cooldown after a wipe; rewards split by damage dealt)
 - [x] Player housing (houses sold by estate agents around the world, each home standing in its agent's room; chest + trophy shelves, home visits, campfire Well Rested buff)
 - [x] Party formation and management (always in a party, join, leave, kick, 3x3 grid, max 5 members)
 - [x] Party roles (owner > leader > member, promote/demote, transfer ownership)

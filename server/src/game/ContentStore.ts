@@ -5,7 +5,7 @@ import type { MonsterDefinition, ItemDefinition, ZoneDefinition, WorldData, Worl
 import type { SetDefinition } from '@idle-party-rpg/shared';
 import type { ShopDefinition } from '@idle-party-rpg/shared';
 import { zoneMapConflict } from '@idle-party-rpg/shared';
-import type { HenchmanDefinition, HouseDefinition } from '@idle-party-rpg/shared';
+import type { HenchmanDefinition, HouseDefinition, WorldBossDefinition } from '@idle-party-rpg/shared';
 import type { RecipeDefinition } from '@idle-party-rpg/shared';
 import type { NpcDefinition } from '@idle-party-rpg/shared';
 import type { QuestDefinition } from '@idle-party-rpg/shared';
@@ -25,6 +25,7 @@ const SETS_FILE = path.join(DATA_DIR, 'sets.json');
 const SHOPS_FILE = path.join(DATA_DIR, 'shops.json');
 const HENCHMEN_FILE = path.join(DATA_DIR, 'henchmen.json');
 const HOUSES_FILE = path.join(DATA_DIR, 'houses.json');
+const WORLD_BOSS_DEFS_FILE = path.join(DATA_DIR, 'world-boss-defs.json');
 const TILE_TYPES_FILE = path.join(DATA_DIR, 'tile-types.json');
 const RECIPES_FILE = path.join(DATA_DIR, 'recipes.json');
 const NPCS_FILE = path.join(DATA_DIR, 'npcs.json');
@@ -69,6 +70,7 @@ export class ContentStore {
   private shops = new Map<string, ShopDefinition>();
   private henchmen = new Map<string, HenchmanDefinition>();
   private houses = new Map<string, HouseDefinition>();
+  private worldBosses = new Map<string, WorldBossDefinition>();
   private tileTypes = new Map<string, TileTypeDefinition>();
   private recipes = new Map<string, RecipeDefinition>();
   private npcs = new Map<string, NpcDefinition>();
@@ -112,6 +114,7 @@ export class ContentStore {
     await fs.writeFile(SHOPS_FILE, JSON.stringify(Array.from(this.shops.values()), null, 2));
     await fs.writeFile(HENCHMEN_FILE, JSON.stringify(Array.from(this.henchmen.values()), null, 2));
     await fs.writeFile(HOUSES_FILE, JSON.stringify(Array.from(this.houses.values()), null, 2));
+    await fs.writeFile(WORLD_BOSS_DEFS_FILE, JSON.stringify(Array.from(this.worldBosses.values()), null, 2));
     await fs.writeFile(TILE_TYPES_FILE, JSON.stringify(Array.from(this.tileTypes.values()), null, 2));
     await fs.writeFile(RECIPES_FILE, JSON.stringify(Array.from(this.recipes.values()), null, 2));
     await fs.writeFile(NPCS_FILE, JSON.stringify(Array.from(this.npcs.values()), null, 2));
@@ -202,6 +205,10 @@ export class ContentStore {
     const result: Record<string, HouseDefinition> = {};
     for (const [id, def] of this.houses) result[id] = def;
     return result;
+  }
+
+  getAllWorldBosses(): Record<string, WorldBossDefinition> {
+    return Object.fromEntries(this.worldBosses);
   }
 
   getTileType(id: string): TileTypeDefinition | undefined {
@@ -594,6 +601,19 @@ export class ContentStore {
     return { success: true };
   }
 
+  // --- World boss CRUD ---
+
+  async addOrUpdateWorldBoss(boss: WorldBossDefinition): Promise<void> {
+    this.worldBosses.set(boss.id, boss);
+    await this.save();
+  }
+
+  async deleteWorldBoss(id: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.worldBosses.delete(id)) return { success: false, error: 'World boss not found.' };
+    await this.save();
+    return { success: true };
+  }
+
   // --- House CRUD ---
 
   async addOrUpdateHouse(house: HouseDefinition): Promise<void> {
@@ -774,7 +794,7 @@ export class ContentStore {
   // --- Snapshot ---
 
   /** Export current live state as a ContentSnapshot. */
-  toSnapshot(): { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters: EncounterDefinition[]; sets: SetDefinition[]; shops: ShopDefinition[]; henchmen: HenchmanDefinition[]; houses: HouseDefinition[]; tileTypes: TileTypeDefinition[]; recipes: RecipeDefinition[]; npcs: NpcDefinition[]; quests: QuestDefinition[]; dungeons: DungeonDefinition[]; skills: SkillDefinition[]; skillSlotSchedules: { className: string; slots: SkillSlot[] }[]; designNotes: DesignNote[]; world: WorldData } {
+  toSnapshot(): { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters: EncounterDefinition[]; sets: SetDefinition[]; shops: ShopDefinition[]; henchmen: HenchmanDefinition[]; houses: HouseDefinition[]; worldBosses: WorldBossDefinition[]; tileTypes: TileTypeDefinition[]; recipes: RecipeDefinition[]; npcs: NpcDefinition[]; quests: QuestDefinition[]; dungeons: DungeonDefinition[]; skills: SkillDefinition[]; skillSlotSchedules: { className: string; slots: SkillSlot[] }[]; designNotes: DesignNote[]; world: WorldData } {
     return {
       monsters: Array.from(this.monsters.values()),
       items: Array.from(this.items.values()),
@@ -784,6 +804,7 @@ export class ContentStore {
       shops: Array.from(this.shops.values()),
       henchmen: Array.from(this.henchmen.values()),
       houses: Array.from(this.houses.values()),
+      worldBosses: Array.from(this.worldBosses.values()),
       tileTypes: Array.from(this.tileTypes.values()),
       recipes: Array.from(this.recipes.values()),
       npcs: Array.from(this.npcs.values()),
@@ -797,7 +818,7 @@ export class ContentStore {
   }
 
   /** Bulk-replace all content from a snapshot (used for deploy). */
-  async replaceAll(snapshot: { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters?: EncounterDefinition[]; sets?: SetDefinition[]; shops?: ShopDefinition[]; henchmen?: HenchmanDefinition[]; houses?: HouseDefinition[]; tileTypes?: TileTypeDefinition[]; recipes?: RecipeDefinition[]; npcs?: NpcDefinition[]; quests?: QuestDefinition[]; dungeons?: DungeonDefinition[]; skills?: SkillDefinition[]; skillSlotSchedules?: { className: string; slots: SkillSlot[] }[]; designNotes?: DesignNote[]; world: WorldData }): Promise<void> {
+  async replaceAll(snapshot: { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters?: EncounterDefinition[]; sets?: SetDefinition[]; shops?: ShopDefinition[]; henchmen?: HenchmanDefinition[]; houses?: HouseDefinition[]; worldBosses?: WorldBossDefinition[]; tileTypes?: TileTypeDefinition[]; recipes?: RecipeDefinition[]; npcs?: NpcDefinition[]; quests?: QuestDefinition[]; dungeons?: DungeonDefinition[]; skills?: SkillDefinition[]; skillSlotSchedules?: { className: string; slots: SkillSlot[] }[]; designNotes?: DesignNote[]; world: WorldData }): Promise<void> {
     this.monsters.clear();
     for (const m of snapshot.monsters) this.monsters.set(m.id, m);
 
@@ -867,6 +888,12 @@ export class ContentStore {
       for (const h of snapshot.houses) this.houses.set(h.id, h);
     }
     // keep-when-absent: an absent `houses` key keeps live houses; `[]` clears them.
+
+    if (snapshot.worldBosses !== undefined) {
+      this.worldBosses.clear();
+      for (const b of snapshot.worldBosses) this.worldBosses.set(b.id, b);
+    }
+    // keep-when-absent: an absent `worldBosses` key keeps live world bosses; `[]` clears them.
 
     if (snapshot.skillSlotSchedules !== undefined) {
       this.skillSlotSchedules.clear();
@@ -977,6 +1004,13 @@ export class ContentStore {
           for (const h of Object.values(SEED_HOUSES)) this.houses.set(h.id, h);
           housesSeeded = true;
         }
+      }
+
+      try {
+        const bossesArr: WorldBossDefinition[] = JSON.parse(await fs.readFile(WORLD_BOSS_DEFS_FILE, 'utf-8'));
+        for (const b of bossesArr) this.worldBosses.set(b.id, b);
+      } catch {
+        // No world bosses yet; admins author them.
       }
 
       let tileTypesSeeded = false;

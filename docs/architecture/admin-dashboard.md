@@ -33,7 +33,9 @@ Built as a separate Vite entry point (`admin.html`) isolated from the game clien
 
 **Density tokens** (`--admin-pad-page-{x,y}`, `--admin-pad-cell-{x,y}`, `--admin-pad-section`, `--admin-pad-btn-{x,y}`, `--admin-pad-input-{x,y}`, `--admin-gap-loose`, `--admin-gap`, `--admin-gap-tight`, plus `--admin-sidebar-width` and `--admin-topbar-height`) scale with the UI size, so picking Small tightens every padding/gap on the page (table rows, fieldsets, modal padding, sidebar, topbar, etc.) — not just font size.
 
-**All edit forms are popup modals** (Monsters, Items, Sets, Shops, Henchmen, Houses, Zones, Encounters, Tile Types, Dungeons, NPCs, Quests, Recipes) opened via `components/Modal.ts`; modal inputs use `--admin-bg-2` background by default with a focus state on `--admin-panel`.
+**All edit forms are popup modals** (Monsters, Items, Sets, Shops, Henchmen, Houses, World Bosses, Zones, Encounters, Tile Types, Dungeons, NPCs, Quests, Recipes) opened via `components/Modal.ts`; modal inputs use `--admin-bg-2` background by default with a focus state on `--admin-panel`.
+
+**World Bosses tab** (`tabs/WorldBossesTab.ts`): lists bosses with monster, HP, spawn rooms, respawn window and reward pools. The modal edits every `WorldBossDefinition` field: monster select, multi-select of spawn rooms, schedule and cooldown seconds, XP/gold pools and reward items as `itemId chance` lines. Live HP and spawn state are not shown.
 
 **Houses tab** (`tabs/HousesTab.ts`): lists houses by tier with price, chest/shelf counts and which shops sell them. The modal edits every `HouseDefinition` field (showing the 50% sell-back price live), and carries two artwork sections — `house` (exterior card) and `house-interior` (home backdrop). The Shops modal gains a **Houses for sale** checklist that writes `ShopDefinition.houseIds`.
 

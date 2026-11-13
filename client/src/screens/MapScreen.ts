@@ -272,12 +272,19 @@ export class MapScreen implements Screen {
       return;
     }
     const run = state.dungeon;
+    const boss = run ? undefined : state.worldBosses?.find(b => b.tileId === tile.id);
     this.roomStatus.update({
       zoneName: tile.zoneName ?? state.zoneName,
       roomName: tile.name || 'Unnamed Room',
       actions: this.currentRoomActions(state),
       othersHere: this.map?.countOthersAt(state.party.col, state.party.row) ?? 0,
       dungeonRun: run && { name: run.name, floor: run.floor, totalFloors: run.totalFloors },
+      worldBoss: boss && {
+        name: boss.name,
+        currentHp: boss.currentHp,
+        maxHp: boss.maxHp,
+        ...(boss.cooldownUntil ? { retryInMin: Math.max(1, Math.ceil((boss.cooldownUntil - Date.now()) / 60_000)) } : {}),
+      },
     });
   }
 
