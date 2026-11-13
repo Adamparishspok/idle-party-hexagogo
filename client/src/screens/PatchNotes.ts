@@ -1,5 +1,14 @@
 export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
+    version: '2026.11.13.1',
+    notes: [
+      'World bosses! Mighty bosses now appear in certain rooms on the map, marked with 👹. Their health carries over between fights, so every party that takes them on wears them down a little more.',
+      'Help bring a world boss down and you share the rewards. The more damage you dealt, the bigger your share.',
+      'If a world boss wipes out your party, you will need to wait before challenging it again. The wait grows with each defeat, and the room panel shows how long is left.',
+      'Busy rooms now show up to 12 other adventurers at once, plus a "+N more" count. Your party and guild members always show.',
+    ],
+  },
+  {
     version: '2026.10.09.1',
     notes: [
       'A brand-new look for the whole game! Every screen has been redesigned with bigger, bolder text, carved fantasy lettering for titles and numbers, chunky buttons that are easy to tap, and a classic RPG style.',
