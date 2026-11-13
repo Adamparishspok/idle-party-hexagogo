@@ -197,6 +197,11 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     });
   });
 
+  router.get('/economy', (req, res) => {
+    const days = Math.min(90, Math.max(1, Math.floor(Number(req.query.days)) || 1));
+    res.json({ days, sources: getPlayerManager().economy.summary(days) });
+  });
+
   router.get('/accounts', (_req, res) => {
     const pm = getPlayerManager();
     const onlineSet = new Set(pm.getOnlinePlayers());

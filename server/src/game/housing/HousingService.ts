@@ -100,7 +100,7 @@ export class HousingService {
     const def = this.deps.content.getHouse(houseId);
     if (!def) return refuse('house_not_for_sale', 'That house is no longer for sale.');
     if (session.getHouse()) return refuse('house_already_owned', 'You already own a house. Sell it first.');
-    if (!session.deductGold(def.price)) return refuse('house_cannot_afford', 'Not enough gold.');
+    if (!session.deductGold(def.price, 'house_buy')) return refuse('house_cannot_afford', 'Not enough gold.');
     session.setHouse(emptyHouse(def, now, this.deps.currentTileId(username)));
     session.addLogEntry(`Bought a ${def.name} for ${def.price} gold`, 'victory');
     this.deps.pushState(username);
@@ -119,7 +119,7 @@ export class HousingService {
     const evicted = this.occupancy.evict(username);
     for (const entry of evicted) this.settleSitting(entry.username, entry.sitStart, now);
     session.setHouse(null);
-    session.grantGold(refund);
+    session.grantGold(refund, 'house_refund');
     session.addLogEntry(`Sold your ${def.name} for ${refund} gold`, 'victory');
     for (const entry of evicted) if (entry.username !== username) this.deps.pushState(entry.username);
     this.deps.pushState(username);

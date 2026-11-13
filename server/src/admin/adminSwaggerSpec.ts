@@ -365,6 +365,32 @@ export const adminSwaggerSpec = {
         },
       },
     },
+    '/api/admin/economy': {
+      get: {
+        tags: ['Overview'],
+        summary: 'Gold earned and spent per source',
+        description: 'UTC-day totals aggregated over the last `days` days (1-90, today included).',
+        parameters: [{ name: 'days', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 90, default: 1 } }],
+        responses: {
+          200: {
+            description: 'Totals per source',
+            content: { 'application/json': { schema: {
+              type: 'object',
+              properties: {
+                days: { type: 'number' },
+                sources: {
+                  type: 'object',
+                  additionalProperties: {
+                    type: 'object',
+                    properties: { earned: { type: 'number' }, spent: { type: 'number' } },
+                  },
+                },
+              },
+            } } },
+          },
+        },
+      },
+    },
     // ── Access ──
     '/api/admin/me': {
       get: {

@@ -1,3 +1,4 @@
+import { EconomyLedger } from './EconomyLedger.js';
 import { randomUUID } from 'crypto';
 import { WebSocket } from 'ws';
 import { offsetToCube, cubeDistance, cubeToKey } from '@idle-party-rpg/shared';
@@ -43,6 +44,7 @@ export class PlayerManager {
   readonly partyBattles: PartyBattleManager;
   readonly housing: HousingService;
   readonly bank: BankService;
+  readonly economy = new EconomyLedger();
   private getAllUsernames: () => string[];
   private readonly serverVersion = Date.now().toString();
 
@@ -151,6 +153,7 @@ export class PlayerManager {
       } else {
         session = new PlayerSession(username, this.grids, this.content);
       }
+      session.economy = this.economy;
       this.sessions.set(username, session);
       this.friends.initPlayer(username, session.getFriends(), session.getOutgoingFriendRequests());
       const initialMailbox = session.consumeInitialMailbox();

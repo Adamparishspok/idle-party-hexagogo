@@ -936,7 +936,7 @@ export class PartyBattleManager {
         if (!session.hasDungeonCleared(dungeon.id)) {
           session.markDungeonCleared(dungeon.id);
           if (dungeon.firstClearGold && dungeon.firstClearGold > 0) {
-            session.grantGold(dungeon.firstClearGold);
+            session.grantGold(dungeon.firstClearGold, 'dungeon_first_clear');
             session.addLogEntry(`First-clear bonus: +${dungeon.firstClearGold} Gold!`, 'victory');
           }
           if (dungeon.firstClearXp && dungeon.firstClearXp > 0) {

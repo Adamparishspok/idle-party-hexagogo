@@ -678,7 +678,7 @@ wss.on('connection', (ws) => {
         }
 
         // Deduct gold (item already added above)
-        session.deductGold(shopItem.price);
+        session.deductGold(shopItem.price, 'shop_buy');
 
         const itemDef = gameLoop.contentStore.getItem(msg.itemId);
         session.addLogEntry(`Bought ${itemDef?.name ?? msg.itemId} for ${shopItem.price} gold`, 'victory');
@@ -719,7 +719,7 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'error', message: 'Failed to remove items' }));
           return;
         }
-        session.grantGold(sellValue);
+        session.grantGold(sellValue, 'shop_sell');
 
         const itemName = quantity > 1 ? `${itemDef.name} x${quantity}` : itemDef.name;
         session.addLogEntry(`Sold ${itemName} for ${sellValue} gold`, 'victory');

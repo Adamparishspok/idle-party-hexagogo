@@ -106,7 +106,8 @@ import type { WorldGrids } from './WorldGrids.js';
 import { QuestSystem } from './QuestSystem.js';
 import { houseDefinitionFor } from './housing/HousingService.js';
 import type { QuestEvent } from './QuestSystem.js';
-import type { QuestDefinition, QuestProgressEntry, CompletedQuestEntry } from '@idle-party-rpg/shared';
+import type { QuestDefinition, QuestProgressEntry, CompletedQuestEntry, GoldSource } from '@idle-party-rpg/shared';
+import type { EconomyLedger } from './EconomyLedger.js';
 
 const MAX_LOG_ENTRIES = 1000;
 const MAX_SAVE_LOG_ENTRIES = 1000;
@@ -115,6 +116,7 @@ export const WELCOME_BACK_MIN_AWAY_MS = 5 * 60 * 1000;
 
 export class PlayerSession {
   username: string;
+  economy?: EconomyLedger;
   private grids: WorldGrids;
   private content: ContentStore;
   private unlockSystem: UnlockSystem;
@@ -328,7 +330,7 @@ export class PlayerSession {
     }
 
     if (rewards.gold > 0) {
-      addGold(this.character, rewards.gold);
+      this.grantGold(rewards.gold, 'combat');
       this.addLogEntry(`+${rewards.gold} Gold`, 'victory');
     }
 
@@ -725,7 +727,7 @@ export class PlayerSession {
       }
     }
     if (totalGold > 0) {
-      addGold(this.character, totalGold);
+      this.grantGold(totalGold, 'quest');
       this.addLogEntry(`+${totalGold} Gold (quest reward)`, 'victory');
     }
     for (const itemId of grantedItems) {
@@ -1142,17 +1144,20 @@ export class PlayerSession {
   getGold(): number { return this.character?.gold ?? 0; }
 
   /** Deduct gold from the character. Returns false if insufficient gold. */
-  deductGold(amount: number): boolean {
+  deductGold(amount: number, source: GoldSource): boolean {
     if (!this.character) return false;
     if (this.character.gold < amount) return false;
     this.character.gold -= amount;
+    this.economy?.record(source, 0, amount);
     return true;
   }
 
-  /** Add gold to the character. */
-  grantGold(amount: number): void {
-    if (!this.character) return;
-    addGold(this.character, amount);
+  /** Add gold to the character. Returns what was actually added (capped at MAX_GOLD). */
+  grantGold(amount: number, source: GoldSource): number {
+    if (!this.character) return 0;
+    const added = addGold(this.character, amount);
+    this.economy?.record(source, added, 0);
+    return added;
   }
 
   /**

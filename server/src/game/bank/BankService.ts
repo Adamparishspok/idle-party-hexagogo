@@ -77,7 +77,7 @@ export class BankService {
   private buyTab(session: BankSession, bank: PlayerBank): BankRefusal | null {
     const price = nextBankTabPrice(bank);
     if (price === null) return refuse('bank_max_tabs');
-    if (!session.deductGold(price)) return refuse('bank_cannot_afford');
+    if (!session.deductGold(price, 'bank_tab')) return refuse('bank_cannot_afford');
     addBankTab(bank);
     session.addLogEntry(`Bought bank tab ${bank.tabs.length} for ${price} gold`, 'victory');
     return null;

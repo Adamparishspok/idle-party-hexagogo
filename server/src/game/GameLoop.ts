@@ -7,6 +7,8 @@ import { WorldGrids } from './WorldGrids.js';
 import type { GameStateStore } from './GameStateStore.js';
 import { GuildStore } from './social/GuildStore.js';
 import { TradeStore } from './social/TradeStore.js';
+import { JsonEconomyStore } from './EconomyLedger.js';
+import type { EconomyStore } from './EconomyLedger.js';
 import { ContentStore } from './ContentStore.js';
 import { VersionStore } from './VersionStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
@@ -53,6 +55,7 @@ export class GameLoop {
   private store: GameStateStore;
   private guildStore: GuildStore;
   private tradeStore: TradeStore;
+  private economyStore: EconomyStore = new JsonEconomyStore();
   private saveInterval?: ReturnType<typeof setInterval>;
   private craftTickInterval?: ReturnType<typeof setInterval>;
   private restTickInterval?: ReturnType<typeof setInterval>;
@@ -138,6 +141,7 @@ export class GameLoop {
       accountStore,
       this.store,
     );
+    this.playerManager.economy.restore(await this.economyStore.load());
 
     t = performance.now();
     await this.guildStore.load();
@@ -205,6 +209,7 @@ export class GameLoop {
       console.log(`[GameLoop] Saved ${count} session(s)`);
     }
     await this.guildStore.save();
+    await this.economyStore.save(this.playerManager.economy.toData());
     await this.tradeStore.save(this.playerManager.trades.getAllTrades());
     await this.contentStore.save();
     await this.versionStore.save();

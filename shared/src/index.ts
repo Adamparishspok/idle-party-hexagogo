@@ -73,6 +73,7 @@ export {
   addCraftXp,
   addGold,
 } from './systems/CharacterStats.js';
+export type { GoldSource } from './systems/Economy.js';
 export type {
   ClassName,
   DamageType,
