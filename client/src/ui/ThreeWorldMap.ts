@@ -64,6 +64,7 @@ export interface TileClickInfo {
   isSameZone: boolean;
   isCurrentTile: boolean;
   playersHere: { username: string; className?: string; partyId?: string; dungeonName?: string }[];
+  hiddenPlayers: number;
   partyMemberUsernames: string[];
   dungeonId?: string;
 }
@@ -186,6 +187,7 @@ export class ThreeWorldMap {
   private lastOtherPlayers: OtherPlayerState[] = [];
   /** Players outside the viewer's party, per "col,row" in the current zone. */
   private othersByTile = new Map<string, TileOccupancy>();
+  private hiddenByTile = new Map<string, number>();
   private currentBattleVisual: BattleVisual = 'none';
 
   // Room-action markers on explored rooms, keyed by "col,row".
@@ -436,6 +438,11 @@ export class ThreeWorldMap {
     this.partyMemberUsernames = (state.social?.party?.members ?? []).map(m => m.username);
     // Only show players on the same map as us.
     this.lastOtherPlayers = state.otherPlayers.filter(p => !p.mapId || p.mapId === state.currentMapId);
+    this.hiddenByTile = new Map();
+    for (const [key, hidden] of Object.entries(state.hiddenPlayersByRoom ?? {})) {
+      const [mapId, tile] = key.split(':');
+      if (mapId === (state.currentMapId ?? '')) this.hiddenByTile.set(tile, hidden);
+    }
     this.othersByTile = this.groupOtherPlayers();
     this.serverPath = state.party.path ?? [];
 
@@ -513,6 +520,7 @@ export class ThreeWorldMap {
       isSameZone,
       isCurrentTile: col === this.playerCol && row === this.playerRow,
       playersHere,
+      hiddenPlayers: isSameZone ? this.hiddenByTile.get(`${col},${row}`) ?? 0 : 0,
       partyMemberUsernames: this.partyMemberUsernames,
       dungeonId: def?.dungeonId,
     };
@@ -1305,6 +1313,10 @@ export class ThreeWorldMap {
       } else {
         groups.set(key, { col: other.col, row: other.row, count: 1, inDungeon: !!other.inDungeon });
       }
+    }
+    for (const [key, hidden] of this.hiddenByTile) {
+      const group = groups.get(key);
+      if (group) group.count += hidden;
     }
     return groups;
   }

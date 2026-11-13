@@ -544,6 +544,8 @@ export {
   validateHouseDefinition,
   SEED_HOUSES,
 } from './systems/HousingTypes.js';
+export { MAX_VISIBLE_PLAYERS_PER_ROOM, roomKey, selectVisiblePlayers } from './systems/RoomPlayerCap.js';
+export type { VisiblePlayers } from './systems/RoomPlayerCap.js';
 export type {
   HouseDefinition,
   HouseOffer,

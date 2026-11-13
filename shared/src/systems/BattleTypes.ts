@@ -175,6 +175,8 @@ export interface ServerStateMessage {
   /** The map the player's party is currently on. The client renders only this map's rooms. */
   currentMapId: string;
   otherPlayers: OtherPlayerState[];
+  /** Players left out of `otherPlayers` per room (keyed by `roomKey`) when a room is over the cap. */
+  hiddenPlayersByRoom?: Record<string, number>;
   combatLog: CombatLogEntry[];
   battleCount: number;
   character: ClientCharacterState | null;

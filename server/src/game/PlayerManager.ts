@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import { WebSocket } from 'ws';
 import { offsetToCube, cubeDistance, cubeToKey } from '@idle-party-rpg/shared';
-import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition } from '@idle-party-rpg/shared';
+import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition, VisiblePlayers } from '@idle-party-rpg/shared';
+import { selectVisiblePlayers } from '@idle-party-rpg/shared';
 import { PlayerSession } from './PlayerSession.js';
 import type { WorldGrids } from './WorldGrids.js';
 import type { GameStateStore, PlayerSaveData } from './GameStateStore.js';
@@ -393,8 +394,8 @@ export class PlayerManager {
     const session = this.sessions.get(username);
     if (!session) return;
 
-    const otherPlayers = this.getOtherPlayers(username);
-    const state = JSON.stringify({ type: 'state' as const, ...session.getState(otherPlayers), serverVersion: this.serverVersion });
+    const visible = this.getVisibleOtherPlayers(username);
+    const state = JSON.stringify({ type: 'state' as const, ...session.getState(visible.visible), hiddenPlayersByRoom: visible.hiddenByRoom, serverVersion: this.serverVersion });
 
     for (const ws of wsSet) {
       if (ws.readyState === WebSocket.OPEN) {
@@ -673,6 +674,14 @@ export class PlayerManager {
     const pa = sa.getPosition();
     const pb = sb.getPosition();
     return sa.getMapId() === sb.getMapId() && pa.col === pb.col && pa.row === pb.row;
+  }
+
+  /** Capped per room for this viewer; their party and guild always show. */
+  getVisibleOtherPlayers(viewer: string): VisiblePlayers {
+    const alwaysShow = new Set(this.guilds.getPlayerGuild(viewer)?.members.map(m => m.username));
+    const partyId = this.sessions.get(viewer)?.getPartyId();
+    for (const member of (partyId && this.parties.getParty(partyId)?.members) || []) alwaysShow.add(member.username);
+    return selectVisiblePlayers(this.getOtherPlayers(viewer), alwaysShow);
   }
 
   getOtherPlayers(excludeUsername: string): OtherPlayerState[] {
