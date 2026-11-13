@@ -11,13 +11,13 @@ function set(attributes: Record<string, unknown>): SetDefinition {
 }
 
 describe('validateSetDefinition', () => {
-  it('accepts whole, non-negative attribute points', () => {
+  it('accepts whole attribute points, including negatives like items', () => {
     expect(validateSetDefinition(set({ strength: 5, stamina: 0 }))).toBeNull();
+    expect(validateSetDefinition(set({ strength: 4, agility: -2 }))).toBeNull();
     expect(validateSetDefinition({ id: 's', name: 'S', itemIds: ['a'], breakpoints: [{ piecesRequired: 1, bonuses: {} }] })).toBeNull();
   });
 
-  it('rejects negative, fractional and unknown attributes', () => {
-    expect(validateSetDefinition(set({ strength: -1 }))).toMatch(/strength can't be negative/);
+  it('rejects fractional and unknown attributes', () => {
     expect(validateSetDefinition(set({ agility: 1.5 }))).toMatch(/whole number/);
     expect(validateSetDefinition(set({ charisma: 2 }))).toMatch(/Unknown attribute/);
   });

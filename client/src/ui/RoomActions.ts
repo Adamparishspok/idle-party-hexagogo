@@ -19,6 +19,8 @@ export interface RoomAction {
   /** NPC, shop (also for bank) or dungeon id; for travel, the destination tile GUID; for home, the home's tile GUID. */
   targetId: string;
   questReady?: boolean;
+  /** NPC only: the authored art URL override. */
+  artworkUrl?: string;
 }
 
 export interface RoomActionLookups {
@@ -75,6 +77,7 @@ export function getRoomActions(
       icon: npc.emoji,
       name: npc.name,
       targetId: npc.id,
+      ...(npc.artworkUrl ? { artworkUrl: npc.artworkUrl } : {}),
       ...(questReady ? { detail: QUEST_READY_DETAIL, questReady } : {}),
     });
   }
@@ -103,6 +106,14 @@ export function markerActions(actions: readonly RoomAction[]): RoomAction[] {
   const places = actions.filter(a => a.kind !== 'travel').sort((a, b) => rank(a) - rank(b));
   const firstExit = actions.find(a => a.kind === 'travel');
   return firstExit ? [...places, firstExit] : places;
+}
+
+export const MAX_MARKER_ICONS = 3;
+
+/** What a room's map marker shows: up to MAX_MARKER_ICONS icons, plus a count of the rest. */
+export function markerGlyphs(actions: readonly RoomAction[]): { shown: RoomAction[]; more: number } {
+  const icons = markerActions(actions);
+  return { shown: icons.slice(0, MAX_MARKER_ICONS), more: Math.max(0, icons.length - MAX_MARKER_ICONS) };
 }
 
 /** Button/chip text for acting on a room action. */

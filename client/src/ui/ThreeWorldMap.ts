@@ -30,9 +30,6 @@ import {
   HexGrid,
   HexTile,
   HEX_SIZE,
-  getHexCorners,
-  getNeighbors,
-  cubeToKey,
   keyToCube,
   pixelToCube,
   offsetToCube,
@@ -50,7 +47,9 @@ import type { WorldCache } from '../network/WorldCache';
 import { artworkUrl } from './assets';
 import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
-import { ROOM_ICONS, getRoomActions, markerActions, readyQuestIds, roomHome } from './RoomActions';
+import { buildPaintTiles, roomBuilding, type PaintTileInput } from './map/paintTiles';
+import { TileArtCache, tileArtUrls } from './map/tileArt';
+import { ROOM_ICONS, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
 import type { RoomAction, RoomHome } from './RoomActions';
 
 export interface TileClickInfo {
@@ -97,7 +96,6 @@ const DRAG_THRESHOLD = 5;
 // reduced rate so it reads as a deeper background layer (parallax).
 const PARCHMENT_PARALLAX = 0.3;
 
-const MAX_MARKER_ICONS = 3;
 const TOOLTIP_MARGIN = 4;
 
 interface TileOccupancy {
@@ -105,45 +103,6 @@ interface TileOccupancy {
   row: number;
   count: number;
   inDungeon: boolean;
-}
-
-// ─── Image cache ──────────────────────────────────────────────
-
-interface CachedImage {
-  img: HTMLImageElement;
-  loaded: boolean;
-  failed: boolean;
-}
-
-class ImageCache {
-  private cache = new Map<string, CachedImage>();
-
-  get(url: string, fallbackUrl: string | null, onLoad: () => void): HTMLImageElement | null {
-    const existing = this.cache.get(url);
-    if (existing) {
-      if (existing.loaded) return existing.img;
-      return null;
-    }
-    const entry: CachedImage = {
-      img: new Image(),
-      loaded: false,
-      failed: false,
-    };
-    this.cache.set(url, entry);
-    entry.img.onload = () => {
-      entry.loaded = true;
-      onLoad();
-    };
-    entry.img.onerror = () => {
-      if (fallbackUrl && entry.img.src !== fallbackUrl) {
-        entry.img.src = fallbackUrl;
-      } else {
-        entry.failed = true;
-      }
-    };
-    entry.img.src = url;
-    return null;
-  }
 }
 
 // ─── Easing ───────────────────────────────────────────────────
@@ -196,11 +155,10 @@ export class ThreeWorldMap {
   /** Painted terrain, baked per chunk. */
   private terrain: ChunkedMapLayer;
 
-  // Image cache (shared across renders).
-  private imageCache = new ImageCache();
-  private hexSpriteCache = new Map<string, HTMLCanvasElement>();
-  /** Tile keys waiting on each art URL, so a late load re-bakes just them. */
-  private artWaiters = new Map<string, Set<string>>();
+  private tileArt = new TileArtCache((keys) => {
+    this.terrain.markTileKeysDirty(keys);
+    this.requestRender();
+  });
   /** Map id whose parchment texture is currently loaded/loading (per-map backgrounds). */
   private parchmentMapId: string | null = null;
 
@@ -1185,36 +1143,6 @@ export class ThreeWorldMap {
     this.scene.add(this.parchmentMesh);
   }
 
-  private getHexSprite(url: string, img: HTMLImageElement): HTMLCanvasElement {
-    const cached = this.hexSpriteCache.get(url);
-    if (cached) return cached;
-    const SPRITE_W = HEX_SIZE * 4;
-    const SPRITE_H = Math.round(SPRITE_W * Math.sqrt(3) / 2);
-    const canvas = document.createElement('canvas');
-    canvas.width = SPRITE_W;
-    canvas.height = SPRITE_H;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      this.hexSpriteCache.set(url, canvas);
-      return canvas;
-    }
-    const s = SPRITE_W / 2;
-    const cx = SPRITE_W / 2;
-    const cy = SPRITE_H / 2;
-    const cors = getHexCorners(s);
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const x = cx + cors[i].x;
-      const y = cy + cors[i].y;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.clip();
-    ctx.drawImage(img, 0, 0, SPRITE_W, SPRITE_H);
-    this.hexSpriteCache.set(url, canvas);
-    return canvas;
-  }
-
   // ─── Terrain feed ──────────────────────────────────────────
 
   /**
@@ -1224,66 +1152,47 @@ export class ThreeWorldMap {
    * content deploy).
    */
   private syncTerrain(reset = false): void {
-    const tiles: PaintTile[] = [];
+    const inputs: PaintTileInput[] = [];
     for (const tile of this.grid.getAllTiles()) {
       if (tile.type === 'void') continue;
       const offset = cubeToOffset(tile.coord);
       const zoneOpen = this.worldCache.isZoneUnlocked(tile.zone);
+      const explored = this.worldCache.isUnlocked(offset.col, offset.row);
       let fog: FogState;
       if (!tile.isTraversable) {
         // Scenery (mountains, lakes) is revealed with its zone.
         fog = zoneOpen ? 'open' : 'fog';
-      } else if (this.worldCache.isUnlocked(offset.col, offset.row)) {
+      } else if (explored) {
         fog = 'open';
       } else {
         fog = zoneOpen ? 'haze' : 'fog';
       }
-      const p = tile.pixelPosition;
-      tiles.push({
-        key: tile.key,
-        x: p.x,
-        y: p.y,
+      const def = this.worldTileDefs.get(`${offset.col},${offset.row}`);
+      const building = def && explored ? roomBuilding(def, this.worldCache) : undefined;
+      inputs.push({
+        col: offset.col,
+        row: offset.row,
         type: tile.type,
         color: this.colorToHex(tile.color),
         zone: tile.zone,
         traversable: tile.isTraversable,
         fog,
         dimmed: !!this.currentZone && tile.zone !== this.currentZone && tile.isTraversable,
-        // Index = direction, so the painter can pick the shared edge.
-        neighborKeys: getNeighbors(tile.coord).map(n => (this.grid.getTile(n) ? cubeToKey(n) : '')),
         icon: this.worldCache.getTileTypeDef(tile.type)?.icon,
+        building,
       });
     }
-    this.terrain.setTiles(tiles, reset);
+    this.terrain.setTiles(buildPaintTiles(inputs), reset);
     this.requestRender();
   }
 
-  /**
-   * Uploaded art for a tile (per-room art, then per-type art), as a hex
-   * sprite, or null while loading / when there is none. A late load re-bakes
-   * only the chunks around the tiles that asked for it.
-   */
+  /** Uploaded art for a tile as a hex sprite, or null while loading / when there is none. */
   private getTileArt(tile: PaintTile): CanvasImageSource | null {
     const cube = this.grid.getTile(keyToCube(tile.key));
     if (!cube) return null;
     const offset = cubeToOffset(cube.coord);
     const def = this.worldTileDefs.get(`${offset.col},${offset.row}`);
-    const candidates: string[] = [];
-    if (def?.id) candidates.push(artworkUrl('tile', def.id));
-    candidates.push(artworkUrl('tile-type', tile.type));
-    for (const url of candidates) {
-      const img = this.imageCache.get(url, null, () => {
-        const waiters = this.artWaiters.get(url);
-        this.artWaiters.delete(url);
-        if (waiters) this.terrain.markTileKeysDirty(waiters);
-        this.requestRender();
-      });
-      if (img) return this.getHexSprite(url, img);
-      let w = this.artWaiters.get(url);
-      if (!w) { w = new Set(); this.artWaiters.set(url, w); }
-      w.add(tile.key);
-    }
-    return null;
+    return this.tileArt.get(tileArtUrls({ id: def?.id ?? '', type: tile.type }), tile.key);
   }
 
   // ─── DOM overlay ───────────────────────────────────────────
@@ -1493,18 +1402,18 @@ export class ThreeWorldMap {
     marker.style.left = `${p.x}px`;
     marker.style.top = `${p.y + HEX_SIZE * 0.55}px`;
 
-    const icons = markerActions(actions);
-    for (const action of icons.slice(0, MAX_MARKER_ICONS)) {
+    const { shown, more } = markerGlyphs(actions);
+    for (const action of shown) {
       const icon = document.createElement('span');
       icon.className = action.questReady ? 'three-map-marker-icon quest-ready-pip' : 'three-map-marker-icon';
       icon.textContent = action.icon;
       marker.appendChild(icon);
     }
-    if (icons.length > MAX_MARKER_ICONS) {
-      const more = document.createElement('span');
-      more.className = 'three-map-marker-more';
-      more.textContent = `+${icons.length - MAX_MARKER_ICONS}`;
-      marker.appendChild(more);
+    if (more > 0) {
+      const moreEl = document.createElement('span');
+      moreEl.className = 'three-map-marker-more';
+      moreEl.textContent = `+${more}`;
+      marker.appendChild(moreEl);
     }
     return marker;
   }

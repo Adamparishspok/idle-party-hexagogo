@@ -194,7 +194,7 @@ describe('computeAssetCoverage fallback chains', () => {
     expect(monsters.overrides).toBe(1);
   });
 
-  it('falls a combat backdrop back to the zone artwork, while the room backdrop stays a placeholder', async () => {
+  it('falls both the combat and room backdrops back to the zone artwork', async () => {
     const { content, assets } = await setup();
     await content.addOrUpdateZone(makeZone('emberfall', { displayName: 'Emberfall' }));
     await assets.write('zone', 'emberfall', SQUARE);
@@ -207,10 +207,9 @@ describe('computeAssetCoverage fallback chains', () => {
     expect(combatEntry?.resolvedVia).toBe('fallback:zone');
     expect(combatBg.coveredByFallback).toBe(1);
 
-    // room-bg declares no fallbacks, so the same zone renders a placeholder there.
     const roomEntry = kindOf(report, 'room-bg').entries?.find(e => e.id === 'emberfall');
-    expect(roomEntry?.resolvedVia).toBe('placeholder');
-    expect(kindOf(report, 'room-bg').coveredByFallback).toBe(0);
+    expect(roomEntry?.resolvedVia).toBe('fallback:zone');
+    expect(kindOf(report, 'room-bg').coveredByFallback).toBe(1);
 
     // The zone itself does have its own art.
     const zoneEntry = kindOf(report, 'zone').entries?.find(e => e.id === 'emberfall');
@@ -399,28 +398,60 @@ describe('computeAssetCoverage fixed and derived id sources', () => {
 });
 
 describe('computeAssetCoverage and the deferred kinds', () => {
-  it('omits set and shop from a full report', async () => {
+  it('omits set from a full report', async () => {
     const { content, assets } = await setup();
     const report = await computeAssetCoverage(content, assets);
     const reported = report.kinds.map(k => k.kind);
 
     expect(reported).not.toContain('set');
-    expect(reported).not.toContain('shop');
     expect(reported).toHaveLength(MANAGED_ASSET_KINDS.length);
     expect(report.summary.kinds).toBe(MANAGED_ASSET_KINDS.length);
   });
 
   it('ignores art sitting in a deferred kind\'s folder entirely', async () => {
-    // The folders stay mounted so existing art keeps serving; the report just
-    // does not speak about them either way.
     const { content, assets } = await setup();
-    await content.addOrUpdateShop({ id: 'emberfall_general', name: 'General Store', inventory: [] });
-    await assets.write('shop', 'emberfall_general', SQUARE);
+    await assets.write('set', 'iron_set', SQUARE);
 
     const report = await computeAssetCoverage(content, assets);
-    expect(report.kinds.find(k => k.kind === 'shop')).toBeUndefined();
-    // ...and the file is untouched, ready for whenever shop is un-deferred.
-    expect(await assets.has('shop', 'emberfall_general')).toBe(true);
+    expect(report.kinds.find(k => k.kind === 'set')).toBeUndefined();
+    expect(await assets.has('set', 'iron_set')).toBe(true);
+  });
+});
+
+describe('computeAssetCoverage for shops', () => {
+  it('requires art for every shop, keyed by shop id', async () => {
+    const { content, assets } = await setup();
+    await content.addOrUpdateShop({ id: 'emberfall_general', name: 'General Store', inventory: [] });
+    await content.addOrUpdateShop({ id: 'emberfall_smith', name: 'Smithy', inventory: [] });
+    await assets.write('shop', 'emberfall_general', SQUARE);
+
+    const report = await computeAssetCoverage(content, assets, { kind: 'shop', includeEntries: true });
+    const shop = kindOf(report, 'shop');
+    const general = shop.entries?.find(e => e.id === 'emberfall_general');
+    const smith = shop.entries?.find(e => e.id === 'emberfall_smith');
+
+    expect(general).toMatchObject({ hasOwnAsset: true, resolvedVia: 'own' });
+    expect(smith).toMatchObject({ hasOwnAsset: false, resolvedVia: 'placeholder' });
+    expect(shop.orphans).not.toContain('emberfall_general');
+  });
+
+  it('flags art left under a deleted shop as an orphan', async () => {
+    const { content, assets } = await setup();
+    await assets.write('shop', 'long_gone_shop', SQUARE);
+
+    const report = await computeAssetCoverage(content, assets, { kind: 'shop' });
+    expect(kindOf(report, 'shop').orphans).toContain('long_gone_shop');
+  });
+});
+
+describe('computeAssetCoverage for fixed id sets', () => {
+  it('expects the Quests nav icon and every chrome piece the stylesheets use', async () => {
+    const { content, assets } = await setup();
+    const report = await computeAssetCoverage(content, assets, { includeEntries: true });
+
+    expect(kindOf(report, 'nav-icon').entries?.map(e => e.id)).toContain('quests');
+    const chrome = kindOf(report, 'ui').entries?.map(e => e.id) ?? [];
+    expect(chrome).toEqual(expect.arrayContaining(['close-button', 'panel-parchment', 'title-tab']));
   });
 });
 

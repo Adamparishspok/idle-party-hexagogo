@@ -53,7 +53,20 @@ export const UI_CHROME_IDS = [
   'nav-button-active',
   'xp-frame',
   'hud-pill',
+  'close-button',
+  'panel-parchment',
+  'title-tab',
 ] as const;
+
+/**
+ * Nav-icon ids the game requests under `/nav-icons/{id}.png`: the bottom-nav
+ * destinations, the perched Quests button, and the HUD settings gear. Chat
+ * draws a chevron glyph, so it has no icon.
+ */
+export const NAV_ICON_IDS = ['combat', 'map', 'items', 'craft', 'social', 'quests', 'settings'] as const;
+
+/** Placeholder glyphs the class-icon set carries beyond the real classes. */
+export const CLASS_ICON_EXTRA_IDS = ['Unknown', 'Server'] as const;
 
 /**
  * Sound-event ids the client's `SoundManager` plays. Each one tries
@@ -196,9 +209,6 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
     // CombatScreen still honors art dropped in under a slug of the name.
     fallbacks: [{ kind: 'monster', idFrom: 'nameSlug' }],
   },
-  // ── Deferred (see DEFERRED_ASSET_KINDS) ──
-  // Still mounted and still rendered by whatever already reads them, but held
-  // back from the assets API until the blockers below are resolved.
   set: {
     label: 'Equipment set',
     description: 'Set artwork. Deferred from the assets API — nothing in the client renders set art yet.',
@@ -210,18 +220,18 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
   },
   shop: {
     label: 'Shop',
-    description:
-      'Shop icon on the room-view action button. Deferred from the assets API — the room view fetches this art by '
-      + "the room's ZONE id while the uploader files it under the shop's id, so art uploaded the normal way never renders.",
+    description: "Shop icon on the room view's shop button. Falls back to a coin glyph.",
     dir: 'data/shop-artwork',
     mount: '/shop-artwork',
     idSource: 'shops',
-    idFormat: 'ShopDefinition.id (the room view currently fetches by zone id instead — see description)',
+    idFormat: 'ShopDefinition.id',
     shape: 'square',
   },
   zone: {
     label: 'Zone',
-    description: 'Zone artwork, also the last-resort combat backdrop for rooms in the zone.',
+    description:
+      'Zone artwork — the last-resort backdrop for both the room view and the combat stage, used only when the zone '
+      + 'has no room backdrop or combat backdrop of its own.',
     dir: 'data/zone-artwork',
     mount: '/zone-artwork',
     idSource: 'zones',
@@ -330,7 +340,7 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
   },
   'room-bg': {
     label: 'Room backdrop',
-    description: 'Backdrop behind the room view. One per zone, optionally overridden per room.',
+    description: 'Backdrop behind the room view. One per zone, optionally overridden per room; falls back to the zone art.',
     dir: 'data/room-bg-artwork',
     mount: '/room-bg-artwork',
     idSource: 'zones',
@@ -339,6 +349,7 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
       + 'The legacy `{zoneId}-{col}-{row}` override key is still served, but it collides across maps — upload new overrides under the room GUID',
     overrideIdSource: 'rooms',
     shape: 'any',
+    fallbacks: [{ kind: 'zone', idFrom: 'zoneId' }],
   },
   'class-icon': {
     label: 'Class icon',
@@ -382,7 +393,8 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
   ui: {
     label: 'UI chrome',
     description:
-      'Painted interface chrome — the bottom-nav bar, nav button frames, the XP bar frame, and HUD pills. '
+      'Painted interface chrome — the bottom-nav bar, nav button frames, the XP bar frame, HUD pills, the close '
+      + 'button, the parchment panel, and the panel title tab. '
       + 'Each piece layers over a CSS fallback, so missing art degrades to the plain CSS look.',
     dir: 'data/ui-artwork',
     mount: '/ui-artwork',
@@ -419,6 +431,7 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
 export const MANAGED_ASSET_KINDS = [
   'item',
   'monster',
+  'shop',
   'zone',
   'tile',
   'tile-type',
@@ -447,13 +460,10 @@ export type ManagedAssetKind = (typeof MANAGED_ASSET_KINDS)[number];
  * the MCP tools, or the coverage report yet. They stay here as placeholders so
  * the folders keep serving existing art and the work is one list move away.
  *
- * - `shop`: the room view fetches shop art by the room's *zone* id while the
- *   uploader writes it under the *shop* id, so the API would accept and report
- *   art the game never renders. Blocked on that client fix.
- * - `set`: uploadable and served, but nothing in the client renders set art at
- *   all, so coverage would pressure authors to draw art nothing displays.
+ * - `set`: served, but nothing in the client renders set art at all, so
+ *   coverage would pressure authors to draw art nothing displays.
  */
-export const DEFERRED_ASSET_KINDS = ['set', 'shop'] as const;
+export const DEFERRED_ASSET_KINDS = ['set'] as const;
 
 export type DeferredAssetKind = (typeof DEFERRED_ASSET_KINDS)[number];
 

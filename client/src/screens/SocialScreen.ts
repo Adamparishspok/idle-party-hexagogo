@@ -10,6 +10,7 @@ import type { SocModal } from './social/socialModal';
 import { TradeModal } from './social/TradeModal';
 import { GiftModal } from './social/GiftModal';
 import { ProfileModal } from './social/ProfileModal';
+import { henchmanArtUrls } from '../ui/assets';
 import '../styles/screens/social.css';
 
 type SubTab = 'users' | 'guild' | 'party';
@@ -729,7 +730,7 @@ export class SocialScreen implements Screen {
   }
 
   private henchmanPortrait(h: HiredHenchman, name: string, withLevel = true): string {
-    return portraitHtml({ name, size: 'sm', imageUrl: h.artworkUrl, glyph: h.emoji, level: withLevel ? h.level : undefined });
+    return portraitHtml({ name, size: 'sm', imageUrls: henchmanArtUrls(h), glyph: h.emoji, level: withLevel ? h.level : undefined });
   }
 
   /** Name + subtitle block that opens the player card. */

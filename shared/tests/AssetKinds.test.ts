@@ -14,6 +14,8 @@ import {
   assetFileExtensions,
   isAudioAssetKind,
   SFX_IDS,
+  UI_CHROME_IDS,
+  NAV_ICON_IDS,
 } from '../src/index.js';
 
 describe('asset kind registry', () => {
@@ -62,12 +64,42 @@ describe('asset kind registry', () => {
   });
 
   it('reports deferred kinds as unmanaged and vice versa', () => {
-    expect(isDeferredAssetKind('shop')).toBe(true);
-    expect(isManagedAssetKind('shop')).toBe(false);
     expect(isDeferredAssetKind('set')).toBe(true);
     expect(isManagedAssetKind('set')).toBe(false);
     expect(isManagedAssetKind('monster')).toBe(true);
     expect(isDeferredAssetKind('monster')).toBe(false);
+  });
+
+  it('manages shop art now that the room view fetches it by shop id', () => {
+    expect(isManagedAssetKind('shop')).toBe(true);
+    expect(isDeferredAssetKind('shop')).toBe(false);
+    expect(assetPublicPath('shop', 'emberfall_general')).toBe('/shop-artwork/emberfall_general.png');
+  });
+
+  it('manages the per-entity kinds other admin tabs upload through', () => {
+    for (const kind of ['npc', 'henchman', 'tile', 'room-bg', 'combat-bg', 'skill', 'zone'] as const) {
+      expect(isManagedAssetKind(kind), kind).toBe(true);
+    }
+    expect(assetPublicPath('room-bg', '3f2a-guid')).toBe('/room-bg-artwork/3f2a-guid.png');
+    expect(assetPublicPath('combat-bg', 'hatchetmill')).toBe('/combat-bg-artwork/hatchetmill.png');
+    expect(assetPublicPath('npc', 'old_tom')).toBe('/npc-artwork/old_tom.png');
+    expect(assetPublicPath('henchman', 'brutus')).toBe('/henchman-artwork/brutus.png');
+  });
+
+  it('lists every painted chrome piece the stylesheets request', () => {
+    for (const id of ['nav-bar', 'nav-button', 'nav-button-active', 'xp-frame', 'hud-pill', 'close-button', 'panel-parchment', 'title-tab']) {
+      expect(UI_CHROME_IDS as readonly string[]).toContain(id);
+    }
+    expect(ASSET_KIND_INFO.ui.fixedIds).toBe(UI_CHROME_IDS);
+  });
+
+  it('lists every nav icon the shell requests, including the perched Quests button and settings gear', () => {
+    expect([...NAV_ICON_IDS].sort()).toEqual(['combat', 'craft', 'items', 'map', 'quests', 'settings', 'social']);
+  });
+
+  it('falls both backdrops back to zone art', () => {
+    expect(ASSET_KIND_INFO['room-bg'].fallbacks).toEqual([{ kind: 'zone', idFrom: 'zoneId' }]);
+    expect(ASSET_KIND_INFO['combat-bg'].fallbacks).toEqual([{ kind: 'zone', idFrom: 'zoneId' }]);
   });
 
   it('rejects ids that could climb out of a kind folder', () => {

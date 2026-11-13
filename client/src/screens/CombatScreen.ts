@@ -9,7 +9,7 @@ import type {
 } from '@idle-party-rpg/shared';
 import { henchmanDisplayNames, RUN_AVAILABLE_ROUNDS } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
-import { artworkUrl } from '../ui/assets';
+import { artworkUrl, henchmanArtUrls } from '../ui/assets';
 import { bringToFront, release, wireFocusOnInteract } from '../ui/ModalStack';
 import { sound } from '../audio/SoundManager';
 
@@ -334,7 +334,7 @@ export class CombatScreen implements Screen {
         currentHp: p.currentHp,
         maxHp: p.maxHp,
         stunned: !!(p.stunTurns && p.stunTurns > 0),
-        artUrls: p.henchman ? (hench?.artworkUrl ? [hench.artworkUrl] : []) : classArtUrls(p.className),
+        artUrls: p.henchman ? (hench ? henchmanArtUrls(hench) : []) : classArtUrls(p.className),
         isSelf: p.username === state.username,
         henchman: !!p.henchman,
         glyph: p.henchman ? (hench?.emoji ?? '❓') : undefined,

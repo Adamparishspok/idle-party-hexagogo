@@ -124,8 +124,9 @@ describe('ShopPopup hire tab', () => {
     expect(row.querySelector('.shop-hire-stats')?.textContent).toBe('Lv 3 · 80 HP · 6 DMG');
     expect(row.querySelector('.shop-hire-emoji')?.textContent).toBe('🗡️');
     expect(row.querySelector('img')?.getAttribute('src')).toBe('/art/sellsword.png');
+    expect(JSON.parse(row.querySelector<HTMLImageElement>('img')!.dataset.fallbacks!)).toEqual(['/henchman-artwork/sellsword.png']);
     const archer = t.$('.shop-hire-row[data-henchman-id="archer"]')!;
-    expect(archer.querySelector('img')).toBeNull();
+    expect(archer.querySelector('img')?.getAttribute('src')).toBe('/henchman-artwork/archer.png');
     expect(archer.querySelector('.shop-hire-desc')).toBeNull();
     expect(document.body.textContent).not.toContain('Knight');
   });

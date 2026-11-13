@@ -28,6 +28,7 @@ export type BattleTimerState = 'battle' | 'result';
 export type BattleResult = 'victory' | 'defeat';
 export type PartyState = 'idle' | 'moving' | 'in_battle';
 
+export const COMBAT_TICK_MS = 1000;
 export const RESULT_PAUSE = 600;      // ms to show victory/defeat before movement
 export const MOVE_DURATION = 400;     // ms for tile movement (client animation)
 export const RUN_AVAILABLE_ROUNDS = 5; // rounds before "Run" becomes available

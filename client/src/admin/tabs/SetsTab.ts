@@ -11,18 +11,18 @@ import { ATTRIBUTE_ABBREVIATIONS, ATTRIBUTE_LABELS, ATTRIBUTE_NAMES } from '@idl
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
 
-/** Reads a breakpoint row's attribute inputs; blank counts as 0, and only whole numbers of 0 or more are allowed. */
+/** Reads a breakpoint row's attribute inputs; blank counts as 0, and only whole numbers (negatives allowed) are accepted. */
 export function readSetAttributeInputs(row: ParentNode): { attributes?: PartialAttributes; error?: string } {
   const attributes: PartialAttributes = {};
   for (const input of row.querySelectorAll<HTMLInputElement>('.sf-bp-attr')) {
     const name = input.dataset.attr as keyof PartialAttributes;
     const raw = input.value.trim();
     if (raw === '') continue;
-    if (!/^\d+$/.test(raw)) {
-      return { error: `${ATTRIBUTE_LABELS[name] ?? name} must be a whole number of 0 or more.` };
+    if (!/^-?\d+$/.test(raw)) {
+      return { error: `${ATTRIBUTE_LABELS[name] ?? name} must be a whole number.` };
     }
     const value = Number(raw);
-    if (value > 0) attributes[name] = value;
+    if (value !== 0) attributes[name] = value;
   }
   return Object.keys(attributes).length > 0 ? { attributes } : {};
 }
@@ -240,7 +240,7 @@ export class SetsTab implements Tab {
             <label>Atk Max<input type="number" class="sf-bp-atkMax" value="${b.bonusAttackMax ?? 0}" min="0"></label>
             <label>Flat HP<input type="number" class="sf-bp-flatHp" value="${b.flatHp ?? 0}" min="0"></label>
             <label>% HP<input type="number" class="sf-bp-pctHp" value="${b.percentHp ?? 0}" min="0"></label>
-            ${ATTRIBUTE_NAMES.map(attr => `<label>${ATTRIBUTE_ABBREVIATIONS[attr]}<input type="number" step="1" min="0" class="sf-bp-attr" data-attr="${attr}" value="${b.attributes?.[attr] ?? 0}"></label>`).join('')}
+            ${ATTRIBUTE_NAMES.map(attr => `<label>${ATTRIBUTE_ABBREVIATIONS[attr]}<input type="number" step="1" class="sf-bp-attr" data-attr="${attr}" value="${b.attributes?.[attr] ?? 0}"></label>`).join('')}
           </div>
           <div class="sf-bp-grants">
             <div class="admin-checklist-toolbar">

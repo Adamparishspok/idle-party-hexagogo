@@ -3,6 +3,7 @@ import type { AdminContext } from '../AdminContext';
 import type { NpcDefinition } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
+import { renderArtworkSection, wireArtworkSection } from '../components/ArtworkSection';
 
 const EMOJI_PALETTE = [
   '🧙', '🧝', '🧛', '🧚', '🧞', '🧟', '🧜', '🦸', '🦹', '🥷',
@@ -108,6 +109,14 @@ export class NpcsTab implements Tab {
         <textarea id="npcf-greeting" rows="3" placeholder="What this NPC says when you talk to them.">${escapeHtml(n.greeting)}</textarea>
       </label>
       <fieldset class="admin-form-fieldset">
+        <legend>Artwork</legend>
+        ${renderArtworkSection({ kind: 'npc', id: n.id, idPrefix: 'npcf-art' })}
+        <label>Art URL override (optional)
+          <input type="text" id="npcf-artworkUrl" value="${escapeHtml(n.artworkUrl ?? '')}" placeholder="Leave empty to use the uploaded artwork">
+          <span class="admin-form-hint">Shown instead of the uploaded artwork when set.</span>
+        </label>
+      </fieldset>
+      <fieldset class="admin-form-fieldset">
         <legend>Quests offered</legend>
         ${questCheckboxes}
       </fieldset>
@@ -124,7 +133,8 @@ export class NpcsTab implements Tab {
     const root = modal.body;
 
     root.querySelector('#npcf-cancel')?.addEventListener('click', modal.close);
-    root.querySelector('#npcf-save')?.addEventListener('click', () => this.saveForm(root, ctx, modal.close));
+    root.querySelector('#npcf-save')?.addEventListener('click', () => this.saveForm(root, ctx, npc, modal.close));
+    wireArtworkSection(root, { kind: 'npc', id: n.id, idPrefix: 'npcf-art' });
 
     const emojiInput = root.querySelector<HTMLInputElement>('#npcf-emoji');
     root.querySelectorAll<HTMLButtonElement>('.npcf-emoji-pick').forEach(btn => {
@@ -134,11 +144,12 @@ export class NpcsTab implements Tab {
     });
   }
 
-  private async saveForm(root: HTMLElement, ctx: AdminContext, close: () => void): Promise<void> {
+  private async saveForm(root: HTMLElement, ctx: AdminContext, existing: NpcDefinition | null, close: () => void): Promise<void> {
     const existingId = (root.querySelector('#npcf-id') as HTMLInputElement).value.trim();
     const name = (root.querySelector('#npcf-name') as HTMLInputElement).value.trim();
     const emoji = (root.querySelector('#npcf-emoji') as HTMLInputElement).value.trim();
     const greeting = (root.querySelector('#npcf-greeting') as HTMLTextAreaElement).value.trim();
+    const artworkUrl = (root.querySelector('#npcf-artworkUrl') as HTMLInputElement).value.trim();
     if (!name) { alert('Name is required.'); return; }
     if (!emoji) { alert('Emoji is required.'); return; }
     if (!greeting) { alert('Greeting is required.'); return; }
@@ -149,7 +160,12 @@ export class NpcsTab implements Tab {
       questIds.push(cb.value);
     }
 
-    const npcDef: NpcDefinition = { id, name, emoji, greeting, questIds: questIds.length > 0 ? questIds : undefined };
+    const npcDef: NpcDefinition = {
+      ...existing,
+      id, name, emoji, greeting,
+      artworkUrl: artworkUrl || undefined,
+      questIds: questIds.length > 0 ? questIds : undefined,
+    };
     try {
       const data = await putAdmin<{ npcs: Record<string, NpcDefinition> }>(
         `/api/admin/npcs/${encodeURIComponent(id)}${ctx.versionQueryParam()}`, npcDef);

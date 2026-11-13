@@ -7,6 +7,7 @@ import { escapeHtml, renderKitItem } from './ItemIcon';
 import { renderItemPopupContent } from './ItemPopup';
 import { houseArtHtml } from './HouseArt';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
+import { henchmanArtUrls, imgChainAttrs } from './assets';
 import '../styles/screens/map.css';
 
 const ICON_PLUS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>';
@@ -390,7 +391,7 @@ export class ShopPopup {
           : `<button type="button" class="gc-btn gc-btn--gold shop-hire-btn" data-henchman-id="${escapeHtml(o.henchmanId)}" aria-label="${verb} ${escapeHtml(o.name)}">${verb}</button>`;
       return `
         <div class="gc-row shop-hire-row" data-henchman-id="${escapeHtml(o.henchmanId)}">
-          ${ShopPopup.henchmanPortrait(o.emoji, o.artworkUrl)}
+          ${ShopPopup.henchmanPortrait(o.emoji, henchmanArtUrls(o))}
           <div class="gc-row__main">
             <div class="gc-row__title shop-hire-name">${escapeHtml(o.name)}</div>
             ${description ? `<p class="shop-hire-desc">${escapeHtml(description)}</p>` : ''}
@@ -509,7 +510,7 @@ export class ShopPopup {
         const name = h.name ?? 'henchman';
         return `
         <button type="button" class="gc-row shop-replace-confirm" data-instance-id="${escapeHtml(h.instanceId)}" aria-label="Replace ${escapeHtml(name)}">
-          ${ShopPopup.henchmanPortrait(h.emoji ?? '?', h.artworkUrl)}
+          ${ShopPopup.henchmanPortrait(h.emoji ?? '?', henchmanArtUrls(h))}
           <span class="gc-row__main">
             <span class="gc-row__title">${escapeHtml(name)}</span>
             ${h.level !== undefined ? `<span class="gc-row__sub">Lv ${h.level}</span>` : ''}
@@ -522,7 +523,7 @@ export class ShopPopup {
     const body = `
       <div class="gc-modal__body shop-replace">
         <div class="gc-row shop-hire-row">
-          ${ShopPopup.henchmanPortrait(offer.emoji, offer.artworkUrl)}
+          ${ShopPopup.henchmanPortrait(offer.emoji, henchmanArtUrls(offer))}
           <div class="gc-row__main">
             <div class="gc-row__title shop-hire-name">${escapeHtml(offer.name)}</div>
             <div class="gc-row__sub shop-hire-stats">${ShopPopup.henchmanStats(offer)}</div>
@@ -556,9 +557,9 @@ export class ShopPopup {
   }
 
   /** Kit octagon portrait: the photo over the emoji, which shows through when the photo is missing or 404s. */
-  private static henchmanPortrait(emoji: string, artworkUrl: string | undefined): string {
-    const img = artworkUrl
-      ? `<img class="gc-portrait__img" src="${escapeHtml(artworkUrl)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+  private static henchmanPortrait(emoji: string, artUrls: readonly string[]): string {
+    const img = artUrls.length > 0
+      ? `<img class="gc-portrait__img" alt="" loading="lazy" decoding="async" ${imgChainAttrs(artUrls)} />`
       : '';
     return '<span class="gc-portrait gc-portrait--sm shop-hire-portrait" aria-hidden="true">'
       + `<span class="gc-portrait__initial shop-hire-emoji">${escapeHtml(emoji)}</span>${img}</span>`;

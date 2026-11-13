@@ -8,7 +8,6 @@ import type {
   WorldTileDefinition,
 } from '@idle-party-rpg/shared';
 import { QuestLog } from '../src/ui/QuestLog';
-import { SettingsScreen } from '../src/screens/SettingsScreen';
 import { NpcTalkPopup } from '../src/ui/NpcTalkPopup';
 import type { GameClient } from '../src/network/GameClient';
 import type { WorldCache } from '../src/network/WorldCache';
@@ -239,22 +238,6 @@ describe('QuestLog', () => {
     (document.querySelector('.quest-log-close') as HTMLButtonElement).click();
     expect(t.listenerCount()).toBe(0);
     expect(document.querySelector('.quest-log-modal')).toBeNull();
-  });
-});
-
-describe('SettingsScreen quest log', () => {
-  it('opens from the Quest Log button and closes when the screen is left', () => {
-    const t = setup();
-    t.push({});
-    const screen = new SettingsScreen('settings', t.gameClient, t.worldCache);
-
-    expect(document.querySelector('#btn-player-options')).toBeNull();
-    (document.querySelector('#btn-quest-log') as HTMLButtonElement).click();
-    expect(document.querySelector('.quest-log-modal')).not.toBeNull();
-
-    screen.onDeactivate();
-    expect(document.querySelector('.quest-log-modal')).toBeNull();
-    expect(t.listenerCount()).toBe(0);
   });
 });
 

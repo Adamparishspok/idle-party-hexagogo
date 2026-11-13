@@ -14,21 +14,19 @@ describe('isEmailConfigured', () => {
     expect(isEmailConfigured()).toBe(true);
   });
 
-  it('is false in production when SES env vars are missing', async () => {
+  it('is false in production when Resend env vars are missing', async () => {
     vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('SES_FROM_EMAIL', '');
-    vi.stubEnv('AWS_ACCESS_KEY_ID', '');
-    vi.stubEnv('AWS_SECRET_ACCESS_KEY', '');
+    vi.stubEnv('EMAIL_FROM', '');
+    vi.stubEnv('RESEND_API_KEY', '');
     vi.resetModules();
     const { isEmailConfigured } = await import('../src/auth/EmailService.js');
     expect(isEmailConfigured()).toBe(false);
   });
 
-  it('is true in production once all three SES env vars are set', async () => {
+  it('is true in production once both Resend env vars are set', async () => {
     vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('SES_FROM_EMAIL', 'noreply@example.com');
-    vi.stubEnv('AWS_ACCESS_KEY_ID', 'key');
-    vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'secret');
+    vi.stubEnv('EMAIL_FROM', 'noreply@example.com');
+    vi.stubEnv('RESEND_API_KEY', 're_key');
     vi.resetModules();
     const { isEmailConfigured } = await import('../src/auth/EmailService.js');
     expect(isEmailConfigured()).toBe(true);

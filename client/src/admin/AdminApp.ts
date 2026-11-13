@@ -39,6 +39,8 @@ import { MapsTab } from './tabs/MapsTab';
 import { VersionsTab } from './tabs/VersionsTab';
 import { SkillsTab } from './tabs/SkillsTab';
 import { XpTableTab } from './tabs/XpTableTab';
+import { GameRulesTab } from './tabs/GameRulesTab';
+import { AssetsTab } from './tabs/AssetsTab';
 import { ApiTokensTab } from './tabs/ApiTokensTab';
 
 export class AdminApp implements AdminContext {
@@ -77,6 +79,8 @@ export class AdminApp implements AdminContext {
     'versions':   new VersionsTab(),
     'skills':     new SkillsTab(),
     'xp-table':   new XpTableTab(),
+    'game-rules': new GameRulesTab(),
+    'assets':     new AssetsTab(),
     'api-tokens': new ApiTokensTab(),
   };
 

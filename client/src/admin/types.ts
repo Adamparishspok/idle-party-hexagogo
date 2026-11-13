@@ -135,6 +135,8 @@ export type TabId =
   | 'versions'
   | 'skills'
   | 'xp-table'
+  | 'game-rules'
+  | 'assets'
   | 'api-tokens';
 
 export interface TabDef {
@@ -166,7 +168,9 @@ export const TABS: TabDef[] = [
   { id: 'map',        label: 'Map Editor', icon: '⌖' },
   { id: 'versions',   label: 'Versions',   icon: '⧉' },
   { id: 'skills',     label: 'Skills',     icon: '✥' },
+  { id: 'assets',     label: 'Assets',     icon: '▣' },
   { id: 'xp-table',   label: 'XP Table',   icon: '✨' },
+  { id: 'game-rules', label: 'Game Rules', icon: '⚖' },
   { id: 'api-tokens', label: 'API Tokens', icon: '⚿', footer: true },
 ];
 

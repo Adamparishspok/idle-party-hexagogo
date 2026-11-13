@@ -1,4 +1,4 @@
-import { artworkUrl } from './assets';
+import { artworkUrl, imgChainAttrs } from './assets';
 import { escapeHtml } from './ItemIcon';
 
 export type PortraitSize = 'sm' | 'md' | 'lg' | 'xl';
@@ -15,8 +15,8 @@ export interface PortraitOpts {
   /** Gold frame edge for the viewing player. */
   self?: boolean;
   extraClass?: string;
-  /** Art to show instead of the class art (e.g. a henchman photo). */
-  imageUrl?: string;
+  /** Art to show instead of the class art (e.g. a henchman photo), tried in order. */
+  imageUrls?: readonly string[];
   /** Fallback glyph instead of the name's initial. */
   glyph?: string;
 }
@@ -37,9 +37,9 @@ export function renderPortrait(o: PortraitOpts): string {
   if (o.size) classes.push(`gc-portrait--${o.size}`);
   if (o.self) classes.push('is-self');
   if (o.extraClass) classes.push(o.extraClass);
-  const src = o.imageUrl ?? (o.className ? artworkUrl('class', o.className.toLowerCase()) : null);
-  const img = src
-    ? `<img class="gc-portrait__img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+  const urls = o.imageUrls ?? (o.className ? [artworkUrl('class', o.className.toLowerCase())] : []);
+  const img = urls.length > 0
+    ? `<img class="gc-portrait__img" alt="" loading="lazy" decoding="async" ${imgChainAttrs(urls)} />`
     : '';
   const online = o.online === undefined
     ? ''
