@@ -1,4 +1,6 @@
 import { MAX_STACK } from './ItemTypes.js';
+import type { ItemDefinition } from './ItemTypes.js';
+import { countByTemplate, consumeByTemplate } from './InventoryView.js';
 
 export const MAX_CRAFT_QUEUE = 5;
 
@@ -67,7 +69,7 @@ export function canQueueRecipe(
     }
   }
   for (const ing of recipe.ingredients) {
-    if ((inventory[ing.itemId] ?? 0) < ing.quantity) {
+    if (countByTemplate(inventory, ing.itemId) < ing.quantity) {
       return { ok: false, reason: 'missing_ingredients' };
     }
   }
@@ -85,14 +87,12 @@ export function enqueueRecipe(
   className: string | null,
   level: number,
   now: number,
+  items?: Record<string, ItemDefinition>,
 ): { ok: true } | { ok: false; reason: EnqueueError } {
   const check = canQueueRecipe(recipe, inventory, queue, className, level);
   if (!check.ok) return check;
   for (const ing of recipe.ingredients) {
-    const cur = inventory[ing.itemId] ?? 0;
-    const next = cur - ing.quantity;
-    if (next === 0) delete inventory[ing.itemId];
-    else inventory[ing.itemId] = next;
+    consumeByTemplate(inventory, ing.itemId, ing.quantity, items);
   }
   if (queue.jobs.length === 0) queue.activeStartedAtMs = now;
   queue.jobs.push({ recipeId: recipe.id });

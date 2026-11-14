@@ -185,6 +185,10 @@ export {
   getEquippedItemIds,
   getOwnedItemIds,
   listUnequippedEntries,
+  countByTemplate,
+  pickForConsumption,
+  spendPicked,
+  consumeByTemplate,
 } from './systems/InventoryView.js';
 
 // Monster types

@@ -276,3 +276,14 @@ describe('CraftingTypes — getVisibleRecipes', () => {
     expect(visible.map(r => r.id).sort()).toEqual(['r1', 'r2']);
   });
 });
+
+describe('rolled ingredients', () => {
+  it('a rolled copy satisfies and pays for a template ingredient', () => {
+    const rolledRecipe: RecipeDefinition = { ...recipe, ingredients: [{ itemId: 'iron_ore', quantity: 2 }] };
+    const inv: Record<string, number> = { 'iron_ore~1~a': 1, iron_ore: 1 };
+    const queue = emptyCraftQueue();
+    expect(canQueueRecipe(rolledRecipe, inv, queue, null, 1).ok).toBe(true);
+    expect(enqueueRecipe(rolledRecipe, inv, queue, null, 1, 0).ok).toBe(true);
+    expect(inv).toEqual({});
+  });
+});

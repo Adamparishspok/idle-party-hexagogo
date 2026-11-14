@@ -1,4 +1,4 @@
-import { isJewel, socketCapacity } from '@idle-party-rpg/shared';
+import { isJewel } from '@idle-party-rpg/shared';
 import type { EquipSlot, ServerStateMessage, SkillDefinition } from '@idle-party-rpg/shared';
 import type { GameClient } from '../network/GameClient';
 import { SLOT_LABELS, escapeHtml, renderKitItem } from './ItemIcon';
@@ -6,6 +6,7 @@ import { allItemDefs, deltaChips, isKnownClass, slotPickerModel } from './GearMo
 import type { SlotPickerModel } from './GearModel';
 import { renderDeltaChips, renderDeltaList, renderItemStatBlock } from './ItemStats';
 import type { ItemStatViewer } from './ItemStats';
+import { renderSocketsSection, handleSocketAction } from './SocketsSection';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import '../styles/screens/gear.css';
 
@@ -127,33 +128,8 @@ export class GearPicker {
         </div>
         <button type="button" class="gc-btn gc-btn--steel gp-unequip" data-gp-action="unequip">Unequip</button>
       </div>
-      ${this.socketsHtml(state)}
+      ${this.slot ? renderSocketsSection(state, this.slot, this.viewer(state)) : ''}
     </div>`;
-  }
-
-  private socketsHtml(state: ServerStateMessage): string {
-    const char = state.character;
-    const slot = this.slot;
-    if (!char || !slot) return '';
-    const items = allItemDefs(state);
-    const capacity = socketCapacity(char.equipment, slot, items);
-    if (capacity === 0) return '';
-    const socketed = char.socketedJewels?.[slot] ?? [];
-    const cells = Array.from({ length: capacity }, (_, i) => {
-      const id = socketed[i];
-      const def = id ? items[id] : undefined;
-      if (!id) return '<li class="gp-socket is-empty">Empty socket</li>';
-      return `<li class="gp-socket">
-        <span class="gp-name gc-rarity-text" data-rarity="${escapeHtml(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? id)}</span>
-        ${def ? renderItemStatBlock(def, this.viewer(state)) : ''}
-        <button type="button" class="gc-btn gc-btn--steel" data-gp-action="unsocket" data-index="${i}">Remove</button>
-      </li>`;
-    }).join('');
-    const jewels = socketed.length < capacity
-      ? Object.entries(char.inventory).filter(([id, n]) => n > 0 && isJewel(items[id]))
-      : [];
-    const available = jewels.map(([id]) => `<button type="button" class="gc-btn gc-btn--green" data-gp-action="socket" data-item-id="${escapeHtml(id)}">Socket ${escapeHtml(items[id].name)}</button>`).join('');
-    return `<div class="gp-sockets"><span class="gp-equipped__label">Sockets</span><ul class="gp-socket-list">${cells}</ul>${available}</div>`;
   }
 
   private candidatesHtml(model: SlotPickerModel, state: ServerStateMessage): string {
@@ -202,14 +178,7 @@ export class GearPicker {
       this.close();
       return;
     }
-    if (action?.dataset.gpAction === 'socket' && action.dataset.itemId && this.slot) {
-      this.gameClient.sendSocketJewel(this.slot, action.dataset.itemId);
-      return;
-    }
-    if (action?.dataset.gpAction === 'unsocket' && this.slot) {
-      this.gameClient.sendUnsocketJewel(this.slot, Number(action.dataset.index));
-      return;
-    }
+    if (this.slot && handleSocketAction(action, this.slot, this.gameClient)) return;
     if (action?.dataset.gpAction === 'equip' && action.dataset.itemId) {
       this.equip(action.dataset.itemId);
       return;

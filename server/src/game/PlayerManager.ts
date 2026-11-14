@@ -153,8 +153,7 @@ export class PlayerManager {
     for (const { itemId, quantity } of rollDungeonRewards((def.rewardItems ?? []).filter(r => rewardAppliesToClass(r, className)))) {
       const item = this.content.getItem(itemId);
       if (!item) continue;
-      const delivered = session.receiveItems(itemId, quantity).toInventory;
-      for (let i = 0; i < delivered; i++) session.addLogEntry(`${def.name}: ${item.name}!`, 'victory');
+      for (const id of session.receiveItems(itemId, quantity).ids) session.addLogEntry(`${def.name}: ${this.content.getItem(id)?.name}!`, 'victory');
     }
     const lost = session.consumeLostItems();
     if (Object.keys(lost).length > 0) this.notifyItemsLost(username, lost);

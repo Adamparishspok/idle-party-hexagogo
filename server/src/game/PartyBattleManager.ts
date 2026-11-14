@@ -836,7 +836,7 @@ export class PartyBattleManager {
       if (!className) return { success: false, error: `${username} has no class yet.` };
       let hasRequiredItem = true;
       if (requiredItemId) {
-        const inInventory = session.getInventoryCount(requiredItemId) >= 1;
+        const inInventory = session.getInventoryTemplateCount(requiredItemId) >= 1;
         // Consumed items must come from inventory; otherwise equipped also counts.
         hasRequiredItem = consumes ? inInventory : (inInventory || session.hasItemEquipped(requiredItemId));
       }
@@ -850,7 +850,7 @@ export class PartyBattleManager {
     // Consume the entry item from every member (validation guarantees it's present).
     if (requiredItemId && consumes) {
       for (const username of entry.members) {
-        this.getSession(username)?.removeOneFromInventory(requiredItemId);
+        this.getSession(username)?.consumeByTemplate(requiredItemId, 1);
       }
     }
 
@@ -1005,8 +1005,7 @@ export class PartyBattleManager {
           for (const { itemId, quantity } of drops) {
             const itemDef = this.content.getItem(itemId);
             if (!itemDef) continue;
-            const delivered = session.receiveItems(itemId, quantity).toInventory;
-            for (let i = 0; i < delivered; i++) session.addLogEntry(`First-clear reward: ${itemDef.name}!`, 'victory');
+            for (const id of session.receiveItems(itemId, quantity).ids) session.addLogEntry(`First-clear reward: ${this.content.getItem(id)?.name}!`, 'victory');
           }
         }
       }
@@ -1043,8 +1042,7 @@ export class PartyBattleManager {
       for (const { itemId, quantity } of drops) {
         const itemDef = this.content.getItem(itemId);
         if (!itemDef) continue;
-        const delivered = session.receiveItems(itemId, quantity).toInventory;
-        for (let i = 0; i < delivered; i++) session.addLogEntry(`${label}: ${itemDef.name}!`, 'victory');
+        for (const id of session.receiveItems(itemId, quantity).ids) session.addLogEntry(`${label}: ${this.content.getItem(id)?.name}!`, 'victory');
       }
     }
   }

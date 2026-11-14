@@ -24,6 +24,8 @@ import {
   isTwoHandedEquipped,
   getOwnedItemIds,
   getEquippedItemIds,
+  countByTemplate,
+  consumeByTemplate,
   getZone,
   setAppliesToClass,
   createDefaultSkillLoadout,
@@ -365,10 +367,8 @@ export class PlayerSession {
     }
 
     for (const itemId of rewards.items) {
-      const itemDef = this.content.getItem(itemId);
-      if (itemDef && this.receiveItems(itemId, 1).toInventory > 0) {
-        this.addLogEntry(`Found ${itemDef.name}!`, 'victory');
-      }
+      if (!this.content.getItem(itemId)) continue;
+      for (const id of this.receiveItems(itemId, 1).ids) this.addLogEntry(`Found ${this.content.getItem(id)?.name}!`, 'victory');
     }
 
     const { leveledUp, levelsGained } = addXp(this.character, rewards.xp);
@@ -673,7 +673,7 @@ export class PlayerSession {
     const allQuests = this.content.getAllQuests();
 
     // Recompute collect progress before exposing state
-    this.quests.recomputeCollect(allQuests, (itemId) => this.getInventoryCount(itemId));
+    this.quests.recomputeCollect(allQuests, (itemId) => this.getQuestItemCount(itemId));
 
     const npc = this.getCurrentNpc();
     const offeredQuestIds = npc?.questIds ?? [];
@@ -759,8 +759,8 @@ export class PlayerSession {
     const result = this.quests.turnIn(
       questId,
       this.content.getAllQuests(),
-      (itemId, count) => this.removeFromInventory(itemId, count),
-      (itemId) => this.getInventoryCount(itemId),
+      (itemId, count) => this.consumeQuestItems(itemId, count),
+      (itemId) => this.getQuestItemCount(itemId),
     );
     if (!result.success) return { success: false, error: result.error };
 
@@ -772,8 +772,7 @@ export class PlayerSession {
       if (reward.kind === 'xp') totalXp += reward.amount;
       else if (reward.kind === 'gold') totalGold += reward.amount;
       else if (reward.kind === 'item') {
-        const delivered = this.receiveItems(reward.itemId, reward.quantity).toInventory;
-        for (let i = 0; i < delivered; i++) grantedItems.push(reward.itemId);
+        grantedItems.push(...this.receiveItems(reward.itemId, reward.quantity).ids);
       }
     }
     if (totalGold > 0) {
@@ -965,6 +964,7 @@ export class PlayerSession {
       this.character.className,
       this.character.level,
       now,
+      this.content.getAllItems(),
     );
     if (!result.ok) return result;
     this.addLogEntry(`Started crafting ${recipe.name}.`, 'battle');
@@ -1081,6 +1081,29 @@ export class PlayerSession {
     return this.character.inventory[itemId] ?? 0;
   }
 
+  /** Backpack copies of a template, rolled copies included. Equipped and socketed items never count. */
+  getInventoryTemplateCount(templateId: string): number {
+    return this.character ? countByTemplate(this.character.inventory, templateId) : 0;
+  }
+
+  /** Backpack plus socketed jewels of a template: what quest "have item" checks see. */
+  getQuestItemCount(templateId: string): number {
+    const socketed = Object.values(this.socketedJewels).flat().filter(id => templateIdOf(id) === templateId).length;
+    return this.getInventoryTemplateCount(templateId) + socketed;
+  }
+
+  /** Spends backpack copies of a template (plain first, then lowest quality). Returns false, changing nothing, when short. */
+  consumeByTemplate(templateId: string, count: number): boolean {
+    return !!this.character && consumeByTemplate(this.character.inventory, templateId, count, this.content.getAllItems());
+  }
+
+  /** Quest hand-in: spends backpack copies; any shortfall must be covered by socketed jewels, which are kept. */
+  consumeQuestItems(templateId: string, count: number): boolean {
+    const fromBackpack = Math.min(count, this.getInventoryTemplateCount(templateId));
+    const socketed = this.getQuestItemCount(templateId) - this.getInventoryTemplateCount(templateId);
+    return count - fromBackpack <= socketed && this.consumeByTemplate(templateId, fromBackpack);
+  }
+
   /** Remove one item from the unequipped inventory. Returns false if item not present. */
   removeOneFromInventory(itemId: string): boolean {
     if (!this.character) return false;
@@ -1128,13 +1151,18 @@ export class PlayerSession {
   }
 
   /** Unattended delivery (loot, rewards, crafts): backpack, then Lost & Found, then lost. Logs pouch and lost copies. */
-  receiveItems(itemId: string, quantity: number): ItemRouting {
-    if (!this.character) return { toInventory: 0, toPouch: 0, lost: 0 };
+  receiveItems(itemId: string, quantity: number): ItemRouting & { ids: string[] } {
+    if (!this.character) return { toInventory: 0, toPouch: 0, lost: 0, ids: [] };
     const template = this.content.getItem(itemId);
-    if (!template || !hasRollTable(template)) return this.routeIncoming(itemId, quantity);
-    const total: ItemRouting = { toInventory: 0, toPouch: 0, lost: 0 };
+    if (!template || !hasRollTable(template)) {
+      const routing = this.routeIncoming(itemId, quantity);
+      return { ...routing, ids: Array(routing.toInventory).fill(itemId) };
+    }
+    const total: ItemRouting & { ids: string[] } = { toInventory: 0, toPouch: 0, lost: 0, ids: [] };
     for (let i = 0; i < quantity; i++) {
-      const routing = this.routeIncoming(rollNewItemId(template), 1);
+      const rolledId = rollNewItemId(template);
+      const routing = this.routeIncoming(rolledId, 1);
+      if (routing.toInventory > 0) total.ids.push(rolledId);
       total.toInventory += routing.toInventory;
       total.toPouch += routing.toPouch;
       total.lost += routing.lost;
