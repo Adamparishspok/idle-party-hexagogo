@@ -1,4 +1,7 @@
 import {
+  hasRollTable,
+  templateIdOf,
+  rollNewItemId,
   HexGrid,
   HexTile,
   UnlockSystem,
@@ -21,7 +24,8 @@ import {
   isTwoHandedEquipped,
   getOwnedItemIds,
   getEquippedItemIds,
-  hasItemEquipped as inventoryHasItemEquipped,
+  countByTemplate,
+  consumeByTemplate,
   getZone,
   setAppliesToClass,
   createDefaultSkillLoadout,
@@ -47,14 +51,28 @@ import {
   fitsInventoryChanges,
   routeIncomingItems,
   equipBag,
+  socketJewel,
+  peekSocketedJewel,
+  removeSocketedJewel,
+  reconcileSockets,
+  normalizeSocketedJewels,
   unequipBag,
   claimFromPouch,
   grantStarterBag,
   STARTER_BAG_ITEM,
   normalizeBank,
   toClientBankState,
+  worldBossCooldownMs,
+  newTutorialProgress,
+  restoreTutorialProgress,
+  advanceTutorial,
+  skipTutorial,
+  buildClientTutorialState,
+  orderedTutorialSteps,
 } from '@idle-party-rpg/shared';
 import type {
+  SocketedJewels,
+  SocketErrorCode,
   HiredHenchman,
   HenchmanOffer,
   HouseOffer,
@@ -99,6 +117,11 @@ import type {
   ItemRouting,
   PlayerBank,
   ClientBankState,
+  ClientWorldBoss,
+  WorldBossCooldown,
+  WorldBossDefinition,
+  TutorialProgress,
+  TutorialEvent,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -106,7 +129,8 @@ import type { WorldGrids } from './WorldGrids.js';
 import { QuestSystem } from './QuestSystem.js';
 import { houseDefinitionFor } from './housing/HousingService.js';
 import type { QuestEvent } from './QuestSystem.js';
-import type { QuestDefinition, QuestProgressEntry, CompletedQuestEntry } from '@idle-party-rpg/shared';
+import type { QuestDefinition, QuestProgressEntry, CompletedQuestEntry, GoldSource } from '@idle-party-rpg/shared';
+import type { EconomyLedger } from './EconomyLedger.js';
 
 const MAX_LOG_ENTRIES = 1000;
 const MAX_SAVE_LOG_ENTRIES = 1000;
@@ -115,6 +139,7 @@ export const WELCOME_BACK_MIN_AWAY_MS = 5 * 60 * 1000;
 
 export class PlayerSession {
   username: string;
+  economy?: EconomyLedger;
   private grids: WorldGrids;
   private content: ContentStore;
   private unlockSystem: UnlockSystem;
@@ -135,6 +160,8 @@ export class PlayerSession {
   private craftQueue: CraftQueueState = emptyCraftQueue();
   /** Initial mailbox snapshot from save data; live state lives in MailboxSystem. */
   private initialMailbox: MailboxEntry[] = [];
+  private initialFollowTarget: string | null = null;
+  getFollowTarget?: () => string | null;
   /** Callback to fetch the player's live mailbox from MailboxSystem. */
   getMailbox?: () => MailboxEntry[];
   /** Initial notification inbox snapshot from save data; live state lives in NotificationSystem. */
@@ -147,8 +174,12 @@ export class PlayerSession {
   private house: PlayerHouse | null = null;
   private wellRestedUntil: number | undefined;
   private bags: BagSlots = normalizeBagSlots(undefined);
+  private socketedJewels: SocketedJewels = {};
   private lostAndFound: Record<string, number> = {};
   private starterBagGranted = false;
+  private worldBossCooldowns: Record<string, WorldBossCooldown> = {};
+  private tutorial: TutorialProgress = newTutorialProgress();
+  private lastTutorialTileId: string | undefined;
   private bank: PlayerBank = normalizeBank(undefined);
   /** Copies lost since the last `consumeLostItems` — batched into one notification per battle. */
   private pendingLost: Record<string, number> = {};
@@ -191,6 +222,7 @@ export class PlayerSession {
   /** Callback to get the home this player is inside — set by PlayerManager. */
   getHomeVisit?: () => HomeView | undefined;
   getHomeLocation?: (house: PlayerHouse) => HomeLocation | undefined;
+  getWorldBosses?: () => ClientWorldBoss[];
 
   constructor(username: string, grids: WorldGrids, content: ContentStore, onQuestEvent?: (event: QuestEvent) => void) {
     this.username = username;
@@ -297,6 +329,7 @@ export class PlayerSession {
       equipment: this.character.equipment,
       items: this.content.getAllItems(),
       sets: this.content.getAllSets(),
+      socketedJewels: this.socketedJewels,
     });
   }
 
@@ -318,6 +351,7 @@ export class PlayerSession {
       gold: applyRestedBonus(baseRewards.gold, this.wellRestedUntil, now),
     };
     this.addLogEntry('Victory!', 'victory');
+    this.handleTutorialEvent({ type: 'battleWon' });
     if (this.awaySnapshot) this.awaySnapshot.battlesWon++;
 
     if (options?.unlockTiles !== false) {
@@ -328,15 +362,13 @@ export class PlayerSession {
     }
 
     if (rewards.gold > 0) {
-      addGold(this.character, rewards.gold);
+      this.grantGold(rewards.gold, 'combat');
       this.addLogEntry(`+${rewards.gold} Gold`, 'victory');
     }
 
     for (const itemId of rewards.items) {
-      const itemDef = this.content.getItem(itemId);
-      if (itemDef && this.receiveItems(itemId, 1).toInventory > 0) {
-        this.addLogEntry(`Found ${itemDef.name}!`, 'victory');
-      }
+      if (!this.content.getItem(itemId)) continue;
+      for (const id of this.receiveItems(itemId, 1).ids) this.addLogEntry(`Found ${this.content.getItem(id)?.name}!`, 'victory');
     }
 
     const { leveledUp, levelsGained } = addXp(this.character, rewards.xp);
@@ -364,6 +396,31 @@ export class PlayerSession {
   /** Returns true if this player has a character (has selected a class). */
   hasCharacter(): boolean {
     return this.character !== null;
+  }
+
+  private tutorialSteps() {
+    return orderedTutorialSteps(Object.values(this.content.getAllTutorialSteps()));
+  }
+
+  handleTutorialEvent(event: TutorialEvent): void {
+    const step = advanceTutorial(this.tutorialSteps(), this.tutorial, event);
+    if (step) this.addLogEntry(`Tutorial complete: ${step.title}`, 'unlock');
+  }
+
+  /** Called on each battle start; a room counts as travelled-to only when it differs from the last one seen. */
+  noteTutorialRoom(tileId: string): void {
+    const moved = this.lastTutorialTileId !== undefined && this.lastTutorialTileId !== tileId;
+    this.lastTutorialTileId = tileId;
+    this.handleTutorialEvent({ type: 'enterRoom', tileId, moved });
+  }
+
+  handleTutorialSkip(): void {
+    skipTutorial(this.tutorial);
+  }
+
+  resetTutorial(): void {
+    this.tutorial = newTutorialProgress();
+    this.lastTutorialTileId = undefined;
   }
 
   incrementBattleCount(): void {
@@ -470,7 +527,7 @@ export class PlayerSession {
 
     // Owned items (unequipped + equipped, deduped)
     const ownedIds = getOwnedItemIds(this.character.inventory, this.character.equipment, this.bags);
-    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound)]) {
+    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound), ...Object.values(this.socketedJewels).flat()]) {
       const def = this.content.getItem(itemId);
       if (def) defs[itemId] = def;
     }
@@ -621,7 +678,7 @@ export class PlayerSession {
     const allQuests = this.content.getAllQuests();
 
     // Recompute collect progress before exposing state
-    this.quests.recomputeCollect(allQuests, (itemId) => this.getInventoryCount(itemId));
+    this.quests.recomputeCollect(allQuests, (itemId) => this.getQuestItemCount(itemId));
 
     const npc = this.getCurrentNpc();
     const offeredQuestIds = npc?.questIds ?? [];
@@ -707,8 +764,8 @@ export class PlayerSession {
     const result = this.quests.turnIn(
       questId,
       this.content.getAllQuests(),
-      (itemId, count) => this.removeFromInventory(itemId, count),
-      (itemId) => this.getInventoryCount(itemId),
+      (itemId, count) => this.consumeQuestItems(itemId, count),
+      (itemId) => this.getQuestItemCount(itemId),
     );
     if (!result.success) return { success: false, error: result.error };
 
@@ -720,12 +777,11 @@ export class PlayerSession {
       if (reward.kind === 'xp') totalXp += reward.amount;
       else if (reward.kind === 'gold') totalGold += reward.amount;
       else if (reward.kind === 'item') {
-        const delivered = this.receiveItems(reward.itemId, reward.quantity).toInventory;
-        for (let i = 0; i < delivered; i++) grantedItems.push(reward.itemId);
+        grantedItems.push(...this.receiveItems(reward.itemId, reward.quantity).ids);
       }
     }
     if (totalGold > 0) {
-      addGold(this.character, totalGold);
+      this.grantGold(totalGold, 'quest');
       this.addLogEntry(`+${totalGold} Gold (quest reward)`, 'victory');
     }
     for (const itemId of grantedItems) {
@@ -744,6 +800,7 @@ export class PlayerSession {
       }
     }
     this.addLogEntry(`Completed quest: ${def.name}`, 'victory');
+    this.handleTutorialEvent({ type: 'questCompleted', questId });
     return { success: true };
   }
 
@@ -775,6 +832,7 @@ export class PlayerSession {
         bags: [...this.bags],
         inventoryCapacity: this.getInventoryCapacity(),
         lostAndFound: { ...this.lostAndFound },
+        socketedJewels: this.getSocketedJewels(),
       };
     }
 
@@ -815,6 +873,9 @@ export class PlayerSession {
       questResolutions: questBlock.questResolutions,
       dungeon: this.getDungeonState?.() ?? undefined,
       bank: this.getBankState(),
+      worldBosses: this.getWorldBosses?.(),
+      following: this.getFollowTarget?.() ?? undefined,
+      tutorial: buildClientTutorialState(this.tutorialSteps(), this.tutorial),
     };
   }
 
@@ -869,14 +930,17 @@ export class PlayerSession {
     if (this.craftQueue.jobs.length === 0) return false;
     const recipes = this.content.getAllRecipes();
     const items = this.content.getAllItems();
+    const deliveredIds: string[][] = [];
     const events = processCompletions(recipes, this.character.inventory, this.craftQueue, now, (itemId, quantity) => {
       const routing = this.receiveItems(itemId, quantity);
+      deliveredIds.push(routing.ids);
       return { produced: routing.toInventory + routing.toPouch, lost: routing.lost };
     });
     if (events.length === 0) return false;
     let totalCraftXp = 0;
-    for (const ev of events) {
-      const itemDef = items[ev.resultItemId];
+    for (const [i, ev] of events.entries()) {
+      const ids = deliveredIds[i] ?? [];
+      const itemDef = items[ids.length === 1 ? ids[0] : ev.resultItemId];
       const itemName = itemDef?.name ?? ev.resultItemId;
       if (ev.quantityProduced > 0) {
         const qtyStr = ev.quantityProduced > 1 ? `x${ev.quantityProduced}` : '';
@@ -908,6 +972,7 @@ export class PlayerSession {
       this.character.className,
       this.character.level,
       now,
+      this.content.getAllItems(),
     );
     if (!result.ok) return result;
     this.addLogEntry(`Started crafting ${recipe.name}.`, 'battle');
@@ -964,6 +1029,13 @@ export class PlayerSession {
     return m;
   }
 
+  /** Saved follow target — handed to FollowSystem once at session creation. */
+  consumeInitialFollowTarget(): string | null {
+    const t = this.initialFollowTarget;
+    this.initialFollowTarget = null;
+    return t;
+  }
+
   /** Notification inbox snapshot from save data — used once at startup to populate NotificationSystem. */
   consumeInitialNotifications(): NotificationEntry[] {
     const n = this.initialNotifications;
@@ -1017,6 +1089,29 @@ export class PlayerSession {
     return this.character.inventory[itemId] ?? 0;
   }
 
+  /** Backpack copies of a template, rolled copies included. Equipped and socketed items never count. */
+  getInventoryTemplateCount(templateId: string): number {
+    return this.character ? countByTemplate(this.character.inventory, templateId) : 0;
+  }
+
+  /** Backpack plus socketed jewels of a template: what quest "have item" checks see. */
+  getQuestItemCount(templateId: string): number {
+    const socketed = Object.values(this.socketedJewels).flat().filter(id => templateIdOf(id) === templateId).length;
+    return this.getInventoryTemplateCount(templateId) + socketed;
+  }
+
+  /** Spends backpack copies of a template (plain first, then lowest quality). Returns false, changing nothing, when short. */
+  consumeByTemplate(templateId: string, count: number): boolean {
+    return !!this.character && consumeByTemplate(this.character.inventory, templateId, count, this.content.getAllItems());
+  }
+
+  /** Quest hand-in: spends backpack copies; any shortfall must be covered by socketed jewels, which are kept. */
+  consumeQuestItems(templateId: string, count: number): boolean {
+    const fromBackpack = Math.min(count, this.getInventoryTemplateCount(templateId));
+    const socketed = this.getQuestItemCount(templateId) - this.getInventoryTemplateCount(templateId);
+    return count - fromBackpack <= socketed && this.consumeByTemplate(templateId, fromBackpack);
+  }
+
   /** Remove one item from the unequipped inventory. Returns false if item not present. */
   removeOneFromInventory(itemId: string): boolean {
     if (!this.character) return false;
@@ -1064,9 +1159,27 @@ export class PlayerSession {
   }
 
   /** Unattended delivery (loot, rewards, crafts): backpack, then Lost & Found, then lost. Logs pouch and lost copies. */
-  receiveItems(itemId: string, quantity: number): ItemRouting {
-    if (!this.character) return { toInventory: 0, toPouch: 0, lost: 0 };
-    const routing = routeIncomingItems(this.character.inventory, this.getInventoryCapacity(), this.lostAndFound, itemId, quantity);
+  receiveItems(itemId: string, quantity: number): ItemRouting & { ids: string[] } {
+    if (!this.character) return { toInventory: 0, toPouch: 0, lost: 0, ids: [] };
+    const template = this.content.getItem(itemId);
+    if (!template || !hasRollTable(template)) {
+      const routing = this.routeIncoming(itemId, quantity);
+      return { ...routing, ids: Array(routing.toInventory).fill(itemId) };
+    }
+    const total: ItemRouting & { ids: string[] } = { toInventory: 0, toPouch: 0, lost: 0, ids: [] };
+    for (let i = 0; i < quantity; i++) {
+      const rolledId = rollNewItemId(template);
+      const routing = this.routeIncoming(rolledId, 1);
+      if (routing.toInventory > 0) total.ids.push(rolledId);
+      total.toInventory += routing.toInventory;
+      total.toPouch += routing.toPouch;
+      total.lost += routing.lost;
+    }
+    return total;
+  }
+
+  private routeIncoming(itemId: string, quantity: number): ItemRouting {
+    const routing = routeIncomingItems(this.character!.inventory, this.getInventoryCapacity(), this.lostAndFound, itemId, quantity);
     const name = this.content.getItem(itemId)?.name ?? itemId;
     if (routing.toPouch > 0) {
       this.addLogEntry(`Your bags are full — ${routing.toPouch}× ${name} went to Lost & Found`, 'damage');
@@ -1098,6 +1211,35 @@ export class PlayerSession {
   }
 
   getBags(): BagSlots { return [...this.bags]; }
+  getSocketedJewels(): SocketedJewels {
+    return Object.fromEntries(Object.entries(this.socketedJewels).map(([slot, ids]) => [slot, [...ids]]));
+  }
+
+  handleSocketJewel(slot: unknown, itemId: unknown): SocketErrorCode | null {
+    if (!this.character) return 'socket_invalid_slot';
+    if (typeof slot !== 'string') return 'socket_invalid_slot';
+    if (typeof itemId !== 'string') return 'socket_not_a_jewel';
+    const result = socketJewel(this.character.inventory, this.character.equipment, this.socketedJewels, slot, itemId, this.content.getAllItems());
+    return result.ok ? null : result.error;
+  }
+
+  handleUnsocketJewel(slot: unknown, index: unknown): SocketErrorCode | null {
+    if (!this.character) return 'socket_invalid_slot';
+    if (typeof slot !== 'string') return 'socket_invalid_slot';
+    const jewelId = peekSocketedJewel(this.socketedJewels, slot, index as number);
+    if (!jewelId) return 'socket_invalid_index';
+    if (!this.fitsInventory({ [jewelId]: 1 })) return 'socket_inventory_full';
+    removeSocketedJewel(this.socketedJewels, slot, index as number);
+    this.character.inventory[jewelId] = (this.character.inventory[jewelId] ?? 0) + 1;
+    return null;
+  }
+
+  /** Sends jewels that lost their socket back to the player; overflow goes to Lost & Found, never destroyed. */
+  private reconcileSocketsAfterEquipmentChange(previousEquipment: Record<string, string | null>): void {
+    if (!this.character) return;
+    const removed = reconcileSockets(this.socketedJewels, previousEquipment, this.character.equipment, this.content.getAllItems());
+    for (const jewelId of removed) this.receiveItems(jewelId, 1);
+  }
   getLostAndFound(): Record<string, number> { return { ...this.lostAndFound }; }
 
   handleEquipBag(itemId: unknown, bagIndex: unknown): InventoryErrorCode | null {
@@ -1142,17 +1284,20 @@ export class PlayerSession {
   getGold(): number { return this.character?.gold ?? 0; }
 
   /** Deduct gold from the character. Returns false if insufficient gold. */
-  deductGold(amount: number): boolean {
+  deductGold(amount: number, source: GoldSource): boolean {
     if (!this.character) return false;
     if (this.character.gold < amount) return false;
     this.character.gold -= amount;
+    this.economy?.record(source, 0, amount);
     return true;
   }
 
-  /** Add gold to the character. */
-  grantGold(amount: number): void {
-    if (!this.character) return;
-    addGold(this.character, amount);
+  /** Add gold to the character. Returns what was actually added (capped at MAX_GOLD). */
+  grantGold(amount: number, source: GoldSource): number {
+    if (!this.character) return 0;
+    const added = addGold(this.character, amount);
+    this.economy?.record(source, added, 0);
+    return added;
   }
 
   /**
@@ -1188,6 +1333,24 @@ export class PlayerSession {
 
   /** All dungeon IDs this player has cleared (for persistence). */
   getClearedDungeons(): string[] { return [...this.clearedDungeons]; }
+
+  /** This player's cooldown against one spawn of a world boss, if any. */
+  getWorldBossCooldown(bossId: string, spawnedAt: number): WorldBossCooldown | undefined {
+    const cooldown = this.worldBossCooldowns[bossId];
+    return cooldown?.spawnedAt === spawnedAt ? cooldown : undefined;
+  }
+
+  isOnWorldBossCooldown(bossId: string, spawnedAt: number, now: number = Date.now()): boolean {
+    return (this.getWorldBossCooldown(bossId, spawnedAt)?.until ?? 0) > now;
+  }
+
+  /** A failed attempt: the cooldown grows with each attempt against the same spawn. */
+  recordWorldBossDefeat(def: WorldBossDefinition, spawnedAt: number, now: number = Date.now()): WorldBossCooldown {
+    const attempts = (this.getWorldBossCooldown(def.id, spawnedAt)?.attempts ?? 0) + 1;
+    const cooldown = { spawnedAt, attempts, until: now + worldBossCooldownMs(def, attempts) };
+    this.worldBossCooldowns[def.id] = cooldown;
+    return cooldown;
+  }
 
   /** Returns publicly visible profile data (no HP, damage, gold, inventory). */
   getPublicProfile(): { className: string; level: number; equipment: Record<string, string | null>; skillLoadout: SkillLoadout } | null {
@@ -1322,6 +1485,7 @@ export class PlayerSession {
       this.character = createCharacter(this.character.className, this.skillContent());
     }
     this.bags = normalizeBagSlots(undefined);
+    this.socketedJewels = {};
     this.lostAndFound = {};
     this.pendingLost = {};
     this.starterBagGranted = false;
@@ -1386,6 +1550,7 @@ export class PlayerSession {
         craftLevel: this.character.craftLevel,
         craftXp: this.character.craftXp,
         bags: [...this.bags],
+        socketedJewels: this.getSocketedJewels(),
       } : undefined,
       friends: [...this.friends],
       outgoingFriendRequests: [...this.outgoingFriendRequests],
@@ -1411,8 +1576,11 @@ export class PlayerSession {
       awaySnapshot: this.awaySnapshot ? { ...this.awaySnapshot, inventory: { ...this.awaySnapshot.inventory } } : undefined,
       house: this.house ? { ...this.house, storage: { ...this.house.storage }, displays: [...this.house.displays] } : undefined,
       wellRestedUntil: this.wellRestedUntil,
+      followTarget: (this.getFollowTarget ? this.getFollowTarget() : this.initialFollowTarget) ?? undefined,
       lostAndFound: { ...this.lostAndFound },
       starterBagGranted: this.starterBagGranted,
+      worldBossCooldowns: { ...this.worldBossCooldowns },
+      tutorial: { ...this.tutorial, completedStepIds: [...this.tutorial.completedStepIds] },
       bank: { tabs: this.bank.tabs.map(tab => ({ ...tab })) },
     };
   }
@@ -1515,6 +1683,7 @@ export class PlayerSession {
     session['chatSendChannel'] = (data.chatSendChannel as ChatChannelType) ?? 'zone';
     session['chatDmTarget'] = data.chatDmTarget ?? '';
     session['initialMailbox'] = data.mailbox ? [...data.mailbox] : [];
+    session['initialFollowTarget'] = data.followTarget ?? null;
     session['initialNotifications'] = data.notifications ? [...data.notifications] : [];
     session['notificationPreferences'] = data.notificationPreferences ?? emptyNotificationPreferences();
     session['pushSubscriptions'] = data.pushSubscriptions ? [...data.pushSubscriptions] : [];
@@ -1527,9 +1696,12 @@ export class PlayerSession {
       : null;
     session['wellRestedUntil'] = data.wellRestedUntil;
     session['bags'] = normalizeBagSlots(data.character?.bags);
+    session['socketedJewels'] = normalizeSocketedJewels(data.character?.socketedJewels);
     session['lostAndFound'] = { ...(data.lostAndFound ?? {}) };
     session['pendingLost'] = {};
     session['starterBagGranted'] = data.starterBagGranted ?? false;
+    session['worldBossCooldowns'] = { ...(data.worldBossCooldowns ?? {}) };
+    session['tutorial'] = restoreTutorialProgress(data.tutorial);
     session['bank'] = normalizeBank(data.bank);
 
     // Restore craft queue (lazy completion happens on next tick)
@@ -1544,6 +1716,7 @@ export class PlayerSession {
     // Add server-online log entry
     session['addLogEntry']('Server back online — resuming!', 'battle');
     session.grantStarterBagOnce();
+    if (session.character) session.reconcileSocketsAfterEquipmentChange(session.character.equipment);
 
     return session;
   }
@@ -1554,8 +1727,13 @@ export class PlayerSession {
     if (!def || !def.equipSlot) return false;
     if (this.equipOverflowsInventory(itemId)) return false;
 
+    const previous = { ...this.character.equipment };
     const result = equipItem(this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className);
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+      this.handleTutorialEvent({ type: 'equipItem' });
+    }
     return result.success;
   }
 
@@ -1596,10 +1774,10 @@ export class PlayerSession {
     );
   }
 
-  /** Check if the player has a specific item equipped in any slot. */
+  /** Check if the player has a specific item equipped in any slot; a template id also matches its rolled copies. */
   hasItemEquipped(itemId: string): boolean {
     if (!this.character) return false;
-    return inventoryHasItemEquipped(itemId, this.character.equipment);
+    return this.getEquippedItemIds().has(itemId);
   }
 
   /** Every item ID currently equipped — used to evaluate room entry gates. */
@@ -1628,15 +1806,19 @@ export class PlayerSession {
     const equippedInSlot = this.character.equipment[slot];
     if (equippedInSlot) {
       const lockedIds = this.getLockedItemIds();
-      if (lockedIds.includes(equippedInSlot)) return { success: false, lockedByTile: true };
+      if (lockedIds.includes(templateIdOf(equippedInSlot))) return { success: false, lockedByTile: true };
     }
 
     const items = this.content.getAllItems();
     const changes = this.simulateEquipment((inv, eq) => unequipItem(inv, eq, slot, items).success);
     if (changes && !this.fitsInventory(changes)) return { success: false, inventoryFull: true };
 
+    const previous = { ...this.character.equipment };
     const result = unequipItem(this.character.inventory, this.character.equipment, slot, items);
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+    }
     return { success: result.success };
   }
 
@@ -1691,10 +1873,15 @@ export class PlayerSession {
     if (!def || !def.equipSlot) return false;
     if (this.equipOverflowsInventory(itemId, true)) return false;
 
+    const previous = { ...this.character.equipment };
     const result = equipItemForceDestroy(
       this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className
     );
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+      this.handleTutorialEvent({ type: 'equipItem' });
+    }
     return result.success;
   }
 

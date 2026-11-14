@@ -49,6 +49,8 @@ export const ROOM_ICONS = {
   players: '👥',
 } as const;
 
+export const WORLD_BOSS_ICON = '👹';
+
 export const QUEST_READY_DETAIL = 'Quest ready to turn in';
 export const HIRE_DETAIL = 'Henchmen for hire';
 

@@ -1,19 +1,21 @@
 import fs from 'fs/promises';
+import { seedCatalog, collectionsForKinds, missingById } from './SeedImport.js';
+import type { SeedImportKind, SeedImportCounts, SeedCatalog } from './SeedImport.js';
 import path from 'path';
 import crypto from 'crypto';
 import type { MonsterDefinition, ItemDefinition, ZoneDefinition, WorldData, WorldTileDefinition, WorldMapMeta, EncounterDefinition, EncounterTableEntry, TileTypeDefinition } from '@idle-party-rpg/shared';
 import type { SetDefinition } from '@idle-party-rpg/shared';
 import type { ShopDefinition } from '@idle-party-rpg/shared';
 import { zoneMapConflict } from '@idle-party-rpg/shared';
-import type { HenchmanDefinition, HouseDefinition } from '@idle-party-rpg/shared';
+import type { HenchmanDefinition, HouseDefinition, WorldBossDefinition, TutorialStepDefinition } from '@idle-party-rpg/shared';
 import type { RecipeDefinition } from '@idle-party-rpg/shared';
 import type { NpcDefinition } from '@idle-party-rpg/shared';
 import type { QuestDefinition } from '@idle-party-rpg/shared';
 import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
-import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
-import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { SEED_MONSTERS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_TUTORIAL_STEPS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
+import { TileType, STARTER_BAG_ITEM, SEED_BANKER_SHOP, validateAttributes, validateBagItem, validateSocketItem, validateRollTable, resolveItem, withRolledItems, carryRollHistory, templateIdOf, ROLL_ID_SEPARATOR } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
 const MONSTERS_FILE = path.join(DATA_DIR, 'monsters.json');
@@ -25,18 +27,21 @@ const SETS_FILE = path.join(DATA_DIR, 'sets.json');
 const SHOPS_FILE = path.join(DATA_DIR, 'shops.json');
 const HENCHMEN_FILE = path.join(DATA_DIR, 'henchmen.json');
 const HOUSES_FILE = path.join(DATA_DIR, 'houses.json');
+const WORLD_BOSS_DEFS_FILE = path.join(DATA_DIR, 'world-boss-defs.json');
 const TILE_TYPES_FILE = path.join(DATA_DIR, 'tile-types.json');
 const RECIPES_FILE = path.join(DATA_DIR, 'recipes.json');
 const NPCS_FILE = path.join(DATA_DIR, 'npcs.json');
 const QUESTS_FILE = path.join(DATA_DIR, 'quests.json');
 const DUNGEONS_FILE = path.join(DATA_DIR, 'dungeons.json');
+const TUTORIAL_STEPS_FILE = path.join(DATA_DIR, 'tutorial-steps.json');
 const SKILLS_FILE = path.join(DATA_DIR, 'skills.json');
 const SKILL_SLOTS_FILE = path.join(DATA_DIR, 'skill-slots.json');
 const DESIGN_NOTES_FILE = path.join(DATA_DIR, 'design-notes.json');
 
 /** Shape checks for an authored item's attributes and bag fields. Returns an error message, or null. */
 export function validateItemDefinition(item: ItemDefinition): string | null {
-  return validateAttributes(item.attributes) ?? validateBagItem(item);
+  if (typeof item.id === 'string' && item.id.includes(ROLL_ID_SEPARATOR)) return `Item ids may not contain "${ROLL_ID_SEPARATOR}".`;
+  return validateAttributes(item.attributes) ?? validateBagItem(item) ?? validateSocketItem(item) ?? validateRollTable(item.rolls);
 }
 
 /** Set tiers grant whole attribute points; negatives are allowed, as on items. */
@@ -69,6 +74,8 @@ export class ContentStore {
   private shops = new Map<string, ShopDefinition>();
   private henchmen = new Map<string, HenchmanDefinition>();
   private houses = new Map<string, HouseDefinition>();
+  private worldBosses = new Map<string, WorldBossDefinition>();
+  private tutorialSteps = new Map<string, TutorialStepDefinition>();
   private tileTypes = new Map<string, TileTypeDefinition>();
   private recipes = new Map<string, RecipeDefinition>();
   private npcs = new Map<string, NpcDefinition>();
@@ -112,6 +119,8 @@ export class ContentStore {
     await fs.writeFile(SHOPS_FILE, JSON.stringify(Array.from(this.shops.values()), null, 2));
     await fs.writeFile(HENCHMEN_FILE, JSON.stringify(Array.from(this.henchmen.values()), null, 2));
     await fs.writeFile(HOUSES_FILE, JSON.stringify(Array.from(this.houses.values()), null, 2));
+    await fs.writeFile(WORLD_BOSS_DEFS_FILE, JSON.stringify(Array.from(this.worldBosses.values()), null, 2));
+    await fs.writeFile(TUTORIAL_STEPS_FILE, JSON.stringify(Array.from(this.tutorialSteps.values()), null, 2));
     await fs.writeFile(TILE_TYPES_FILE, JSON.stringify(Array.from(this.tileTypes.values()), null, 2));
     await fs.writeFile(RECIPES_FILE, JSON.stringify(Array.from(this.recipes.values()), null, 2));
     await fs.writeFile(NPCS_FILE, JSON.stringify(Array.from(this.npcs.values()), null, 2));
@@ -134,14 +143,19 @@ export class ContentStore {
     return result;
   }
 
+  /** Resolves rolled ids (`templateId~version~seed`) too. */
   getItem(id: string): ItemDefinition | undefined {
-    return this.items.get(id);
+    const direct = this.items.get(id);
+    if (direct) return direct;
+    const template = this.items.get(templateIdOf(id));
+    return template ? resolveItem(id, { [template.id]: template }) : undefined;
   }
 
+  /** Authored templates only when iterated; indexing by a rolled id resolves it. */
   getAllItems(): Record<string, ItemDefinition> {
     const result: Record<string, ItemDefinition> = {};
     for (const [id, def] of this.items) result[id] = def;
-    return result;
+    return withRolledItems(result);
   }
 
   getZone(id: string): ZoneDefinition | undefined {
@@ -202,6 +216,14 @@ export class ContentStore {
     const result: Record<string, HouseDefinition> = {};
     for (const [id, def] of this.houses) result[id] = def;
     return result;
+  }
+
+  getAllTutorialSteps(): Record<string, TutorialStepDefinition> {
+    return Object.fromEntries(this.tutorialSteps);
+  }
+
+  getAllWorldBosses(): Record<string, WorldBossDefinition> {
+    return Object.fromEntries(this.worldBosses);
   }
 
   getTileType(id: string): TileTypeDefinition | undefined {
@@ -431,7 +453,7 @@ export class ContentStore {
   async addOrUpdateItem(item: ItemDefinition): Promise<string | null> {
     const error = validateItemDefinition(item);
     if (error) return error;
-    this.items.set(item.id, item);
+    this.items.set(item.id, carryRollHistory(this.items.get(item.id), item));
     await this.save();
     return null;
   }
@@ -590,6 +612,48 @@ export class ContentStore {
       }
     }
     this.henchmen.delete(id);
+    await this.save();
+    return { success: true };
+  }
+
+  /** Adds seed entries (tutorial steps, items + recipes) whose ids are missing. Never overwrites. */
+  async importMissingSeed(kinds: readonly SeedImportKind[]): Promise<SeedImportCounts> {
+    const seed = seedCatalog();
+    const stores: Record<keyof SeedCatalog, Map<string, { id: string }>> = {
+      tutorialSteps: this.tutorialSteps, items: this.items, recipes: this.recipes,
+    };
+    const counts: SeedImportCounts = { tutorialSteps: 0, items: 0, recipes: 0 };
+    for (const key of collectionsForKinds(kinds)) {
+      const added = missingById(stores[key].keys(), seed[key]);
+      for (const e of added) stores[key].set(e.id, structuredClone(e));
+      counts[key] = added.length;
+    }
+    if (Object.values(counts).some(n => n > 0)) await this.save();
+    return counts;
+  }
+
+  // --- Tutorial step CRUD ---
+
+  async addOrUpdateTutorialStep(step: TutorialStepDefinition): Promise<void> {
+    this.tutorialSteps.set(step.id, step);
+    await this.save();
+  }
+
+  async deleteTutorialStep(id: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.tutorialSteps.delete(id)) return { success: false, error: 'Tutorial step not found.' };
+    await this.save();
+    return { success: true };
+  }
+
+  // --- World boss CRUD ---
+
+  async addOrUpdateWorldBoss(boss: WorldBossDefinition): Promise<void> {
+    this.worldBosses.set(boss.id, boss);
+    await this.save();
+  }
+
+  async deleteWorldBoss(id: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.worldBosses.delete(id)) return { success: false, error: 'World boss not found.' };
     await this.save();
     return { success: true };
   }
@@ -774,7 +838,7 @@ export class ContentStore {
   // --- Snapshot ---
 
   /** Export current live state as a ContentSnapshot. */
-  toSnapshot(): { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters: EncounterDefinition[]; sets: SetDefinition[]; shops: ShopDefinition[]; henchmen: HenchmanDefinition[]; houses: HouseDefinition[]; tileTypes: TileTypeDefinition[]; recipes: RecipeDefinition[]; npcs: NpcDefinition[]; quests: QuestDefinition[]; dungeons: DungeonDefinition[]; skills: SkillDefinition[]; skillSlotSchedules: { className: string; slots: SkillSlot[] }[]; designNotes: DesignNote[]; world: WorldData } {
+  toSnapshot(): { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters: EncounterDefinition[]; sets: SetDefinition[]; shops: ShopDefinition[]; henchmen: HenchmanDefinition[]; houses: HouseDefinition[]; worldBosses: WorldBossDefinition[]; tutorialSteps: TutorialStepDefinition[]; tileTypes: TileTypeDefinition[]; recipes: RecipeDefinition[]; npcs: NpcDefinition[]; quests: QuestDefinition[]; dungeons: DungeonDefinition[]; skills: SkillDefinition[]; skillSlotSchedules: { className: string; slots: SkillSlot[] }[]; designNotes: DesignNote[]; world: WorldData } {
     return {
       monsters: Array.from(this.monsters.values()),
       items: Array.from(this.items.values()),
@@ -784,6 +848,8 @@ export class ContentStore {
       shops: Array.from(this.shops.values()),
       henchmen: Array.from(this.henchmen.values()),
       houses: Array.from(this.houses.values()),
+      worldBosses: Array.from(this.worldBosses.values()),
+      tutorialSteps: Array.from(this.tutorialSteps.values()),
       tileTypes: Array.from(this.tileTypes.values()),
       recipes: Array.from(this.recipes.values()),
       npcs: Array.from(this.npcs.values()),
@@ -797,12 +863,13 @@ export class ContentStore {
   }
 
   /** Bulk-replace all content from a snapshot (used for deploy). */
-  async replaceAll(snapshot: { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters?: EncounterDefinition[]; sets?: SetDefinition[]; shops?: ShopDefinition[]; henchmen?: HenchmanDefinition[]; houses?: HouseDefinition[]; tileTypes?: TileTypeDefinition[]; recipes?: RecipeDefinition[]; npcs?: NpcDefinition[]; quests?: QuestDefinition[]; dungeons?: DungeonDefinition[]; skills?: SkillDefinition[]; skillSlotSchedules?: { className: string; slots: SkillSlot[] }[]; designNotes?: DesignNote[]; world: WorldData }): Promise<void> {
+  async replaceAll(snapshot: { monsters: MonsterDefinition[]; items: ItemDefinition[]; zones: ZoneDefinition[]; encounters?: EncounterDefinition[]; sets?: SetDefinition[]; shops?: ShopDefinition[]; henchmen?: HenchmanDefinition[]; houses?: HouseDefinition[]; worldBosses?: WorldBossDefinition[]; tutorialSteps?: TutorialStepDefinition[]; tileTypes?: TileTypeDefinition[]; recipes?: RecipeDefinition[]; npcs?: NpcDefinition[]; quests?: QuestDefinition[]; dungeons?: DungeonDefinition[]; skills?: SkillDefinition[]; skillSlotSchedules?: { className: string; slots: SkillSlot[] }[]; designNotes?: DesignNote[]; world: WorldData }): Promise<void> {
     this.monsters.clear();
     for (const m of snapshot.monsters) this.monsters.set(m.id, m);
 
+    const previousItems = new Map(this.items);
     this.items.clear();
-    for (const i of snapshot.items) this.items.set(i.id, i);
+    for (const i of snapshot.items) this.items.set(i.id, carryRollHistory(previousItems.get(i.id), i));
 
     this.zones.clear();
     for (const z of snapshot.zones) this.zones.set(z.id, z);
@@ -867,6 +934,18 @@ export class ContentStore {
       for (const h of snapshot.houses) this.houses.set(h.id, h);
     }
     // keep-when-absent: an absent `houses` key keeps live houses; `[]` clears them.
+
+    if (snapshot.worldBosses !== undefined) {
+      this.worldBosses.clear();
+      for (const b of snapshot.worldBosses) this.worldBosses.set(b.id, b);
+    }
+    // keep-when-absent: an absent `worldBosses` key keeps live world bosses; `[]` clears them.
+
+    if (snapshot.tutorialSteps !== undefined) {
+      this.tutorialSteps.clear();
+      for (const t of snapshot.tutorialSteps) this.tutorialSteps.set(t.id, t);
+    }
+    // keep-when-absent: an absent `tutorialSteps` key keeps live steps; `[]` clears them.
 
     if (snapshot.skillSlotSchedules !== undefined) {
       this.skillSlotSchedules.clear();
@@ -977,6 +1056,20 @@ export class ContentStore {
           for (const h of Object.values(SEED_HOUSES)) this.houses.set(h.id, h);
           housesSeeded = true;
         }
+      }
+
+      try {
+        const bossesArr: WorldBossDefinition[] = JSON.parse(await fs.readFile(WORLD_BOSS_DEFS_FILE, 'utf-8'));
+        for (const b of bossesArr) this.worldBosses.set(b.id, b);
+      } catch {
+        // No world bosses yet; admins author them.
+      }
+
+      try {
+        const stepsArr: TutorialStepDefinition[] = JSON.parse(await fs.readFile(TUTORIAL_STEPS_FILE, 'utf-8'));
+        for (const t of stepsArr) this.tutorialSteps.set(t.id, t);
+      } catch {
+        // No tutorial yet; existing worlds stay ungated until admins author steps.
       }
 
       let tileTypesSeeded = false;
@@ -1209,7 +1302,7 @@ export class ContentStore {
     }
 
     // Items
-    for (const i of [...Object.values(SEED_ITEMS), STARTER_BAG_ITEM, ...SEED_BAG_ITEMS]) {
+    for (const i of seedCatalog().items) {
       this.items.set(i.id, { ...i });
     }
 
@@ -1257,6 +1350,8 @@ export class ContentStore {
     for (const d of Object.values(SEED_DUNGEONS)) {
       this.dungeons.set(d.id, d);
     }
+
+    for (const t of SEED_TUTORIAL_STEPS) this.tutorialSteps.set(t.id, { ...t });
 
     // Skills + per-class slot schedules
     for (const s of Object.values(SEED_SKILLS)) {

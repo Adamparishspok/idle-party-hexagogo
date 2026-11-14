@@ -39,6 +39,10 @@ const sharedComponents = {
             stamina: { type: 'integer' },
           },
         },
+        sockets: { type: 'integer', minimum: 0, maximum: 3, description: 'Jewel sockets on an equippable item.' },
+        jewel: { type: 'boolean', description: 'Marks a socketable jewel (no equipSlot, bagSlots or sockets).' },
+        rolls: { type: 'object', description: 'Random stat ranges {version, stats: {statKey: {min, max}}}. Looted/crafted/rewarded copies get a rolled id templateId~version~seed. The store versions and archives tables.' },
+        rollHistory: { type: 'array', items: { type: 'object' }, description: 'Prior roll tables, maintained by the store so existing rolled items keep their stats.' },
         bagSlots: { type: 'integer', minimum: 1, maximum: 24, description: 'Makes the item a bag (no equipSlot): extra backpack slots while in a bag slot.' },
       },
     },
@@ -335,10 +339,13 @@ export const adminSwaggerSpec = {
     { name: 'Items', description: 'Item definition CRUD' },
     { name: 'Monsters', description: 'Monster definition CRUD' },
     { name: 'Zones', description: 'Zone definition CRUD' },
+    { name: 'World Bosses', description: 'World boss definition CRUD. Live HP and schedule are runtime state, not content.' },
+    { name: 'Tutorial', description: 'New-player tutorial step CRUD. Steps gate nav tabs until completed.' },
     { name: 'Houses', description: 'Player house definition CRUD. Shops sell houses through ShopDefinition.houseIds.' },
     { name: 'Skills', description: 'Skill definition CRUD and per-class slot schedules' },
     { name: 'World', description: 'World map tile CRUD' },
     { name: 'Assets', description: 'Game imagery — kind registry, coverage audit, and PNG upload/delete. The `set` kind exists in the game but is not managed here yet; GET /api/admin/assets lists them under `deferred` with the reason. Assets are live and unversioned: they are not part of ContentSnapshot, so uploads bypass the draft/publish/deploy flow and take effect immediately.' },
+    { name: 'Simulator', description: 'Headless balance simulation on the real combat engine. Uses live content; touches no player, party, world boss, ledger or save.' },
     { name: 'Versions', description: 'Content versioning' },
     { name: 'Players', description: 'Player management' },
   ],
@@ -359,6 +366,32 @@ export const adminSwaggerSpec = {
                 totalConnections: { type: 'number' },
                 totalAccounts: { type: 'number' },
                 uptime: { type: 'number' },
+              },
+            } } },
+          },
+        },
+      },
+    },
+    '/api/admin/economy': {
+      get: {
+        tags: ['Overview'],
+        summary: 'Gold earned and spent per source',
+        description: 'UTC-day totals aggregated over the last `days` days (1-90, today included).',
+        parameters: [{ name: 'days', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 90, default: 1 } }],
+        responses: {
+          200: {
+            description: 'Totals per source',
+            content: { 'application/json': { schema: {
+              type: 'object',
+              properties: {
+                days: { type: 'number' },
+                sources: {
+                  type: 'object',
+                  additionalProperties: {
+                    type: 'object',
+                    properties: { earned: { type: 'number' }, spent: { type: 'number' } },
+                  },
+                },
               },
             } } },
           },
@@ -643,6 +676,148 @@ export const adminSwaggerSpec = {
         responses: {
           200: { description: 'Zone deleted, returns all zones' },
           400: { description: 'Zone referenced by a tile or not found' },
+        },
+      },
+    },
+
+    // ── Simulator ──
+    '/api/admin/simulator/parties': {
+      get: {
+        tags: ['Simulator'],
+        summary: 'Loaded player parties available to copy',
+        responses: { 200: { description: 'Parties with member class/level, plus the party-size and battle-count caps' } },
+      },
+    },
+    '/api/admin/simulator/run': {
+      post: {
+        tags: ['Simulator'],
+        summary: 'Start a simulation of N battles of a party against an opponent',
+        description: 'Returns once the run has started; poll `GET /simulator/status` and stop it with `POST /simulator/cancel`. One run at a time (429 otherwise). Optional `versionId` simulates a draft\'s content instead of live. `party` is either `{ copyFrom: username }` (that player\'s party as it is now, henchmen included) or `{ members: [{ className, level, equipment: { slot: itemId }, skillIds?, gridPosition? }], henchmanIds? }` (skills auto-fill from the class tree when omitted). `opponent.type` is `encounter`, `zone` (its encounter pool), `dungeon` (a full run) or `worldBoss` (one attempt from full HP). `battles` is capped at 1000; a fixed `seed` reproduces the run.',
+        requestBody: { required: true, content: { 'application/json': { schema: {
+          type: 'object',
+          required: ['party', 'opponent', 'battles'],
+          properties: {
+            party: { type: 'object' },
+            opponent: { type: 'object', properties: { type: { type: 'string', enum: ['encounter', 'zone', 'dungeon', 'worldBoss'] }, id: { type: 'string' } } },
+            battles: { type: 'integer', minimum: 1, maximum: 1000 },
+            seed: { type: 'integer' },
+            versionId: { type: 'string' },
+          },
+        } } } },
+        responses: {
+          200: { description: 'Run started, returns { total }' },
+          400: { description: 'Invalid party, opponent or battle count' },
+          429: { description: 'A simulation is already running' },
+        },
+      },
+    },
+
+    '/api/admin/simulator/status': {
+      get: {
+        tags: ['Simulator'],
+        summary: 'Progress of the current or last simulation',
+        responses: { 200: { description: '{ state: idle|running|done|cancelled|error, completed, total, report?, error? }. The report has win rate, ticks, deaths, per-member damage, XP, gold and item drops per hour, and world boss damage when relevant' } },
+      },
+    },
+    '/api/admin/simulator/cancel': {
+      post: {
+        tags: ['Simulator'],
+        summary: 'Cancel the running simulation',
+        responses: { 200: { description: 'Cancel requested' } },
+      },
+    },
+
+    '/api/admin/import-seed-defaults': {
+      post: {
+        tags: ['Content'],
+        summary: 'Add seed defaults missing by id (never overwrites)',
+        parameters: [{ name: 'versionId', in: 'query', required: false, schema: { type: 'string' } }],
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object', properties: { kinds: { type: 'array', items: { type: 'string', enum: ['tutorial', 'items'] } } } } } },
+        },
+        responses: { 200: { description: 'Counts of added entries per kind' }, 400: { description: 'Unknown kind or published version' } },
+      },
+    },
+    '/api/admin/players/{username}/tutorial': {
+      post: {
+        tags: ['Players'],
+        summary: "Reset or complete a loaded player's tutorial",
+        parameters: [{ name: 'username', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object', properties: { action: { type: 'string', enum: ['reset', 'complete'] } }, required: ['action'] } } },
+        },
+        responses: { 200: { description: 'Tutorial updated' }, 404: { description: 'Player session not loaded' } },
+      },
+    },
+
+    // ── World bosses ──
+    '/api/admin/world-bosses': {
+      get: {
+        tags: ['World Bosses'],
+        summary: 'List all world bosses',
+        responses: { 200: { description: 'All world boss definitions keyed by ID' } },
+      },
+    },
+    '/api/admin/world-bosses/{id}': {
+      put: {
+        tags: ['World Bosses'],
+        summary: 'Add or update a world boss',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+        responses: {
+          200: { description: 'World boss saved, returns all world bosses' },
+          400: { description: 'Invalid world boss definition' },
+        },
+      },
+      delete: {
+        tags: ['World Bosses'],
+        summary: 'Delete a world boss',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'World boss deleted, returns all world bosses' },
+          400: { description: 'World boss not found' },
+        },
+      },
+    },
+
+    // ── Tutorial steps ──
+    '/api/admin/tutorial-steps': {
+      get: {
+        tags: ['Tutorial'],
+        summary: 'List all tutorial steps',
+        responses: { 200: { description: 'All tutorial step definitions keyed by ID' } },
+      },
+    },
+    '/api/admin/tutorial-steps/{id}': {
+      put: {
+        tags: ['Tutorial'],
+        summary: 'Add or update a tutorial step',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+        responses: {
+          200: { description: 'Step saved, returns all steps' },
+          400: { description: 'Invalid tutorial step' },
+        },
+      },
+      delete: {
+        tags: ['Tutorial'],
+        summary: 'Delete a tutorial step',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Step deleted, returns all steps' },
+          400: { description: 'Step not found' },
         },
       },
     },

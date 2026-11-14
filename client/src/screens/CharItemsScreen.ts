@@ -16,6 +16,7 @@ import {
   getOwnedItemIds,
   getEquippedItemIds,
   isBag,
+  socketCapacity,
 } from '@idle-party-rpg/shared';
 import type { Screen } from './ScreenManager';
 import type { WorldCache } from '../network/WorldCache';
@@ -28,6 +29,7 @@ import {
 } from '../ui/ItemIcon';
 import { renderItemDetail } from '../ui/ItemPopup';
 import { GearPicker } from '../ui/GearPicker';
+import { renderSocketsSection, handleSocketAction } from '../ui/SocketsSection';
 import { BagPanel } from '../ui/BagPanel';
 import { renderStatsSheet } from '../ui/StatsSheet';
 import { bagBarModel, currentDerivedStats, derivedInputFromState, isKnownClass } from '../ui/GearModel';
@@ -994,9 +996,13 @@ export class CharItemsScreen implements Screen {
     // Destroy is the secondary action — red, but a size down from Equip.
     actionsHtml += `<button type="button" class="gc-btn gc-btn--red${def.equipSlot || isBag(def) ? '' : ' gc-btn--lg'} ci-act-destroy" data-item="${escapeHtml(itemId)}" data-max="${count}">Destroy</button>`;
 
-    let extraHtml = '';
+    const wornSlot = Object.keys(this.lastEquipment).find(s => this.lastEquipment[s] === itemId && socketCapacity(this.lastEquipment, s, this.itemDefs) > 0);
+    const state = this.gameClient.lastState;
+    let extraHtml = wornSlot && state
+      ? renderSocketsSection(state, wornSlot, { level: state.character?.level, className: isKnownClass(this.lastClassName) ? this.lastClassName : null, skills: this.worldCache.getSkillContent().skills })
+      : '';
     if (def.equipSlot && this.lastEquipment[def.equipSlot] !== itemId) {
-      extraHtml = this.buildEquipCompareBlock(def);
+      extraHtml += this.buildEquipCompareBlock(def);
     }
     if (isBag(def) && (this.gameClient.lastState?.character?.bags ?? []).indexOf(null) < 0) {
       extraHtml += '<p class="ci-owned">All bag slots are in use. Tap a bag slot under your backpack to swap.</p>';
@@ -1018,6 +1024,11 @@ export class CharItemsScreen implements Screen {
         extraHtml,
       }),
       actionsHtml,
+    });
+
+    modal.querySelector('.gp-sockets')?.addEventListener('click', (e) => {
+      const action = (e.target as HTMLElement).closest<HTMLElement>('[data-gp-action]');
+      if (wornSlot && handleSocketAction(action, wornSlot, this.gameClient)) this.hideModal();
     });
 
     const equipBagBtn = modal.querySelector('.ci-act-equip-bag') as HTMLButtonElement | null;

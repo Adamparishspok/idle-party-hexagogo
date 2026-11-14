@@ -217,7 +217,7 @@ describe('PlayerManager welcome-back delivery', () => {
 
     const session = pm.getSessionByUsername('alice')!;
     session.incrementBattleCount();
-    session.grantGold(30);
+    session.grantGold(30, 'combat');
 
     const tabA = createWs();
     const tabB = createWs();

@@ -29,14 +29,17 @@ import { AssetStore } from './game/AssetStore.js';
 import swaggerUi from 'swagger-ui-express';
 import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
+import { FOLLOW_ERROR_CODE } from './game/social/FollowSystem.js';
 import type { ClassName, ClientBankMessage, ClientHousingMessage, ClientInventoryMessage, InventoryErrorCode, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
 import { HOUSING_MESSAGE_TYPES } from './game/housing/HousingService.js';
-import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES } from './game/InventoryErrors.js';
+import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES, SOCKET_ERROR_MESSAGES, SOCKET_MESSAGE_TYPES } from './game/InventoryErrors.js';
 import { BANK_MESSAGE_TYPES } from './game/bank/BankService.js';
-import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
+import { GAME_VERSION, ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
 import { getVapidPublicKey } from './game/social/BrowserPushNotificationDriver.js';
 import { isEmailConfigured } from './auth/EmailService.js';
+import { resolveAdminRole } from './auth/AdminRoles.js';
+import { MaintenanceMode, JsonMaintenanceStore, versionMismatch } from './game/MaintenanceMode.js';
 
 /**
  * Render an unmet room entry requirement as the wire message. Item gates keep
@@ -66,6 +69,7 @@ const tokenStore = new TokenStore();
 const inviteListStore = new InviteListStore();
 const apiTokenStore = new ApiTokenStore();
 const assetStore = new AssetStore();
+const maintenance = new MaintenanceMode(new JsonMaintenanceStore());
 const gameLoop = new GameLoop(store);
 // playerManager is set during init(), use gameLoop.playerManager after init
 let playerManager: typeof gameLoop.playerManager;
@@ -191,7 +195,15 @@ app.get('/api/notifications/email-configured', requireAuth, (_req, res) => {
   res.json({ configured: isEmailConfigured() });
 });
 
+// Public so the offline screen can show the notice without a game connection
+app.get('/api/maintenance', (_req, res) => {
+  const { enabled, message, eta } = maintenance.get();
+  res.json({ enabled, message, eta });
+});
+
 app.use('/api/admin', createAdminRoutes({
+  maintenance,
+  onMaintenanceChange: ejectNonAdmins,
   playerManager: () => playerManager,
   accountStore,
   inviteListStore,
@@ -258,6 +270,23 @@ function getSessionUsername(req: IncomingMessage): Promise<string | null> {
   });
 }
 
+const MAINTENANCE_CLOSE_CODE = 4503;
+
+function isAdminUser(username: string): boolean {
+  return resolveAdminRole(accountStore.findByUsername(username)?.email, accountStore) !== null;
+}
+
+/** Switch every connected non-admin to the maintenance screen; admins keep playing. */
+function ejectNonAdmins(): void {
+  for (const ws of wss.clients) {
+    const username: string | undefined = (ws as any)._username;
+    const refusal = username ? maintenance.gate(isAdminUser(username)) : null;
+    if (!refusal) continue;
+    ws.send(JSON.stringify(refusal));
+    ws.close(MAINTENANCE_CLOSE_CODE, 'Maintenance');
+  }
+}
+
 server.on('upgrade', async (req, socket, head) => {
   const username = await getSessionUsername(req);
 
@@ -275,8 +304,16 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
 
+  const refusal = maintenance.gate(isAdminUser(username));
+
   wss.handleUpgrade(req, socket, head, (ws) => {
+    if (refusal) {
+      ws.send(JSON.stringify(refusal));
+      ws.close(MAINTENANCE_CLOSE_CODE, 'Maintenance');
+      return;
+    }
     (ws as any)._username = username;
+    (ws as any)._clientVersion = new URL(req.url ?? '/', 'http://localhost').searchParams.get('v');
     wss.emit('connection', ws, req);
   });
 });
@@ -301,6 +338,9 @@ function syncFriendState(a: string, b: string): void {
 wss.on('connection', (ws) => {
   const username: string = (ws as any)._username;
   console.log(`WebSocket connected for "${username}"`);
+
+  const mismatch = versionMismatch((ws as any)._clientVersion, GAME_VERSION);
+  if (mismatch) ws.send(JSON.stringify(mismatch));
 
   // Register the connection and send initial state
   playerManager.login(ws, username).then(() => {
@@ -350,13 +390,26 @@ wss.on('connection', (ws) => {
         }
 
         const moveResult = playerManager.partyBattles.handleMove(partyId, msg.col, msg.row);
-        if (!moveResult.success) {
+        if (moveResult.success) {
+          playerManager.stopFollowingForParty(partyId);
+        } else {
           if (moveResult.blocked) {
             ws.send(JSON.stringify(toMoveBlockedMessage(moveResult.blocked)));
           } else {
             ws.send(JSON.stringify({ type: 'error', message: 'Invalid move' }));
           }
         }
+        return;
+      }
+
+      if (msg.type === 'follow_player' && typeof msg.username === 'string') {
+        const error = playerManager.follow.start(username, msg.username);
+        if (error) ws.send(JSON.stringify({ type: 'error', message: error, code: FOLLOW_ERROR_CODE }));
+        return;
+      }
+
+      if (msg.type === 'stop_following') {
+        playerManager.follow.stop(username);
         return;
       }
 
@@ -414,6 +467,8 @@ wss.on('connection', (ws) => {
         const error = playerManager.handleEnterDungeon(username, msg.col, msg.row, msg.dungeonId);
         if (error) {
           ws.send(JSON.stringify({ type: 'error', message: error }));
+        } else {
+          playerManager.stopFollowingForParty(partyId);
         }
         return;
       }
@@ -442,7 +497,9 @@ wss.on('connection', (ws) => {
         }
 
         const transitionResult = playerManager.handleEnterTransition(username, msg.tileId);
-        if (!transitionResult.success) {
+        if (transitionResult.success) {
+          playerManager.stopFollowingForParty(partyId);
+        } else {
           // An unmet gate reuses move_blocked so it surfaces in the same toast
           // as a blocked move; structural failures stay on the error channel.
           if (transitionResult.blocked) {
@@ -644,6 +701,20 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      if (SOCKET_MESSAGE_TYPES.has(msg.type)) {
+        const session = playerManager.getSessionByUsername(username);
+        if (!session) {
+          ws.send(JSON.stringify({ type: 'error', message: 'No session' }));
+          return;
+        }
+        const error = msg.type === 'socket_jewel'
+          ? session.handleSocketJewel(msg.slot, msg.itemId)
+          : session.handleUnsocketJewel(msg.slot, msg.index);
+        if (error) ws.send(JSON.stringify({ type: 'error', message: SOCKET_ERROR_MESSAGES[error], code: error }));
+        playerManager.sendStateToPlayer(username);
+        return;
+      }
+
       // --- Shop messages ---
 
       if (msg.type === 'shop_buy' && typeof msg.itemId === 'string') {
@@ -678,7 +749,7 @@ wss.on('connection', (ws) => {
         }
 
         // Deduct gold (item already added above)
-        session.deductGold(shopItem.price);
+        session.deductGold(shopItem.price, 'shop_buy');
 
         const itemDef = gameLoop.contentStore.getItem(msg.itemId);
         session.addLogEntry(`Bought ${itemDef?.name ?? msg.itemId} for ${shopItem.price} gold`, 'victory');
@@ -719,7 +790,7 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'error', message: 'Failed to remove items' }));
           return;
         }
-        session.grantGold(sellValue);
+        session.grantGold(sellValue, 'shop_sell');
 
         const itemName = quantity > 1 ? `${itemDef.name} x${quantity}` : itemDef.name;
         session.addLogEntry(`Sold ${itemName} for ${sellValue} gold`, 'victory');
@@ -810,6 +881,18 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'error', message: result.error ?? 'Cannot turn in quest' }));
           return;
         }
+        playerManager.sendStateToPlayer(username);
+        return;
+      }
+
+      if (msg.type === 'tutorial_open_screen' && typeof msg.screen === 'string') {
+        playerManager.getSessionByUsername(username)?.handleTutorialEvent({ type: 'openScreen', screen: msg.screen });
+        playerManager.sendStateToPlayer(username);
+        return;
+      }
+
+      if (msg.type === 'tutorial_skip') {
+        playerManager.getSessionByUsername(username)?.handleTutorialSkip();
         playerManager.sendStateToPlayer(username);
         return;
       }
@@ -1902,6 +1985,7 @@ async function start() {
   console.log(`[Startup] AccountStore loaded in ${(performance.now() - t0).toFixed(1)}ms`);
 
   await inviteListStore.load();
+  await maintenance.load();
   await apiTokenStore.load();
 
   tokenStore.start();

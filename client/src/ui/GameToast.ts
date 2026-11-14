@@ -53,6 +53,12 @@ export function showGameToast(message: string): HTMLElement {
   return toast;
 }
 
+export function installFollowToasts(gameClient: GameClient): () => void {
+  return gameClient.onServerError((message, code) => {
+    if (code === 'follow_stopped') showGameToast(message);
+  });
+}
+
 /** Toasts bag, Lost & Found and bank refusals. `claimedElsewhere` lets an open screen show the error inline instead. */
 export function installGearErrorToasts(gameClient: GameClient, claimedElsewhere: (code: string) => boolean = () => false): () => void {
   return gameClient.onServerError((message, code) => {

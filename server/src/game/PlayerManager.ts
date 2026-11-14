@@ -1,7 +1,9 @@
+import { EconomyLedger } from './EconomyLedger.js';
 import { randomUUID } from 'crypto';
 import { WebSocket } from 'ws';
-import { offsetToCube, cubeDistance, cubeToKey } from '@idle-party-rpg/shared';
-import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition } from '@idle-party-rpg/shared';
+import { offsetToCube, cubeDistance, cubeToKey, rewardAppliesToClass, rollDungeonRewards } from '@idle-party-rpg/shared';
+import type { HexGrid, HexTile, OtherPlayerState, ClientSocialState, ChatMessage, PartyGridPosition, PartyRole, ClassName, HiredHenchman, NotificationEntry, RoomEntryFailure, WorldTileDefinition, VisiblePlayers, WorldBossDefinition } from '@idle-party-rpg/shared';
+import { selectVisiblePlayers } from '@idle-party-rpg/shared';
 import { PlayerSession } from './PlayerSession.js';
 import type { WorldGrids } from './WorldGrids.js';
 import type { GameStateStore, PlayerSaveData } from './GameStateStore.js';
@@ -20,6 +22,8 @@ import { EmailNotificationDriver } from './social/EmailNotificationDriver.js';
 import { PartyBattleManager } from './PartyBattleManager.js';
 import { HousingService } from './housing/HousingService.js';
 import { BankService } from './bank/BankService.js';
+import { WorldBossSystem } from './WorldBossSystem.js';
+import { FollowSystem, FOLLOW_ERROR_CODE } from './social/FollowSystem.js';
 import type { ContentStore } from './ContentStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 
@@ -42,6 +46,9 @@ export class PlayerManager {
   readonly partyBattles: PartyBattleManager;
   readonly housing: HousingService;
   readonly bank: BankService;
+  readonly economy = new EconomyLedger();
+  readonly worldBosses: WorldBossSystem;
+  readonly follow: FollowSystem;
   private getAllUsernames: () => string[];
   private readonly serverVersion = Date.now().toString();
 
@@ -77,6 +84,7 @@ export class PlayerManager {
       (members) => {
         this.cancelInvitesOnMove(members);
         this.housing.onMembersMoved(members);
+        this.follow.onPartyMoved(members);
       },
     );
     this.partyBattles.setHenchmenCallbacks(
@@ -94,10 +102,61 @@ export class PlayerManager {
       pushState: (username) => this.sendStateToPlayer(username),
       notify: (username, eventKey, message) => this.notify.notify(username, eventKey, message),
     });
+    this.follow = new FollowSystem({
+      isOnline: (username) => (this.playerConnections.get(username)?.size ?? 0) > 0,
+      canMoveParty: (username) => {
+        const partyId = this.sessions.get(username)?.getPartyId();
+        const role = partyId ? this.parties.getParty(partyId)?.members.find(m => m.username === username)?.role : undefined;
+        return role !== undefined && canMove(role);
+      },
+      location: (username) => {
+        const session = this.sessions.get(username);
+        const partyId = session?.getPartyId();
+        const position = partyId ? this.partyBattles.getPosition(partyId) : null;
+        const mapId = partyId ? this.partyBattles.getMapId(partyId) : null;
+        if (!session || !partyId || !position || !mapId) return null;
+        const sealed = this.partyBattles.getDungeonRunInfo(partyId) !== null || this.housing.getHomeView(username) !== undefined;
+        return { partyId, mapId, col: position.col, row: position.row, sealed };
+      },
+      isDiscovered: (follower, target) => {
+        const partyId = this.sessions.get(target)?.getPartyId();
+        const tile = partyId ? this.partyBattles.getTile(partyId) : null;
+        return !!tile && !!this.sessions.get(follower)?.isTileUnlocked(tile);
+      },
+      moveParty: (partyId, col, row) => this.partyBattles.handleMove(partyId, col, row, true),
+      tell: (username, message) => this.sendErrorToPlayer(username, message, FOLLOW_ERROR_CODE),
+      pushState: (username) => this.sendStateToPlayer(username),
+    });
     this.bank = new BankService({
       getSession: (username) => this.sessions.get(username),
       pushState: (username) => this.sendStateToPlayer(username),
     });
+    this.worldBosses = new WorldBossSystem({
+      getDefinitions: () => content.getAllWorldBosses(),
+      getMonster: (id) => content.getMonster(id),
+      reward: (username, def, share) => this.rewardWorldBoss(username, def, share),
+      onChanged: () => { for (const username of this.getOnlinePlayers()) this.sendStateToPlayer(username); },
+    });
+    this.partyBattles.setWorldBosses(this.worldBosses);
+  }
+
+  /** Pays offline contributors too: every session stays in memory. */
+  private rewardWorldBoss(username: string, def: WorldBossDefinition, share: number): void {
+    const session = this.sessions.get(username);
+    if (!session) return;
+    const xp = Math.round(def.rewardXp * share);
+    const gold = Math.round(def.rewardGold * share);
+    session.addLogEntry(`${def.name} defeated! Your share: ${xp} XP, ${gold} gold.`, 'victory');
+    session.grantXp(xp);
+    session.grantGold(gold, 'world_boss');
+    const className = session.getClassName();
+    for (const { itemId, quantity } of rollDungeonRewards((def.rewardItems ?? []).filter(r => rewardAppliesToClass(r, className)))) {
+      const item = this.content.getItem(itemId);
+      if (!item) continue;
+      for (const id of session.receiveItems(itemId, quantity).ids) session.addLogEntry(`${def.name}: ${this.content.getItem(id)?.name}!`, 'victory');
+    }
+    const lost = session.consumeLostItems();
+    if (Object.keys(lost).length > 0) this.notifyItemsLost(username, lost);
   }
 
   notifyItemsLost(username: string, lost: Record<string, number>): void {
@@ -150,12 +209,14 @@ export class PlayerManager {
       } else {
         session = new PlayerSession(username, this.grids, this.content);
       }
+      session.economy = this.economy;
       this.sessions.set(username, session);
       this.friends.initPlayer(username, session.getFriends(), session.getOutgoingFriendRequests());
       const initialMailbox = session.consumeInitialMailbox();
       if (initialMailbox.length > 0) this.mailboxes.setMailbox(username, initialMailbox);
       const initialNotifications = session.consumeInitialNotifications();
       if (initialNotifications.length > 0) this.notifications.setInbox(username, initialNotifications);
+      this.follow.restore(username, session.consumeInitialFollowTarget());
       this.wireCallbacks(session);
       if (session.hasCharacter()) {
         this.ensureParty(username);
@@ -182,6 +243,7 @@ export class PlayerManager {
         // Trades are async — they persist across disconnect. Nothing to cancel here.
         this.sessions.get(username)?.captureAwaySnapshot(now);
         this.housing.handleDisconnect(username, now);
+        this.follow.stopFollowing(username);
       }
     }
 
@@ -258,6 +320,7 @@ export class PlayerManager {
 
     // Remove from friends system
     this.friends.removePlayer(username);
+    this.follow.forget(username);
 
     // Remove session from memory (stops battles, removes from map/player lists)
     this.sessions.delete(username);
@@ -295,6 +358,7 @@ export class PlayerManager {
     if (!session) return false;
 
     this.housing.handleDisconnect(oldUsername);
+    this.follow.rename(oldUsername, newUsername);
     this.sessions.delete(oldUsername);
     session.username = newUsername;
     this.sessions.set(newUsername, session);
@@ -393,8 +457,8 @@ export class PlayerManager {
     const session = this.sessions.get(username);
     if (!session) return;
 
-    const otherPlayers = this.getOtherPlayers(username);
-    const state = JSON.stringify({ type: 'state' as const, ...session.getState(otherPlayers), serverVersion: this.serverVersion });
+    const visible = this.getVisibleOtherPlayers(username);
+    const state = JSON.stringify({ type: 'state' as const, ...session.getState(visible.visible), hiddenPlayersByRoom: visible.hiddenByRoom, serverVersion: this.serverVersion });
 
     for (const ws of wsSet) {
       if (ws.readyState === WebSocket.OPEN) {
@@ -404,10 +468,10 @@ export class PlayerManager {
   }
 
   /** Send an error message to all connections for a specific player. */
-  sendErrorToPlayer(username: string, message: string): void {
+  sendErrorToPlayer(username: string, message: string, code?: string): void {
     const wsSet = this.playerConnections.get(username);
     if (!wsSet || wsSet.size === 0) return;
-    const payload = JSON.stringify({ type: 'error', message });
+    const payload = JSON.stringify({ type: 'error', message, code });
     for (const ws of wsSet) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
@@ -495,6 +559,7 @@ export class PlayerManager {
   /** Wire all callbacks onto a session (social state, battle state, position). */
   private wireCallbacks(session: PlayerSession): void {
     session.getSocialState = () => this.getSocialState(session.username);
+    session.getFollowTarget = () => this.follow.getTarget(session.username);
     session.getMailbox = () => this.mailboxes.getMailbox(session.username);
     session.getNotifications = () => this.notifications.getInbox(session.username);
     session.getBattleState = () => {
@@ -539,6 +604,7 @@ export class PlayerManager {
     };
     session.getHomeVisit = () => this.housing.getHomeView(session.username);
     session.getHomeLocation = (house) => this.housing.homeLocation(house);
+    session.getWorldBosses = () => this.worldBosses.clientList((bossId, spawnedAt) => session.getWorldBossCooldown(bossId, spawnedAt));
   }
 
   /** Ensure a player is in a party. Auto-creates a solo party if needed. */
@@ -590,6 +656,7 @@ export class PlayerManager {
     const joiner = this.sessions.get(username);
     const tile = this.partyBattles.getTile(partyId);
     if (joiner && tile) joiner.switchMapGrid(tile);
+    this.follow.reconcileParties();
   }
 
   /** Handle a player leaving/being kicked from a party. Creates new solo party at current position. */
@@ -665,6 +732,12 @@ export class PlayerManager {
     return this.partyBattles.enterTransition(partyId, targetTileId);
   }
 
+  /** A manual party move overrides any follow held by a member. */
+  stopFollowingForParty(partyId: string): void {
+    const members = this.parties.getParty(partyId)?.members ?? [];
+    this.follow.stopForUsers(members.map(m => m.username));
+  }
+
   /** Check if two players are on the same tile (uses party positions). */
   areSameTile(a: string, b: string): boolean {
     const sa = this.sessions.get(a);
@@ -673,6 +746,14 @@ export class PlayerManager {
     const pa = sa.getPosition();
     const pb = sb.getPosition();
     return sa.getMapId() === sb.getMapId() && pa.col === pb.col && pa.row === pb.row;
+  }
+
+  /** Capped per room for this viewer; their party and guild always show. */
+  getVisibleOtherPlayers(viewer: string): VisiblePlayers {
+    const alwaysShow = new Set(this.guilds.getPlayerGuild(viewer)?.members.map(m => m.username));
+    const partyId = this.sessions.get(viewer)?.getPartyId();
+    for (const member of (partyId && this.parties.getParty(partyId)?.members) || []) alwaysShow.add(member.username);
+    return selectVisiblePlayers(this.getOtherPlayers(viewer), alwaysShow);
   }
 
   getOtherPlayers(excludeUsername: string): OtherPlayerState[] {
@@ -803,6 +884,7 @@ export class PlayerManager {
         if (initialMailbox.length > 0) this.mailboxes.setMailbox(data.username, initialMailbox);
         const initialNotifications = session.consumeInitialNotifications();
         if (initialNotifications.length > 0) this.notifications.setInbox(data.username, initialNotifications);
+        this.follow.restore(data.username, session.consumeInitialFollowTarget());
         this.wireCallbacks(session);
         validSaves.push(data);
         console.log(`[PlayerManager] Restored session for "${data.username}"`);

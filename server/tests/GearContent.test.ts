@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, toShopSummary } from '@idle-party-rpg/shared';
+import { STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, toShopSummary, makeRolledItemId } from '@idle-party-rpg/shared';
 import type { ItemDefinition, ShopDefinition } from '@idle-party-rpg/shared';
 
 // ContentStore/VersionStore resolve data dirs from process.cwd() at import time. Mirrors DraftEditor.test.ts.
@@ -180,5 +180,49 @@ describe('banker shops', () => {
     const version = await versionStore.createDraft('no bank', null, snapshot);
     const result = await validateDraft(deps, version.id);
     expect(result.problems?.some(p => p.startsWith('Warning: no banker'))).toBe(true);
+  });
+});
+
+describe('item roll tables', () => {
+  const rolls = { version: 1, stats: { bonusAttackMax: { min: 2, max: 6 } } };
+  const blade: ItemDefinition = { id: 'blade', name: 'Blade', rarity: 'common', equipSlot: 'mainhand', bonusAttackMax: 3, value: 12, rolls };
+
+  it('resolves rolled ids through getItem and getAllItems, and rejects ids containing ~', async () => {
+    const { contentStore } = await draftSetup();
+    expect(await contentStore.addOrUpdateItem(blade)).toBeNull();
+    const rolledId = makeRolledItemId('blade', 1, 77);
+    expect(contentStore.getItem(rolledId)).toMatchObject({ id: rolledId, templateId: 'blade', value: 12 });
+    expect(contentStore.getAllItems()[rolledId]?.templateId).toBe('blade');
+    expect(Object.keys(contentStore.getAllItems())).not.toContain(rolledId);
+    expect(contentStore.getItem('blade~1')).toBeUndefined();
+    expect(await contentStore.addOrUpdateItem({ id: 'a~b', name: 'Bad', rarity: 'common' })).toBeTypeOf('string');
+    expect(await contentStore.addOrUpdateItem({ ...blade, rolls: { version: 1, stats: { bonusAttackMax: { min: 5, max: 1 } } } })).toBeTypeOf('string');
+  });
+
+  it('freezes old tables across live edits, draft edits and deploys', async () => {
+    const { contentStore, draftEditor, versionId } = await draftSetup();
+    await contentStore.addOrUpdateItem(blade);
+    const oldId = makeRolledItemId('blade', 1, 77);
+    const before = contentStore.getItem(oldId)!.bonusAttackMax;
+
+    await contentStore.addOrUpdateItem({ ...blade, rolls: { version: 1, stats: { bonusAttackMax: { min: 20, max: 30 } } } });
+    expect(contentStore.getItem('blade')!.rolls!.version).toBe(2);
+    expect(contentStore.getItem(oldId)!.bonusAttackMax).toBe(before);
+
+    const draft = await draftEditor.upsertItem(versionId, { ...blade, rolls: { version: 1, stats: { bonusAttackMax: { min: 40, max: 50 } } } });
+    expect(draft.success).toBe(true);
+    const drafted = (draft.success ? draft.entries : []).find(i => i.id === 'blade')!;
+    expect(drafted.rolls!.version).toBe(3);
+    expect(drafted.rollHistory!.map(t => t.version)).toEqual([1, 2]);
+    const snapshot = contentStore.toSnapshot();
+    snapshot.items = snapshot.items.map(i => (i.id === 'blade' ? { ...blade, rolls: { version: 2, stats: { bonusAttackMax: { min: 40, max: 50 } } } } : i));
+    await contentStore.replaceAll(snapshot);
+    expect(contentStore.getItem('blade')!.rolls!.version).toBe(3);
+    expect(contentStore.getItem(oldId)!.bonusAttackMax).toBe(before);
+    expect(contentStore.getItem(makeRolledItemId('blade', 2, 1))!.bonusAttackMax).toBeGreaterThanOrEqual(20);
+  });
+
+  it('documents rolls in the MCP schema cheat sheet', async () => {
+    expect(JSON.stringify(await getContentSchema({ type: 'items' }))).toContain('rolls');
   });
 });

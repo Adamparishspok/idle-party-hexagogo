@@ -193,6 +193,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Class system (5 classes: Knight, Archer, Priest, Mage, Bard — weak solo, strong together)
 - [x] Damage types (physical/magical on monsters, Knight reduces physical, Priest reduces magical)
 - [x] Henchmen (hireable NPCs for solo players)
+- [x] World bosses (rare scheduled bosses with shared HP that many parties wear down; escalating retry cooldown after a wipe; rewards split by damage dealt)
 - [x] Player housing (houses sold by estate agents around the world, each home standing in its agent's room; chest + trophy shelves, home visits, campfire Well Rested buff)
 - [x] Party formation and management (always in a party, join, leave, kick, 3x3 grid, max 5 members)
 - [x] Party roles (owner > leader > member, promote/demote, transfer ownership)
@@ -233,6 +234,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Item gifting (mailbox-based, accept/deny, declined gifts return to sender)
 - [x] Backpack capacity, bag slots, free starter bag and a Lost & Found pouch for overflow loot (server; client UI pending)
 - [x] Bank at banker rooms (tabs bought with gold, travel-based access) (server; client UI pending)
+- [x] Random stat rolls on gear (seeded, reproducible, rebalance-safe)
 
 ### Crafting
 - [x] Crafting framework (per-player FIFO queue, materials reserved at queue time, offline progression, save/restore)
@@ -293,6 +295,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Persistent XP bar above the bottom nav, visible on every screen
 - [x] WorldQuest-style shell: framed stone nav with raised active tab, perched Quests + Chat buttons, top HUD (gold, zone/room, settings), XP bar with portrait + level badge
 - [x] First-session coach-mark tour for new players (replayable from Settings)
+- [x] Content-driven new-player tutorial that unlocks nav tabs step by step (skippable; existing players unaffected)
 - [x] WorldQuest-style rebuild of every screen and popup on the component kit (combat, character, map chrome + rooms, social, craft, chat, notifications, settings, title flow)
 - [ ] Painted world map (still hex-based underneath) — see `ideas/ui-revamp-worldquest.md`
 - [ ] Painted art for the `ui` chrome kind and nav icons

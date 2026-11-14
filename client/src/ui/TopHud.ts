@@ -3,6 +3,8 @@ import type { WorldCache } from '../network/WorldCache';
 
 const ICON_HOUSE = '<svg class="hud-home-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5" fill="none" stroke="#3a2817" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v9.5h13V10L12 4.8z" fill="#f5c842" stroke="#3a2817" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 19.5v-5h4v5" fill="#b8861b" stroke="#3a2817" stroke-width="1.4" stroke-linejoin="round"/><path d="M16 4.5h2.2v3.6" fill="none" stroke="#3a2817" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
+const ICON_GEAR = '<svg class="hud-gear-img" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2" fill="none" stroke="#f5c842" stroke-width="3.4" stroke-dasharray="2.4 2.56"/><circle cx="12" cy="12" r="6" fill="#f5c842" stroke="#3a2817" stroke-width="1.4"/><circle cx="12" cy="12" r="2.4" fill="#3a2817"/></svg>';
+
 /**
  * Top-of-screen HUD strip, visible on every root screen: gold counter on the
  * left, the current zone + room name centered, and a settings gear on the
@@ -35,7 +37,7 @@ export class TopHud {
       <div class="hud-actions">
         <button type="button" class="hud-home" aria-label="Travel home" title="Travel home" hidden>${ICON_HOUSE}</button>
         <button type="button" class="hud-gear gc-frame" aria-label="Settings">
-          <img class="hud-gear-img" src="/nav-icons/settings.png" alt="" />
+          ${ICON_GEAR}<img class="hud-gear-img" src="/nav-icons/settings.png" alt="" style="opacity:0" onload="this.style.opacity='1';this.previousElementSibling?.remove()" onerror="this.remove()" />
         </button>
       </div>
     `;

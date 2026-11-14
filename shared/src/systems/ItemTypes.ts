@@ -1,5 +1,6 @@
 import type { SkillDefinition } from './SkillTypes.js';
 import type { PartialAttributes } from './AttributeTypes.js';
+import type { ItemRollTable } from './ItemRolls.js';
 
 // --- Types ---
 
@@ -32,6 +33,18 @@ export interface ItemDefinition {
   attributes?: PartialAttributes;
   /** Present (> 0) only on bags: extra backpack slots while the bag sits in a bag slot. Bags have no `equipSlot`. */
   bagSlots?: number;
+  /** Socket count (0-3) on equippable items. Jewels go in sockets bound to the equipment slot. */
+  sockets?: number;
+  /** True for jewels: socketable items whose `attributes` and attack/armor/resist fields apply while socketed. */
+  jewel?: boolean;
+  /** Random stat ranges: new copies get a rolled id (`templateId~version~seed`). See docs/architecture/gear-stats-bank.md. */
+  rolls?: ItemRollTable;
+  /** Earlier roll tables, kept so items rolled before a rebalance keep their stats. Maintained by the content store. */
+  rollHistory?: ItemRollTable[];
+  /** Set only on a resolved rolled item: the authored item it was rolled from. */
+  templateId?: string;
+  /** Set only on a resolved rolled item: 0–100, how high its rolls landed. */
+  rollQuality?: number;
 }
 
 export interface ItemDrop {
@@ -85,6 +98,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 1,
     bonusAttackMax: 3,
     value: 1,
+    rolls: { version: 1, stats: { bonusAttackMin: { min: 0, max: 2 }, bonusAttackMax: { min: 2, max: 4 } } },
   },
   leather_vest: {
     id: 'leather_vest',
@@ -94,6 +108,8 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     damageReductionMin: 1,
     damageReductionMax: 2,
     value: 1,
+    sockets: 1,
+    rolls: { version: 1, stats: { damageReductionMin: { min: 0, max: 1 }, damageReductionMax: { min: 1, max: 3 }, stamina: { min: 0, max: 2 } } },
   },
   old_leather_boots: {
     id: 'old_leather_boots',
@@ -116,6 +132,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 0,
     bonusAttackMax: 1,
     value: 1,
+    sockets: 1,
   },
   frayed_cord_necklace: {
     id: 'frayed_cord_necklace',
@@ -218,6 +235,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 3,
     bonusAttackMax: 6,
     value: 1,
+    sockets: 2,
   },
   short_bow: {
     id: 'short_bow',
@@ -228,6 +246,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 2,
     bonusAttackMax: 5,
     value: 1,
+    sockets: 1,
   },
   prayer_beads: {
     id: 'prayer_beads',
@@ -238,6 +257,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     damageReductionMin: 1,
     damageReductionMax: 2,
     value: 1,
+    sockets: 1,
   },
   gnarled_wand: {
     id: 'gnarled_wand',
@@ -248,6 +268,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 2,
     bonusAttackMax: 4,
     value: 1,
+    sockets: 1,
   },
   tin_whistle: {
     id: 'tin_whistle',
@@ -258,6 +279,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 1,
     bonusAttackMax: 2,
     value: 1,
+    sockets: 1,
   },
   waterskin: {
     id: 'waterskin',

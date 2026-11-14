@@ -7,8 +7,12 @@ import { WorldGrids } from './WorldGrids.js';
 import type { GameStateStore } from './GameStateStore.js';
 import { GuildStore } from './social/GuildStore.js';
 import { TradeStore } from './social/TradeStore.js';
+import { JsonEconomyStore } from './EconomyLedger.js';
+import type { EconomyStore } from './EconomyLedger.js';
 import { ContentStore } from './ContentStore.js';
 import { VersionStore } from './VersionStore.js';
+import { JsonWorldBossStore } from './WorldBossStore.js';
+import type { WorldBossStore } from './WorldBossStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 import type { WorldTileDefinition } from '@idle-party-rpg/shared';
 import { seedDevContent, seedDevPlayers } from './DevSeed.js';
@@ -16,6 +20,7 @@ import { seedDevContent, seedDevPlayers } from './DevSeed.js';
 const SAVE_INTERVAL_MS = 30_000; // Save every 30 seconds
 const CRAFT_TICK_MS = 1000;       // Check craft completions every 1s
 const REST_TICK_MS = 60 * 1000;
+const WORLD_BOSS_TICK_MS = 5000;
 const VERSION_FILE = path.resolve('data', 'game-version.txt');
 
 /**
@@ -53,9 +58,12 @@ export class GameLoop {
   private store: GameStateStore;
   private guildStore: GuildStore;
   private tradeStore: TradeStore;
+  private economyStore: EconomyStore = new JsonEconomyStore();
   private saveInterval?: ReturnType<typeof setInterval>;
   private craftTickInterval?: ReturnType<typeof setInterval>;
   private restTickInterval?: ReturnType<typeof setInterval>;
+  private worldBossTickInterval?: ReturnType<typeof setInterval>;
+  private worldBossStore: WorldBossStore = new JsonWorldBossStore();
   private grids!: WorldGrids;
 
   constructor(store: GameStateStore) {
@@ -138,6 +146,10 @@ export class GameLoop {
       accountStore,
       this.store,
     );
+    this.playerManager.economy.restore(await this.economyStore.load());
+
+    this.playerManager.worldBosses.restore(await this.worldBossStore.load());
+    this.playerManager.worldBosses.tick();
 
     t = performance.now();
     await this.guildStore.load();
@@ -192,6 +204,11 @@ export class GameLoop {
       catch (err) { console.error('[GameLoop] Rest tick failed:', err); }
     }, REST_TICK_MS);
 
+    this.worldBossTickInterval = setInterval(() => {
+      try { this.playerManager.worldBosses.tick(); }
+      catch (err) { console.error('[GameLoop] World boss tick failed:', err); }
+    }, WORLD_BOSS_TICK_MS);
+
     console.log(`[GameLoop] Periodic save every ${SAVE_INTERVAL_MS / 1000}s, craft tick every ${CRAFT_TICK_MS / 1000}s`);
   }
 
@@ -205,7 +222,9 @@ export class GameLoop {
       console.log(`[GameLoop] Saved ${count} session(s)`);
     }
     await this.guildStore.save();
+    await this.economyStore.save(this.playerManager.economy.toData());
     await this.tradeStore.save(this.playerManager.trades.getAllTrades());
+    await this.worldBossStore.save(this.playerManager.worldBosses.getStates());
     await this.contentStore.save();
     await this.versionStore.save();
   }
@@ -225,6 +244,10 @@ export class GameLoop {
     if (this.restTickInterval) {
       clearInterval(this.restTickInterval);
       this.restTickInterval = undefined;
+    }
+    if (this.worldBossTickInterval) {
+      clearInterval(this.worldBossTickInterval);
+      this.worldBossTickInterval = undefined;
     }
     this.playerManager.housing.tickResting();
     // Drain craft completions one last time so jobs that finished between ticks aren't lost.

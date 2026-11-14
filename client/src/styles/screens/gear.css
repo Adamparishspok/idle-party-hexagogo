@@ -36,6 +36,7 @@
 }
 .gs-line--grant { color: var(--arcane-600); }
 .gs-line--heirloom,
+.gs-line--quality,
 .gs-line--classes,
 .gs-line--consumable,
 .gs-line--material,
@@ -138,6 +139,7 @@
 .gs-tip .gs-line--attribute.is-primary { color: var(--green-300); }
 .gs-tip .gs-line--grant { color: var(--arcane-400); }
 .gs-tip .gs-line--heirloom,
+.gs-tip .gs-line--quality,
 .gs-tip .gs-line--classes,
 .gs-tip .gs-line--consumable { color: var(--gc-steel-300); }
 .gs-tip__compare {
@@ -536,3 +538,8 @@
   .ss-attr,
   .ss-stat { transition: none; }
 }
+
+.gp-sockets { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.gp-socket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.gp-socket { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gp-socket.is-empty { opacity: 0.6; font-style: italic; }

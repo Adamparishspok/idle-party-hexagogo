@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateWorldBossDefinition, validateTutorialStep, validateAttributes, validateBagItem, validateSocketItem } from '@idle-party-rpg/shared';
 import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
@@ -197,6 +197,31 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
     if (invalid) problems.push(`House '${house.id}': ${invalid}`);
   }
 
+  // --- World bosses ---
+  for (const boss of snapshot.worldBosses ?? []) {
+    const invalid = validateWorldBossDefinition(boss);
+    if (invalid) problems.push(`World boss '${boss.id}': ${invalid}`);
+    if (!monsterIds.has(boss.monsterId)) problems.push(`World boss '${boss.id}' monsterId references unknown monster '${boss.monsterId}'.`);
+    (boss.tileIds ?? []).forEach((tileId, index) => {
+      if (!tileById.has(tileId)) problems.push(`World boss '${boss.id}' tileIds references unknown room '${tileId}' (index ${index}).`);
+    });
+    (boss.rewardItems ?? []).forEach((reward, index) => {
+      if (!itemIds.has(reward.itemId)) problems.push(`World boss '${boss.id}' rewardItems references unknown item '${reward.itemId}' (index ${index}).`);
+    });
+  }
+
+  // --- Tutorial steps ---
+  for (const step of snapshot.tutorialSteps ?? []) {
+    const invalid = validateTutorialStep(step);
+    if (invalid) problems.push(`Tutorial step '${step.id}': ${invalid}`);
+    if (step.trigger?.type === 'completeQuest' && !questIds.has(step.trigger.questId)) {
+      problems.push(`Tutorial step '${step.id}' trigger references unknown quest '${step.trigger.questId}'.`);
+    }
+    if (step.trigger?.type === 'enterRoom' && step.trigger.tileId && !tileById.has(step.trigger.tileId)) {
+      problems.push(`Tutorial step '${step.id}' trigger references unknown room '${step.trigger.tileId}'.`);
+    }
+  }
+
   // --- Recipes ---
   for (const recipe of snapshot.recipes ?? []) {
     recipe.ingredients.forEach((ing, index) => {
@@ -282,7 +307,7 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
 
   // --- Items ---
   for (const item of snapshot.items) {
-    const shapeError = validateAttributes(item.attributes) ?? validateBagItem(item);
+    const shapeError = validateAttributes(item.attributes) ?? validateBagItem(item) ?? validateSocketItem(item);
     if (shapeError) problems.push(`Item '${item.id}': ${shapeError}`);
     (item.grantedSkillIds ?? []).forEach((skillId, index) => {
       if (!skillIds.has(skillId)) {
@@ -302,6 +327,13 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
       && t.col === snapshot.world.startTile.col
       && t.row === snapshot.world.startTile.row,
   );
+  if (defaultMapTile) {
+    for (const boss of snapshot.worldBosses ?? []) {
+      if ((boss.tileIds ?? []).includes(defaultMapTile.id)) {
+        problems.push(`Warning: world boss '${boss.id}' is placed in the new-player start room '${defaultMapTile.id}', which stalls the tutorial's win-battles step.`);
+      }
+    }
+  }
   if (!defaultMapTile) {
     problems.push(
       `World start tile (${snapshot.world.startTile.col}, ${snapshot.world.startTile.row}) on default map '${snapshot.world.defaultMapId}' does not resolve to any room.`,

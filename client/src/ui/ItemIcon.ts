@@ -1,4 +1,5 @@
 import type { ItemDefinition, SetDefinition } from '@idle-party-rpg/shared';
+import { templateIdOf } from '@idle-party-rpg/shared';
 // Legacy square-icon + dark popup styles, still used by the Shop and View
 // Player popups (they call renderItemIcon / renderItemPopupContent). Delete
 // this import and the file once those screens move to renderItemFrame.
@@ -76,7 +77,7 @@ export function getItemInitials(name: string): string {
 /** Check if an item belongs to any set; returns the set ID or null. */
 export function getItemSetId(itemId: string, setDefs: Record<string, SetDefinition>): string | null {
   for (const set of Object.values(setDefs)) {
-    if (set.itemIds.includes(itemId)) return set.id;
+    if (set.itemIds.includes(templateIdOf(itemId))) return set.id;
   }
   return null;
 }

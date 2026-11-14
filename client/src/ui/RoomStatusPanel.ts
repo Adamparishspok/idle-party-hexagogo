@@ -1,5 +1,5 @@
-import type { DungeonRunInfo } from '@idle-party-rpg/shared';
-import { ROOM_ICONS, actionLabel } from './RoomActions';
+import type { ClientWorldBoss, DungeonRunInfo } from '@idle-party-rpg/shared';
+import { ROOM_ICONS, WORLD_BOSS_ICON, actionLabel } from './RoomActions';
 import type { RoomAction } from './RoomActions';
 
 export interface RoomStatus {
@@ -9,6 +9,8 @@ export interface RoomStatus {
   /** Players outside the viewer's party standing in the same room. */
   othersHere: number;
   dungeonRun?: Pick<DungeonRunInfo, 'name' | 'floor' | 'totalFloors'>;
+  /** The live world boss in this room; `retryInMin` while the player is on cooldown. */
+  worldBoss?: Pick<ClientWorldBoss, 'name' | 'currentHp' | 'maxHp'> & { retryInMin?: number };
 }
 
 interface Chip {
@@ -18,6 +20,8 @@ interface Chip {
   badge?: string;
   detail?: string;
   questReady?: boolean;
+  /** 0..100: draws an HP bar under the label. */
+  hpPct?: number;
   onClick?: () => void;
 }
 
@@ -99,6 +103,7 @@ export class RoomStatusPanel {
         badge: `${floor}/${totalFloors}`,
       });
     }
+    if (status.worldBoss) chips.unshift(worldBossChip(status.worldBoss));
     return chips;
   }
 
@@ -123,6 +128,16 @@ export class RoomStatusPanel {
     label.textContent = chip.label;
     el.append(icon, label);
 
+    if (chip.hpPct !== undefined) {
+      const bar = document.createElement('span');
+      bar.className = 'room-status-chip-hp';
+      bar.setAttribute('aria-hidden', 'true');
+      const fill = document.createElement('span');
+      fill.style.width = `${chip.hpPct}%`;
+      bar.appendChild(fill);
+      el.appendChild(bar);
+    }
+
     if (chip.badge) {
       const badge = document.createElement('span');
       badge.className = 'room-status-chip-badge';
@@ -132,4 +147,17 @@ export class RoomStatusPanel {
     }
     return el;
   }
+}
+
+function worldBossChip(boss: NonNullable<RoomStatus['worldBoss']>): Chip {
+  const pct = Math.max(0, Math.min(100, Math.ceil((boss.currentHp / boss.maxHp) * 100)));
+  const hp = `${boss.currentHp.toLocaleString()} / ${boss.maxHp.toLocaleString()} HP`;
+  const onCooldown = boss.retryInMin !== undefined;
+  return {
+    icon: WORLD_BOSS_ICON,
+    label: onCooldown ? `${boss.name} · ${pct}% · retry in ${boss.retryInMin} min` : `${boss.name} · ${pct}%`,
+    badge: onCooldown ? `${boss.retryInMin}m` : `${pct}%`,
+    detail: hp,
+    hpPct: pct,
+  };
 }

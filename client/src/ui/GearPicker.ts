@@ -1,10 +1,12 @@
+import { isJewel } from '@idle-party-rpg/shared';
 import type { EquipSlot, ServerStateMessage, SkillDefinition } from '@idle-party-rpg/shared';
 import type { GameClient } from '../network/GameClient';
 import { SLOT_LABELS, escapeHtml, renderKitItem } from './ItemIcon';
-import { deltaChips, isKnownClass, slotPickerModel } from './GearModel';
+import { allItemDefs, deltaChips, isKnownClass, slotPickerModel } from './GearModel';
 import type { SlotPickerModel } from './GearModel';
 import { renderDeltaChips, renderDeltaList, renderItemStatBlock } from './ItemStats';
 import type { ItemStatViewer } from './ItemStats';
+import { renderSocketsSection, handleSocketAction } from './SocketsSection';
 import { bringToFront, release, wireFocusOnInteract } from './ModalStack';
 import '../styles/screens/gear.css';
 
@@ -87,6 +89,8 @@ export class GearPicker {
       slot,
       sel: this.selectedId,
       eq: model.equipped?.itemId ?? null,
+      sj: state.character?.socketedJewels?.[slot] ?? [],
+      jw: Object.keys(state.character?.inventory ?? {}).filter(id => isJewel(allItemDefs(state)[id])),
       c: model.candidates.map(c => [c.itemId, c.count, c.deltas]),
     });
     if (!force && key === this.renderKey) return;
@@ -124,6 +128,7 @@ export class GearPicker {
         </div>
         <button type="button" class="gc-btn gc-btn--steel gp-unequip" data-gp-action="unequip">Unequip</button>
       </div>
+      ${this.slot ? renderSocketsSection(state, this.slot, this.viewer(state)) : ''}
     </div>`;
   }
 
@@ -173,6 +178,7 @@ export class GearPicker {
       this.close();
       return;
     }
+    if (this.slot && handleSocketAction(action, this.slot, this.gameClient)) return;
     if (action?.dataset.gpAction === 'equip' && action.dataset.itemId) {
       this.equip(action.dataset.itemId);
       return;

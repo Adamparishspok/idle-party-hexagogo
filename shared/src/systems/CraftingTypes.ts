@@ -1,4 +1,6 @@
 import { MAX_STACK } from './ItemTypes.js';
+import type { ItemDefinition } from './ItemTypes.js';
+import { countByTemplate, pickForConsumption, spendPicked } from './InventoryView.js';
 
 export const MAX_CRAFT_QUEUE = 5;
 
@@ -29,6 +31,8 @@ export interface RecipeDefinition {
 
 export interface CraftJob {
   recipeId: string;
+  /** Exact ids reserved at enqueue (may be rolled copies); refunded as-is on cancel. */
+  spent?: Record<string, number>;
 }
 
 /**
@@ -67,7 +71,7 @@ export function canQueueRecipe(
     }
   }
   for (const ing of recipe.ingredients) {
-    if ((inventory[ing.itemId] ?? 0) < ing.quantity) {
+    if (countByTemplate(inventory, ing.itemId) < ing.quantity) {
       return { ok: false, reason: 'missing_ingredients' };
     }
   }
@@ -85,17 +89,18 @@ export function enqueueRecipe(
   className: string | null,
   level: number,
   now: number,
+  items?: Record<string, ItemDefinition>,
 ): { ok: true } | { ok: false; reason: EnqueueError } {
   const check = canQueueRecipe(recipe, inventory, queue, className, level);
   if (!check.ok) return check;
+  const spent: Record<string, number> = {};
   for (const ing of recipe.ingredients) {
-    const cur = inventory[ing.itemId] ?? 0;
-    const next = cur - ing.quantity;
-    if (next === 0) delete inventory[ing.itemId];
-    else inventory[ing.itemId] = next;
+    const picked = pickForConsumption(inventory, ing.itemId, ing.quantity, items) ?? {};
+    spendPicked(inventory, picked);
+    for (const [id, n] of Object.entries(picked)) spent[id] = (spent[id] ?? 0) + n;
   }
   if (queue.jobs.length === 0) queue.activeStartedAtMs = now;
-  queue.jobs.push({ recipeId: recipe.id });
+  queue.jobs.push({ recipeId: recipe.id, spent });
   return { ok: true };
 }
 
@@ -114,11 +119,10 @@ export function cancelJobAt(
   if (index < 0 || index >= queue.jobs.length) return false;
   const job = queue.jobs[index];
   const recipe = recipes[job.recipeId];
-  if (recipe) {
-    for (const ing of recipe.ingredients) {
-      const cur = inventory[ing.itemId] ?? 0;
-      inventory[ing.itemId] = Math.min(MAX_STACK, cur + ing.quantity);
-    }
+  const refund: Record<string, number> = job.spent
+    ?? Object.fromEntries((recipe?.ingredients ?? []).map(ing => [ing.itemId, ing.quantity]));
+  for (const [id, n] of Object.entries(refund)) {
+    inventory[id] = Math.min(MAX_STACK, (inventory[id] ?? 0) + n);
   }
   queue.jobs.splice(index, 1);
   if (index === 0) {
@@ -292,5 +296,41 @@ export const SEED_RECIPES: Record<string, RecipeDefinition> = {
     xpReward: 5,
     ingredients: [{ itemId: 'mangy_pelt', quantity: 2 }],
     result: { itemId: 'moth_eaten_cloak', quantity: 1 },
+  },
+  cut_rough_ruby: {
+    id: 'cut_rough_ruby',
+    name: 'Cut Rough Ruby',
+    description: 'Chip a gem free of its rock.',
+    durationSeconds: 45,
+    xpReward: 10,
+    ingredients: [{ itemId: 'mangy_pelt', quantity: 3 }],
+    result: { itemId: 'rough_ruby', quantity: 1 },
+  },
+  cut_rough_sapphire: {
+    id: 'cut_rough_sapphire',
+    name: 'Cut Rough Sapphire',
+    description: 'Chip a gem free of its rock.',
+    durationSeconds: 45,
+    xpReward: 10,
+    ingredients: [{ itemId: 'mangy_pelt', quantity: 3 }],
+    result: { itemId: 'rough_sapphire', quantity: 1 },
+  },
+  cut_rough_emerald: {
+    id: 'cut_rough_emerald',
+    name: 'Cut Rough Emerald',
+    description: 'Chip a gem free of its rock.',
+    durationSeconds: 45,
+    xpReward: 10,
+    ingredients: [{ itemId: 'mangy_pelt', quantity: 3 }],
+    result: { itemId: 'rough_emerald', quantity: 1 },
+  },
+  cut_rough_topaz: {
+    id: 'cut_rough_topaz',
+    name: 'Cut Rough Topaz',
+    description: 'Chip a gem free of its rock.',
+    durationSeconds: 45,
+    xpReward: 10,
+    ingredients: [{ itemId: 'mangy_pelt', quantity: 3 }],
+    result: { itemId: 'rough_topaz', quantity: 1 },
   },
 };

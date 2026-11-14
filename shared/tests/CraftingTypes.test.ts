@@ -78,7 +78,7 @@ describe('CraftingTypes — enqueueRecipe', () => {
     const res = enqueueRecipe(recipe, inv, q, 'Knight', 1, 1000);
     expect(res).toEqual({ ok: true });
     expect(inv).toEqual({ pelt: 3 });
-    expect(q.jobs).toEqual([{ recipeId: 'r1' }]);
+    expect(q.jobs).toEqual([{ recipeId: 'r1', spent: { pelt: 2 } }]);
     expect(q.activeStartedAtMs).toBe(1000);
   });
 
@@ -274,5 +274,32 @@ describe('CraftingTypes — getVisibleRecipes', () => {
   it('hides class-restricted recipes when no class set', () => {
     const visible = getVisibleRecipes(recipes, null);
     expect(visible.map(r => r.id).sort()).toEqual(['r1', 'r2']);
+  });
+});
+
+describe('rolled ingredients', () => {
+  it('a rolled copy satisfies and pays for a template ingredient', () => {
+    const rolledRecipe: RecipeDefinition = { ...recipe, ingredients: [{ itemId: 'iron_ore', quantity: 2 }] };
+    const inv: Record<string, number> = { 'iron_ore~1~a': 1, iron_ore: 1 };
+    const queue = emptyCraftQueue();
+    expect(canQueueRecipe(rolledRecipe, inv, queue, null, 1).ok).toBe(true);
+    expect(enqueueRecipe(rolledRecipe, inv, queue, null, 1, 0).ok).toBe(true);
+    expect(inv).toEqual({});
+  });
+
+  it('cancelling refunds the exact copies that were spent', () => {
+    const rolledRecipe: RecipeDefinition = { ...recipe, ingredients: [{ itemId: 'iron_ore', quantity: 2 }] };
+    const inv: Record<string, number> = { 'iron_ore~1~a': 1, iron_ore: 1 };
+    const queue = emptyCraftQueue();
+    enqueueRecipe(rolledRecipe, inv, queue, null, 1, 0);
+    expect(cancelJobAt(0, { r1: rolledRecipe }, inv, queue, 0)).toBe(true);
+    expect(inv).toEqual({ 'iron_ore~1~a': 1, iron_ore: 1 });
+  });
+
+  it('jobs saved before spent tracking refund the recipe ingredients', () => {
+    const inv: Record<string, number> = {};
+    const queue = { activeStartedAtMs: 0, jobs: [{ recipeId: 'r1' }] };
+    cancelJobAt(0, { r1: recipe }, inv, queue, 0);
+    expect(inv).toEqual({ pelt: 2 });
   });
 });

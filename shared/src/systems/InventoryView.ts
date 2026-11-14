@@ -21,6 +21,9 @@
  * Pure functions, no state. Safe to call from client or server.
  */
 
+import { templateIdOf, resolveItem } from './ItemRolls.js';
+import type { ItemDefinition } from './ItemTypes.js';
+
 type Inventory = Record<string, number>;
 type Equipment = Record<string, string | null>;
 /** Bags sitting in bag slots: outside both `inventory` and `equipment`. */
@@ -52,6 +55,63 @@ export function getOwnedCount(itemId: string, inventory: Inventory, equipment: E
   return getUnequippedCount(itemId, inventory) + getEquippedCount(itemId, equipment) + getBagCount(itemId, bags);
 }
 
+// ── Template-matched requirements ────────────────────────────────────────────
+
+/** Unequipped copies whose template is `templateId`: the plain id plus every rolled copy. */
+export function countByTemplate(inventory: Inventory, templateId: string): number {
+  let n = 0;
+  for (const [id, count] of Object.entries(inventory)) {
+    if (count > 0 && templateIdOf(id) === templateId) n += count;
+  }
+  return n;
+}
+
+/**
+ * Which stacks to spend for `count` copies of `templateId`: the plain id first, then rolled copies
+ * from lowest quality up. Returns id → amount, or null when the backpack holds too few. Pure: spend it with `spendPicked`.
+ */
+export function pickForConsumption(
+  inventory: Inventory,
+  templateId: string,
+  count: number,
+  items?: Record<string, ItemDefinition>,
+): Record<string, number> | null {
+  if (count <= 0) return {};
+  const rank = (id: string): number => (id === templateId ? -1 : (items ? resolveItem(id, items)?.rollQuality ?? 100 : 100));
+  const ids = Object.keys(inventory)
+    .filter(id => inventory[id] > 0 && templateIdOf(id) === templateId)
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const picked: Record<string, number> = {};
+  let left = count;
+  for (const id of ids) {
+    const take = Math.min(left, inventory[id]);
+    picked[id] = take;
+    left -= take;
+    if (left === 0) return picked;
+  }
+  return null;
+}
+
+export function spendPicked(inventory: Inventory, picked: Record<string, number>): void {
+  for (const [id, n] of Object.entries(picked)) {
+    if (inventory[id] - n <= 0) delete inventory[id];
+    else inventory[id] -= n;
+  }
+}
+
+/** Pick and spend in one step. Returns false (and changes nothing) when short. */
+export function consumeByTemplate(
+  inventory: Inventory,
+  templateId: string,
+  count: number,
+  items?: Record<string, ItemDefinition>,
+): boolean {
+  const picked = pickForConsumption(inventory, templateId, count, items);
+  if (!picked) return false;
+  spendPicked(inventory, picked);
+  return true;
+}
+
 // ── Booleans ─────────────────────────────────────────────────────────────────
 
 /** True iff any slot holds `itemId`. Works on the current player's or any other player's equipment. */
@@ -71,28 +131,33 @@ export function ownsItem(itemId: string, inventory: Inventory, equipment: Equipm
 
 // ── Sets ─────────────────────────────────────────────────────────────────────
 
-/** Set of distinct item IDs currently equipped (deduped across slots). */
+/** Set of distinct item IDs currently equipped (deduped across slots), plus the template id of each rolled item. */
 export function getEquippedItemIds(equipment: Equipment): Set<string> {
   const ids = new Set<string>();
   for (const id of Object.values(equipment)) {
-    if (id) ids.add(id);
+    if (id) addWithTemplate(ids, id);
   }
   return ids;
 }
 
-/** Set of distinct item IDs the player owns (unequipped + equipped + bag slots). */
+/** Set of distinct item IDs the player owns (unequipped + equipped + bag slots), plus the template id of each rolled item. */
 export function getOwnedItemIds(inventory: Inventory, equipment: Equipment, bags: Bags = []): Set<string> {
   const ids = new Set<string>();
   for (const id of bags) {
-    if (id) ids.add(id);
+    if (id) addWithTemplate(ids, id);
   }
   for (const [id, count] of Object.entries(inventory)) {
-    if (count > 0) ids.add(id);
+    if (count > 0) addWithTemplate(ids, id);
   }
   for (const id of Object.values(equipment)) {
-    if (id) ids.add(id);
+    if (id) addWithTemplate(ids, id);
   }
   return ids;
+}
+
+function addWithTemplate(ids: Set<string>, id: string): void {
+  ids.add(id);
+  ids.add(templateIdOf(id));
 }
 
 // ── Lists ────────────────────────────────────────────────────────────────────

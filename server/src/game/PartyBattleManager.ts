@@ -29,12 +29,14 @@ import type {
   RoomEntryRequirements,
   HiredHenchman,
   HenchmanDefinition,
+  MonsterInstance,
 } from '@idle-party-rpg/shared';
 import { ServerParty } from './ServerParty.js';
 import { ServerBattleTimer } from './ServerBattleTimer.js';
 import type { PlayerSession } from './PlayerSession.js';
 import type { ContentStore } from './ContentStore.js';
 import type { WorldGrids } from './WorldGrids.js';
+import type { WorldBossSystem } from './WorldBossSystem.js';
 
 /** Live state of a party's active dungeon run. Lives on the battle entry. */
 export interface DungeonRunState {
@@ -52,6 +54,8 @@ interface PartyBattleEntry {
   members: Set<string>;
   /** Present only while the party is inside a dungeon. */
   dungeonRun?: DungeonRunState;
+  /** Present while the current fight is against a world boss. */
+  bossFight?: { bossId: string; spawnedAt: number; lastHp: number };
 }
 
 /** Result of a dungeon entry attempt. */
@@ -67,6 +71,7 @@ export class PartyBattleManager {
   private getPartyHenchmen: (partyId: string) => HiredHenchman[] = () => [];
   private dismissHenchmenOffMap: (partyId: string, mapId: string) => HiredHenchman[] = () => [];
   private onItemsLost?: (username: string, lost: Record<string, number>) => void;
+  private worldBosses: WorldBossSystem | null = null;
 
   constructor(
     grids: WorldGrids,
@@ -96,6 +101,10 @@ export class PartyBattleManager {
     this.onItemsLost = onItemsLost;
   }
 
+  setWorldBosses(worldBosses: WorldBossSystem): void {
+    this.worldBosses = worldBosses;
+  }
+
   /**
    * Build the battle timer for a party and register the entry. Shared by
    * {@link createEntry} and {@link createEntryFromSave} so movement gating and
@@ -111,6 +120,7 @@ export class PartyBattleManager {
             const s = this.getSession(m);
             if (!s) continue;
             s.incrementBattleCount();
+            s.noteTutorialRoom(serverParty.tile.id);
             s.addLogEntry('Battle begins!', 'battle');
           }
         },
@@ -119,7 +129,8 @@ export class PartyBattleManager {
             this.broadcastToMember(m);
           }
         },
-        onCombatTick: (_state: PartyCombatState, logEntries: string[]) => {
+        onCombatTick: (state: PartyCombatState, logEntries: string[]) => {
+          this.syncWorldBoss(partyId, state);
           for (const m of members) {
             const s = this.getSession(m);
             if (s) {
@@ -248,7 +259,7 @@ export class PartyBattleManager {
   }
 
   /** Handle move request. Returns the unmet requirement if the path is gated. */
-  handleMove(partyId: string, col: number, row: number): { success: true } | { success: false; blocked?: RoomEntryFailure } {
+  handleMove(partyId: string, col: number, row: number, requireDiscovered = false): { success: true } | { success: false; blocked?: RoomEntryFailure; undiscovered?: true } {
     const entry = this.entries.get(partyId);
     if (!entry) return { success: false };
 
@@ -269,6 +280,11 @@ export class PartyBattleManager {
     if (blocked) {
       entry.serverParty.restoreMovementQueue(previousPath);
       return { success: false, blocked };
+    }
+
+    if (requireDiscovered && !this.pathIsDiscovered(entry)) {
+      entry.serverParty.restoreMovementQueue(previousPath);
+      return { success: false, undiscovered: true };
     }
 
     for (const m of entry.members) {
@@ -390,6 +406,11 @@ export class PartyBattleManager {
    * requirements. All members must satisfy every gate. Member info is built
    * once and reused across the path.
    */
+  private pathIsDiscovered(entry: PartyBattleEntry): boolean {
+    const sessions = [...entry.members].map(m => this.getSession(m)).filter(s => s !== undefined);
+    return entry.serverParty.remainingPath.every(tile => sessions.some(s => s.isTileUnlocked(tile)));
+  }
+
   private validatePathRequirements(entry: PartyBattleEntry): RoomEntryFailure | null {
     const path = entry.serverParty.remainingPath;
     if (!path.some(tile => tile.entryRequirements)) return null;
@@ -582,6 +603,7 @@ export class PartyBattleManager {
       return createPartyCombatState([], createEncounter(undefined, allMonsters, allZones, allEncounters));
     }
 
+    entry.bossFight = undefined;
     const players: PartyCombatant[] = [];
     for (const username of entry.members) {
       const session = this.getSession(username);
@@ -615,6 +637,9 @@ export class PartyBattleManager {
     }
 
     const tileId = entry.serverParty.tile.id;
+    const boss = this.worldBossEncounter(entry, tileId);
+    if (boss) return createPartyCombatState(players, [boss]);
+
     const tileDef = this.content.getTileById(tileId);
     const monsters = createEncounter(zone, allMonsters, allZones, allEncounters, tileDef?.encounterTable);
 
@@ -625,7 +650,9 @@ export class PartyBattleManager {
     const entry = this.entries.get(partyId);
     if (!entry) return;
 
-    if (result === 'victory') {
+    if (entry.bossFight) {
+      this.endWorldBossFight(entry, entry.bossFight, result);
+    } else if (result === 'victory') {
       const combat = entry.battleTimer.currentCombat;
       const members = Array.from(entry.members);
       // Hired henchmen take a share of XP, gold and drops, and that share is lost.
@@ -740,6 +767,47 @@ export class PartyBattleManager {
     }
   }
 
+  // --- World bosses ---
+
+  /** The world boss in this room, when it is alive and no member is on cooldown. */
+  private worldBossEncounter(entry: PartyBattleEntry, tileId: string): MonsterInstance | undefined {
+    const live = this.worldBosses?.liveAt(tileId);
+    if (!live) return undefined;
+    const { bossId, spawnedAt } = live.state;
+    const sessions = [...entry.members].map(m => this.getSession(m));
+    if (sessions.some(s => !s || s.isOnWorldBossCooldown(bossId, spawnedAt))) return undefined;
+    const instance = this.worldBosses!.createInstance(live);
+    if (instance) entry.bossFight = { bossId, spawnedAt, lastHp: instance.currentHp };
+    return instance;
+  }
+
+  /** Write this tick's boss damage to the shared HP, then take on what other parties dealt. */
+  private syncWorldBoss(partyId: string, combat: PartyCombatState): void {
+    const fight = this.entries.get(partyId)?.bossFight;
+    const boss = combat.monsters[0];
+    if (!fight || !this.worldBosses || !boss) return;
+    const dealt = Math.max(0, fight.lastHp - boss.currentHp);
+    boss.currentHp = this.worldBosses.dealDamage(fight.bossId, fight.spawnedAt, creditBossDamage(combat, dealt));
+    fight.lastHp = boss.currentHp;
+  }
+
+  private endWorldBossFight(entry: PartyBattleEntry, fight: NonNullable<PartyBattleEntry['bossFight']>, result: BattleResult): void {
+    const def = this.content.getAllWorldBosses()[fight.bossId];
+    const name = def?.name ?? 'The world boss';
+    for (const username of entry.members) {
+      const session = this.getSession(username);
+      if (!session) continue;
+      if (result === 'victory') {
+        session.addLogEntry(`${name} has fallen!`, 'victory');
+        continue;
+      }
+      if (!def) continue;
+      const cooldown = session.recordWorldBossDefeat(def, fight.spawnedAt);
+      const minutes = Math.max(1, Math.ceil((cooldown.until - Date.now()) / 60_000));
+      session.addLogEntry(`Defeated by ${name}. You can challenge it again in ${minutes} min.`, 'defeat');
+    }
+  }
+
   // --- Dungeon runtime ---
 
   /**
@@ -778,7 +846,7 @@ export class PartyBattleManager {
       if (!className) return { success: false, error: `${username} has no class yet.` };
       let hasRequiredItem = true;
       if (requiredItemId) {
-        const inInventory = session.getInventoryCount(requiredItemId) >= 1;
+        const inInventory = session.getInventoryTemplateCount(requiredItemId) >= 1;
         // Consumed items must come from inventory; otherwise equipped also counts.
         hasRequiredItem = consumes ? inInventory : (inInventory || session.hasItemEquipped(requiredItemId));
       }
@@ -792,7 +860,7 @@ export class PartyBattleManager {
     // Consume the entry item from every member (validation guarantees it's present).
     if (requiredItemId && consumes) {
       for (const username of entry.members) {
-        this.getSession(username)?.removeOneFromInventory(requiredItemId);
+        this.getSession(username)?.consumeByTemplate(requiredItemId, 1);
       }
     }
 
@@ -936,7 +1004,7 @@ export class PartyBattleManager {
         if (!session.hasDungeonCleared(dungeon.id)) {
           session.markDungeonCleared(dungeon.id);
           if (dungeon.firstClearGold && dungeon.firstClearGold > 0) {
-            session.grantGold(dungeon.firstClearGold);
+            session.grantGold(dungeon.firstClearGold, 'dungeon_first_clear');
             session.addLogEntry(`First-clear bonus: +${dungeon.firstClearGold} Gold!`, 'victory');
           }
           if (dungeon.firstClearXp && dungeon.firstClearXp > 0) {
@@ -947,8 +1015,7 @@ export class PartyBattleManager {
           for (const { itemId, quantity } of drops) {
             const itemDef = this.content.getItem(itemId);
             if (!itemDef) continue;
-            const delivered = session.receiveItems(itemId, quantity).toInventory;
-            for (let i = 0; i < delivered; i++) session.addLogEntry(`First-clear reward: ${itemDef.name}!`, 'victory');
+            for (const id of session.receiveItems(itemId, quantity).ids) session.addLogEntry(`First-clear reward: ${this.content.getItem(id)?.name}!`, 'victory');
           }
         }
       }
@@ -985,9 +1052,21 @@ export class PartyBattleManager {
       for (const { itemId, quantity } of drops) {
         const itemDef = this.content.getItem(itemId);
         if (!itemDef) continue;
-        const delivered = session.receiveItems(itemId, quantity).toInventory;
-        for (let i = 0; i < delivered; i++) session.addLogEntry(`${label}: ${itemDef.name}!`, 'victory');
+        for (const id of session.receiveItems(itemId, quantity).ids) session.addLogEntry(`${label}: ${this.content.getItem(id)?.name}!`, 'victory');
       }
     }
   }
+}
+
+/** Credit a tick's boss damage to the human who acted, else split it across the party's humans (DoTs, henchmen). */
+export function creditBossDamage(combat: PartyCombatState, dealt: number): Record<string, number> {
+  const humans = combat.players.filter(p => !p.isHenchman);
+  if (dealt <= 0 || humans.length === 0) return {};
+  const action = combat.lastAction;
+  const actor = action?.attackerSide === 'player' ? humans.find(p => p.gridPosition === action.attackerPos) : undefined;
+  if (actor) return { [actor.username]: dealt };
+  const credits: Record<string, number> = {};
+  const each = Math.floor(dealt / humans.length);
+  humans.forEach((p, i) => { credits[p.username] = each + (i < dealt % humans.length ? 1 : 0); });
+  return credits;
 }

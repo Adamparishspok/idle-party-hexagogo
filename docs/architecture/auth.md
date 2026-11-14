@@ -68,3 +68,12 @@ Bearer credentials an admin generates for themselves, used by the MCP content-au
 ## Account deactivation
 
 Admins can suspend accounts via `POST /api/admin/players/:username/deactivate`. Deactivation sets `account.deactivated = true`, kicks the player (closes all WS connections with code 4001), and blocks future logins. Deactivation is checked at: `POST /auth/login`, `GET /auth/verify`, `GET /auth/login-status`, `GET /auth/session`, and WS upgrade. Suspended users see a `SuspensionScreen` with a textarea to submit a reactivation appeal (`POST /auth/appeal`, no session required). Appeals are stored as `account.reactivationRequest`. Admins see appeal indicators and can reactivate via `POST /api/admin/players/:username/reactivate`.
+
+## Maintenance mode & client version check
+
+`MaintenanceMode` (`server/src/game/MaintenanceMode.ts`, persisted to `data/maintenance.json` through the `MaintenanceStore` interface -> `JsonMaintenanceStore`) holds `{ enabled, message, eta }`. Admins set it from the World Manager Overview tab (`GET`/`PUT /api/admin/maintenance`); `GET /api/maintenance` is the public read.
+
+- While enabled, the WS upgrade for any non-admin (`resolveAdminRole`) completes only long enough to send a `maintenance` payload (`{ message, eta }`) and close with code `4503`; no session is logged in. Toggling it on does the same to every already-connected non-admin (`ejectNonAdmins`). The client never auto-reconnects on `4503` and shows `OfflineScreen` in maintenance mode (Retry re-checks).
+- Admins connect normally. The game loop, parties and idle progress are untouched, so players keep progressing while the screen is up.
+- The client appends its compiled `GAME_VERSION` as `?v=` on the WS URL. If it differs from the server's, the server sends `version_mismatch` and the client shows a persistent "new version - Reload" banner (`ReloadPrompt`). This is separate from the existing `serverVersion` (boot-time) auto-reload on state messages.
+

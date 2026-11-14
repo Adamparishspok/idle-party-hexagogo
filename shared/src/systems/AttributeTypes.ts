@@ -3,7 +3,10 @@ import { CLASS_DEFINITIONS, calculateBaseDamage, calculateMaxHp } from './Charac
 import type { EquipmentBonuses, ItemDefinition, ItemRarity } from './ItemTypes.js';
 import { computeEquipmentBonuses } from './ItemTypes.js';
 import type { SetBonuses, SetDefinition } from './SetTypes.js';
+import type { SocketedJewels } from './SocketTypes.js';
+import { activeJewelIds } from './SocketTypes.js';
 import { computeActiveSetBonuses, getActiveBreakpoint, setAppliesToClass } from './SetTypes.js';
+import { getEquippedItemIds } from './InventoryView.js';
 
 // See docs/architecture/gear-stats-bank.md for the formulas and worked numbers.
 
@@ -63,6 +66,7 @@ export interface DerivedStatsInput {
   equipment: Record<string, string | null>;
   items: Record<string, ItemDefinition>;
   sets?: Record<string, SetDefinition>;
+  socketedJewels?: SocketedJewels;
 }
 
 // --- Constants ---
@@ -162,8 +166,7 @@ export function computeSetAttributes(
   className?: string | null,
 ): AttributeBlock {
   const total = emptyAttributes();
-  const equipped = new Set<string>();
-  for (const id of Object.values(equipment)) if (id) equipped.add(id);
+  const equipped = getEquippedItemIds(equipment);
   for (const set of Object.values(sets)) {
     if (!setAppliesToClass(set, className)) continue;
     const count = set.itemIds.filter(id => equipped.has(id)).length;
@@ -180,11 +183,14 @@ export function computeDerivedStats(input: DerivedStatsInput): DerivedStats {
   const primaryAttribute = profile.primary;
 
   const baseAttributes = classBaseAttributes(level, className);
-  const gearAttributes = equipmentAttributes(equipment, items, level);
+  const jewelRow: Record<string, string> = {};
+  activeJewelIds(equipment, input.socketedJewels, items).forEach((id, i) => { jewelRow[`jewel${i}`] = id; });
+  const withJewels = { ...equipment, ...jewelRow };
+  const gearAttributes = equipmentAttributes(withJewels, items, level);
   addAttributes(gearAttributes, computeSetAttributes(equipment, sets, className));
   const attributes = addAttributes({ ...baseAttributes }, gearAttributes);
 
-  const legacy = computeEquipmentBonuses(equipment, items, level);
+  const legacy = computeEquipmentBonuses(withJewels, items, level);
   const setBonuses: SetBonuses = computeActiveSetBonuses(equipment, sets, className).bonuses;
 
   const flatHp = setBonuses.flatHp ?? 0;

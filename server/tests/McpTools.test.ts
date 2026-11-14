@@ -142,6 +142,20 @@ describe('validateDraft', () => {
     expect(result.problems).toEqual([]);
   });
 
+  it('warns when a world boss sits in the new-player start room', async () => {
+    const { deps, contentStore, versionStore } = await setupDeps();
+    const snapshot = contentStore.toSnapshot();
+    const { startTile, defaultMapId } = snapshot.world;
+    const startId = snapshot.world.tiles.find(t => t.mapId === defaultMapId && t.col === startTile.col && t.row === startTile.row)!.id;
+    snapshot.worldBosses = [{
+      id: 'start_boss', name: 'Start Boss', monsterId: snapshot.monsters[0].id, maxHp: 50000, tileIds: [startId],
+    } as never];
+    const version = await versionStore.createDraft('start boss draft', null, snapshot);
+
+    const result = await validateDraft(deps, version.id);
+    expect(result.problems?.some(p => p.startsWith("Warning: world boss 'start_boss'"))).toBe(true);
+  });
+
   it('reports a broken quest prerequisite reference and nothing else spurious', async () => {
     const { deps, contentStore, versionStore } = await setupDeps();
     const snapshot = contentStore.toSnapshot();

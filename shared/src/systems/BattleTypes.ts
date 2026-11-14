@@ -17,7 +17,10 @@ import type {
 } from './SocialTypes.js';
 import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
+import type { ClientWorldBoss } from './WorldBossTypes.js';
+import type { ClientTutorialState } from './TutorialTypes.js';
 import type { DerivedStats } from './AttributeTypes.js';
+import type { ClientSocketMessage, SocketErrorCode, SocketedJewels } from './SocketTypes.js';
 import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
 import type { BankErrorCode, ClientBankState, ClientBankMessage } from './BankTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
@@ -32,7 +35,7 @@ export const COMBAT_TICK_MS = 1000;
 export const RESULT_PAUSE = 600;      // ms to show victory/defeat before movement
 export const MOVE_DURATION = 400;     // ms for tile movement (client animation)
 export const RUN_AVAILABLE_ROUNDS = 5; // rounds before "Run" becomes available
-export const GAME_VERSION = '2026.10.09.1'; // Keep in sync with PATCH_NOTES in client
+export const GAME_VERSION = '2026.11.13.1'; // Keep in sync with PATCH_NOTES in client
 
 // --- Protocol types (server → client, client → server) ---
 
@@ -133,6 +136,8 @@ export interface ClientCharacterState {
   inventoryCapacity: number;
   /** Loot that arrived while the backpack was full; claim or discard from anywhere. */
   lostAndFound: Record<string, number>;
+  /** Jewels socketed per equipment slot. Socketed jewels are not in `inventory`. */
+  socketedJewels: SocketedJewels;
 }
 
 export interface ClientResetXpRateMessage {
@@ -175,6 +180,8 @@ export interface ServerStateMessage {
   /** The map the player's party is currently on. The client renders only this map's rooms. */
   currentMapId: string;
   otherPlayers: OtherPlayerState[];
+  /** Players left out of `otherPlayers` per room (keyed by `roomKey`) when a room is over the cap. */
+  hiddenPlayersByRoom?: Record<string, number>;
   combatLog: CombatLogEntry[];
   battleCount: number;
   character: ClientCharacterState | null;
@@ -218,6 +225,12 @@ export interface ServerStateMessage {
   dungeon?: DungeonRunInfo;
   /** The player's bank — present only while the party stands in a banker's room. */
   bank?: ClientBankState;
+  /** Every live world boss, with this player's retry cooldown. */
+  worldBosses?: ClientWorldBoss[];
+  /** Player this player's party is following, if any. */
+  following?: string;
+  /** New-player tutorial step and locked tabs. Absent when there is nothing to show or lock. */
+  tutorial?: ClientTutorialState;
   /** Server version identifier — changes on restart/deploy, triggers client reload on mismatch. */
   serverVersion: string;
 }
@@ -315,6 +328,7 @@ export interface ClientUnequipSkillMessage {
  * to rather than just log. Most errors carry no code.
  */
 export type ServerErrorCode =
+  | 'follow_stopped'
   | 'trade_nonce_mismatch'
   | 'house_not_for_sale'
   | 'house_already_owned'
@@ -331,6 +345,7 @@ export type ServerErrorCode =
   | 'home_cannot_travel'
   | 'home_invalid_request'
   | InventoryErrorCode
+  | SocketErrorCode
   | BankErrorCode;
 
 export interface WelcomeBackItem {
@@ -450,8 +465,38 @@ export interface ClientEnterTransitionMessage {
   tileId: string;
 }
 
+/** Sent to a non-admin the server is turning away (or kicking) during maintenance. */
+export interface ServerMaintenanceMessage {
+  type: 'maintenance';
+  message: string;
+  eta: string | null;
+}
+
+/** Sent when the client's reported build differs from the server's GAME_VERSION. */
+export interface ServerVersionMismatchMessage {
+  type: 'version_mismatch';
+  serverVersion: string;
+}
+
+export interface ClientFollowPlayerMessage {
+  type: 'follow_player';
+  username: string;
+}
+
+export interface ClientStopFollowingMessage {
+  type: 'stop_following';
+}
+
+export interface ClientTutorialMessage {
+  type: 'tutorial_open_screen' | 'tutorial_skip';
+  screen?: string;
+}
+
 export type ClientMessage =
+  | ClientTutorialMessage
   | ClientMoveMessage
+  | ClientFollowPlayerMessage
+  | ClientStopFollowingMessage
   | ClientRequestStateMessage
   | ClientEquipItemMessage
   | ClientUnequipItemMessage
@@ -476,4 +521,5 @@ export type ClientMessage =
   | ClientNotificationMessage
   | ClientHousingMessage
   | ClientInventoryMessage
+  | ClientSocketMessage
   | ClientBankMessage;

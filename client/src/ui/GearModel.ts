@@ -97,6 +97,7 @@ export function derivedInputFromState(state: ServerStateMessage | null): Derived
     equipment: char.equipment,
     items: allItemDefs(state),
     sets: state.setDefinitions ?? {},
+    socketedJewels: char.socketedJewels,
   };
 }
 

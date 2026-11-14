@@ -207,6 +207,34 @@ Counting rules:
 - `discard_lost_found { itemId }` destroys a pouch stack.
 - This replaces today's "crafted X but inventory full — lost N" path. Crafted output goes to the pouch first.
 
+### Sockets and jewels (`SocketTypes.ts`)
+
+Items have no per-copy instances, so sockets bind to the **equipment slot**, not the item: `character.socketedJewels: Record<slotKey, jewelId[]>`.
+
+- Content: `ItemDefinition.sockets` (0–3, equippable items only) and `ItemDefinition.jewel` (no `equipSlot`, `bagSlots` or `sockets`). A jewel's `attributes` and attack/armor/resist fields apply while socketed.
+- A 2H weapon's sockets live on `mainhand`; its `offhand` mirror has none (`socketCapacity`).
+- `socket_jewel { slot, itemId }` moves one jewel from the backpack into a free socket of the worn item. `unsocket_jewel { slot, index }` returns it, refused with `socket_inventory_full` when the backpack has no room (`fitsInventoryChanges`). Errors: `socket_invalid_slot`, `socket_not_a_jewel`, `socket_jewel_missing`, `socket_no_free_socket`, `socket_invalid_index`, `socket_inventory_full`.
+- Equip, unequip and force-destroy equip call `reconcileSockets(previousEquipment)`: every jewel of a slot whose item id changed goes back, and extras beyond the item's socket count are popped. Returned jewels go through `receiveItems`, so a full backpack sends them to Lost & Found and nothing is destroyed. The same reconcile runs on restore, which covers an operator shrinking an item's sockets.
+- Stats: `computeDerivedStats({ socketedJewels })` adds jewel attributes and legacy attack/armor/resist like gear (`activeJewelIds` clips each slot to its socket count). `compareEquip` drops a slot's jewels when the previewed item replaces it.
+- Persisted as `PlayerSaveData.character.socketedJewels` (`normalizeSocketedJewels` on load). Sent as `ClientCharacterState.socketedJewels`, and the jewel defs ride in `itemDefinitions`.
+- Client: the gear picker (tap an equipment slot) lists sockets under the worn item, with Remove and Socket buttons. Item stat blocks show "N sockets" / "Jewel (socketable)".
+- Quest "have item" (collect) objectives count socketed jewels (`PlayerSession.getQuestItemCount`); a hand-in spends backpack copies only (`consumeQuestItems`) and keeps socketed jewels.
+- The same socket list and buttons render in the backpack item popup when the opened item is the one worn in a slot (`ui/SocketsSection.ts`, shared with the gear picker; hand-in closes the popup).
+
+### Random stat rolls (`ItemRolls.ts`)
+
+Items stay keyed by id everywhere (`inventory`, `equipment`, bank, house storage, trades, mailbox, Lost & Found), so a rolled copy is just a **derived id**: `<templateId>~<tableVersion>~<seed base36>`. Its stats are a pure function of template + table + seed; nothing else is stored.
+
+- Content: `ItemDefinition.rolls = { version, stats: { <stat>: { min, max } } }`. Rollable stats: `bonusAttackMin/Max`, `damageReductionMin/Max`, `magicReductionMin/Max`, `strength`, `agility`, `intellect`, `stamina` (whole numbers, `validateRollTable`). A rolled value replaces the template's fixed value; every other field (name, slot, value, sockets, grants, class restriction, artwork) comes from the template. Item ids may not contain `~`.
+- Versioning: `carryRollHistory(prev, next)` runs on every save (`ContentStore.addOrUpdateItem`, `DraftEditor` item upserts, `ContentStore.replaceAll` on deploy against the live item). Changing the ranges gives the table a fresh version and moves the old one into `rollHistory`; removing `rolls` keeps the history. Authors never manage versions. A colliding version authored in a draft is bumped.
+- Where copies roll: `PlayerSession.receiveItems` (the unattended-delivery chokepoint: monster loot, dungeon/world-boss rewards, quest rewards, crafting) gives every copy its own `rollNewItemId`. Shop purchases, admin grants, trades and gifts move ids unchanged, so a shop sells the unrolled template at its fixed stats.
+- Resolution: `resolveItem(id, items)` returns the template for a plain id, the template plus rolled stats for a valid rolled id (with `templateId`, `rollQuality` 0–100, and a "Flawed"/"Superior"/"Perfect" name prefix), and `undefined` for malformed ids, unknown templates or unknown versions, exactly like any unknown item id. `ContentStore.getItem` resolves, and `ContentStore.getAllItems()` returns `withRolledItems(record)`: a proxy whose `items[rolledId]` / `rolledId in items` resolve, while iteration and JSON still list templates only. So every shared rule taking `items` (equip, derived stats, sockets, bags, set grants, compare, simulator) handles rolled ids without its own code. Client records (`itemDefinitions`) are built server-side through `getItem`, so they arrive keyed by the rolled id.
+- Template identity: sets, room gates and dungeon "equipped" checks compare template ids. `getEquippedItemIds` / `getOwnedItemIds` add each rolled item's template id, `getSetsForItem` and the client set badge use `templateIdOf`, and item artwork resolves by template id.
+- Stacking: different rolls are different ids, so each takes its own backpack/bank slot (identical seeds stack, harmlessly). Capacity math is unchanged.
+- Sell price is the template `value`. The stat block shows "Quality N%".
+- Template requirements: a rolled copy satisfies every exact-id requirement by template: recipe ingredients, quest collect objectives, consumed and non-consumed dungeon keys, and room gates. One helper set in `InventoryView.ts` does it: `countByTemplate`, `pickForConsumption` (plain id first, then rolled copies lowest quality first) and `consumeByTemplate`, used by `canQueueRecipe`/`enqueueRecipe`, `PlayerSession.consumeByTemplate`/`getInventoryTemplateCount` and the dungeon entry check. Equipped and socketed items are never consumed. A cancelled craft refunds the plain template id.
+- Loot, quest, dungeon, world-boss and combat-log messages name the rolled copy ("Found Superior Rusty Dagger"): `receiveItems` returns the delivered ids. The welcome-back summary already keys by rolled id.
+
 ## 4. Bank (`BankTypes.ts`)
 
 **Where.** A banker is an ordinary shop with `ShopDefinition.banker: true`. This follows the estate-agent pattern (`houseIds`) and the existing `shopId` link on `WorldTileDefinition`, so there is no new content type and no `ContentSnapshot` change. `ShopSummary.isBanker` lets the map label banker rooms. A banker shop may also sell items.
@@ -323,10 +351,11 @@ There is no new content type and no `ContentSnapshot` change. The new fields rid
   - Attribute inputs (STR/AGI/INT/STA) with the suggested budget for an "item level" helper input.
   - A `bagSlots` input; setting it clears and disables `equipSlot`.
   - Validation: `validateAttributes` and `validateBagItem` in `ContentStore` and `DraftEditor` upserts.
+  - A "Random Rolls" fieldset: min/max per rollable stat (blank = fixed) and a "Preview sample rolls" button that shows five random rolls with their quality. `validateRollTable` runs client-side and in `validateItemDefinition`.
 - **Sets tab.** STR/AGI/INT/STA inputs per breakpoint; set tiers only grant whole, non-negative points (`validateSetDefinition`). `getSetBonusText` lists attribute points; its DR/MR wording is unchanged.
 - **Shops tab.** A "Banker" checkbox.
 - **MCP.**
-  - `get_content_schema` cheat sheet: `ItemDefinition.attributes`/`bagSlots`, `SetBonuses.attributes`, `ShopDefinition.banker`, and the budget formula.
+  - `get_content_schema` cheat sheet: `ItemDefinition.attributes`/`bagSlots`/`rolls`, `SetBonuses.attributes`, `ShopDefinition.banker`, and the budget formula.
   - `validate_draft`: flag bags with an `equipSlot`, out-of-range `bagSlots`, unknown attribute keys, and (warning only) a world with no banker shop placed on any room.
 - **Seed (fresh worlds only).** Add a few bag items (4/6/8/12 slots) and one banker shop on the starting town room. Live servers get nothing automatically: their operators author bags and bankers. Until they do, players there just have the 20-slot backpack with no bags and no bank.
 

@@ -10,7 +10,7 @@
  * places where we deliberately want a tinted swatch instead of a placeholder.
  */
 
-import { assetPublicPath } from '@idle-party-rpg/shared';
+import { assetPublicPath, templateIdOf } from '@idle-party-rpg/shared';
 import type { AssetKind } from '@idle-party-rpg/shared';
 
 export type { AssetKind };
@@ -22,7 +22,7 @@ export type { AssetKind };
  * and serve from their own paths.
  */
 export function artworkUrl(kind: AssetKind, id: string): string {
-  return assetPublicPath(kind, id);
+  return assetPublicPath(kind, kind === 'item' ? templateIdOf(id) : id);
 }
 
 /** An authored URL override first, then the managed upload for `kind`. */

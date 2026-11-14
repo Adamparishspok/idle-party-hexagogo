@@ -49,7 +49,7 @@ import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
 import { buildPaintTiles, roomBuilding, type PaintTileInput } from './map/paintTiles';
 import { TileArtCache, tileArtUrls } from './map/tileArt';
-import { ROOM_ICONS, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
+import { ROOM_ICONS, WORLD_BOSS_ICON, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
 import type { RoomAction, RoomHome } from './RoomActions';
 
 export interface TileClickInfo {
@@ -64,6 +64,7 @@ export interface TileClickInfo {
   isSameZone: boolean;
   isCurrentTile: boolean;
   playersHere: { username: string; className?: string; partyId?: string; dungeonName?: string }[];
+  hiddenPlayers: number;
   partyMemberUsernames: string[];
   dungeonId?: string;
 }
@@ -186,6 +187,7 @@ export class ThreeWorldMap {
   private lastOtherPlayers: OtherPlayerState[] = [];
   /** Players outside the viewer's party, per "col,row" in the current zone. */
   private othersByTile = new Map<string, TileOccupancy>();
+  private hiddenByTile = new Map<string, number>();
   private currentBattleVisual: BattleVisual = 'none';
 
   // Room-action markers on explored rooms, keyed by "col,row".
@@ -193,6 +195,7 @@ export class ThreeWorldMap {
   private readyQuests: ReadonlySet<string> = new Set();
   private readyQuestKey = '';
   private home: RoomHome | undefined;
+  private bossTiles: ReadonlySet<string> = new Set();
   private markersDirty = true;
 
   // Party rendering. Movement is animated by a CSS transition on the
@@ -436,12 +439,23 @@ export class ThreeWorldMap {
     this.partyMemberUsernames = (state.social?.party?.members ?? []).map(m => m.username);
     // Only show players on the same map as us.
     this.lastOtherPlayers = state.otherPlayers.filter(p => !p.mapId || p.mapId === state.currentMapId);
+    this.hiddenByTile = new Map();
+    for (const [key, hidden] of Object.entries(state.hiddenPlayersByRoom ?? {})) {
+      const [mapId, tile] = key.split(':');
+      if (mapId === (state.currentMapId ?? '')) this.hiddenByTile.set(tile, hidden);
+    }
     this.othersByTile = this.groupOtherPlayers();
     this.serverPath = state.party.path ?? [];
 
     const home = roomHome(state.house);
     if (home?.tileId !== this.home?.tileId || home?.name !== this.home?.name) {
       this.home = home;
+      this.markersDirty = true;
+    }
+
+    const bossTiles = new Set((state.worldBosses ?? []).map(b => b.tileId));
+    if ([...bossTiles].sort().join(',') !== [...this.bossTiles].sort().join(',')) {
+      this.bossTiles = bossTiles;
       this.markersDirty = true;
     }
 
@@ -513,6 +527,7 @@ export class ThreeWorldMap {
       isSameZone,
       isCurrentTile: col === this.playerCol && row === this.playerRow,
       playersHere,
+      hiddenPlayers: isSameZone ? this.hiddenByTile.get(`${col},${row}`) ?? 0 : 0,
       partyMemberUsernames: this.partyMemberUsernames,
       dungeonId: def?.dungeonId,
     };
@@ -1306,6 +1321,10 @@ export class ThreeWorldMap {
         groups.set(key, { col: other.col, row: other.row, count: 1, inDungeon: !!other.inDungeon });
       }
     }
+    for (const [key, hidden] of this.hiddenByTile) {
+      const group = groups.get(key);
+      if (group) group.count += hidden;
+    }
     return groups;
   }
 
@@ -1388,20 +1407,28 @@ export class ThreeWorldMap {
     for (const [key, def] of this.worldTileDefs) {
       if (!this.worldCache.isUnlocked(def.col, def.row)) continue;
       const actions = getRoomActions(def, this.worldCache, this.readyQuests, this.home);
-      if (actions.length === 0) continue;
-      this.roomActions.set(key, actions);
-      markers.appendChild(this.buildMarker(def.col, def.row, actions));
+      const hasBoss = !!def.id && this.bossTiles.has(def.id);
+      if (actions.length === 0 && !hasBoss) continue;
+      if (actions.length > 0) this.roomActions.set(key, actions);
+      markers.appendChild(this.buildMarker(def.col, def.row, actions, hasBoss));
     }
     this.markersEl.replaceChildren(markers);
   }
 
-  private buildMarker(col: number, row: number, actions: RoomAction[]): HTMLElement {
+  private buildMarker(col: number, row: number, actions: RoomAction[], hasBoss: boolean): HTMLElement {
     const p = cubeToPixel(offsetToCube({ col, row }));
     const marker = document.createElement('div');
     marker.className = 'three-map-marker';
     marker.style.left = `${p.x}px`;
     marker.style.top = `${p.y + HEX_SIZE * 0.55}px`;
 
+    if (hasBoss) {
+      const boss = document.createElement('span');
+      boss.className = 'three-map-marker-icon three-map-marker-boss';
+      boss.textContent = WORLD_BOSS_ICON;
+      boss.title = 'World boss';
+      marker.appendChild(boss);
+    }
     const { shown, more } = markerGlyphs(actions);
     for (const action of shown) {
       const icon = document.createElement('span');

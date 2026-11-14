@@ -1,4 +1,4 @@
-import { GameClient } from './network/GameClient';
+import { GameClient, MAINTENANCE_ERROR } from './network/GameClient';
 import { WorldCache } from './network/WorldCache';
 import { getSession, loginWithEmail, verifyToken, pollLoginStatus, setUsername } from './network/AuthClient';
 import { ScreenManager } from './screens/ScreenManager';
@@ -17,6 +17,7 @@ import { CraftingScreen } from './screens/CraftingScreen';
 import { ClassSelectScreen } from './screens/ClassSelectScreen';
 import { SuspensionScreen } from './screens/SuspensionScreen';
 import { BottomNav } from './ui/BottomNav';
+import { TutorialPanel } from './ui/TutorialPanel';
 import { ChatLocalStore } from './network/ChatLocalStore';
 import { ChatPopout } from './ui/ChatPopout';
 import { PersistentXpBar } from './ui/PersistentXpBar';
@@ -24,10 +25,12 @@ import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
 import { HomeView } from './ui/HomeView';
 import { BankView } from './ui/BankView';
-import { installGearErrorToasts } from './ui/GameToast';
+import { installGearErrorToasts, installFollowToasts } from './ui/GameToast';
 import { installItemTooltips } from './ui/ItemStats';
 import { derivedInputFromState, isKnownClass } from './ui/GearModel';
 import { WellRestedChip } from './ui/WellRestedChip';
+import { FollowChip } from './ui/FollowChip';
+import { showReloadPrompt } from './ui/ReloadPrompt';
 import { WelcomeBackModal } from './ui/WelcomeBackModal';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 import { wireGameSounds } from './audio/SoundEvents';
@@ -278,12 +281,19 @@ export class App {
       this.showSuspensionScreen();
     });
 
+    this.gameClient.onMaintenance((msg) => {
+      this.showMaintenanceScreen(msg.message, msg.eta);
+    });
+    this.gameClient.onVersionMismatch(showReloadPrompt);
+
     // Connect WS first (creates PlayerSession server-side), then load world data
     // (world endpoint requires the player session to exist)
     const connectResult = await this.gameClient.connect();
 
     if (!connectResult.success) {
+      if (connectResult.error === MAINTENANCE_ERROR) return;
       if (connectResult.error === CONNECTION_ERROR) {
+        this.offlineScreen.showUnavailable();
         this.screenManager.switchTo('offline');
         return;
       }
@@ -361,6 +371,14 @@ export class App {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+  }
+
+  private showMaintenanceScreen(message: string, eta: string | null): void {
+    this.offlineScreen.showMaintenance(message, eta);
+    this.navEl.style.display = 'none';
+    this.xpBarEl.style.display = 'none';
+    this.hudEl.style.display = 'none';
+    this.screenManager.switchTo('offline');
   }
 
   private showSuspensionScreen(email?: string): void {
@@ -490,6 +508,7 @@ export class App {
     // character screen. Both route through the nav so its highlight stays
     // in sync with the visible root.
     const goToRoot = (id: string) => {
+      if (this.gameClient.lastState?.tutorial?.locked.includes(id as never)) return;
       this.screenManager.switchTo(id);
       nav.setActive(id);
       hud.setSettingsActive(id === 'settings');
@@ -503,6 +522,7 @@ export class App {
     const bank = new BankView(this.gameClient, skills);
     mapScreen.setOnOpenBank(() => bank.show());
     installGearErrorToasts(this.gameClient, (code) => bank.claimsError(code));
+    installFollowToasts(this.gameClient);
     installItemTooltips(() => {
       const state = this.gameClient.lastState;
       const cls = state?.character?.className;
@@ -517,6 +537,7 @@ export class App {
     hud.setSettingsActive(savedScreen === 'settings');
     new PersistentXpBar(this.gameClient, () => goToRoot('items'));
     new WellRestedChip(this.gameClient, this.xpBarEl);
+    new FollowChip(this.gameClient, this.xpBarEl);
 
     // Wire popout → nav so closing the popout from its own button clears the
     // overlay-active state, and unread mail lights up the Chat tab badge.
@@ -565,6 +586,14 @@ export class App {
     // Subscribed last so it opens above the restored screen; an early summary is replayed.
     const welcomeBack = new WelcomeBackModal();
     this.gameClient.onWelcomeBack((msg) => welcomeBack.show(msg));
-    startTourWhenClear(tour, () => isNewPlayer(this.gameClient.lastState) && !isTourDone());
+    new TutorialPanel(this.gameClient);
+    const applyTutorialLocks = () => {
+      const locked = this.gameClient.lastState?.tutorial?.locked ?? [];
+      nav.setLockedTabs(locked);
+      if (locked.includes((sessionStorage.getItem('activeScreen') ?? '') as never)) goToRoot('combat');
+    };
+    this.gameClient.subscribe(applyTutorialLocks);
+    applyTutorialLocks();
+    startTourWhenClear(tour, () => isNewPlayer(this.gameClient.lastState) && !isTourDone() && !this.gameClient.lastState?.tutorial);
   }
 }

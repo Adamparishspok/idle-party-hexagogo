@@ -1,6 +1,7 @@
 import type { ClassName } from './CharacterStats.js';
 import type { EquipSlot, ItemDefinition, ItemRarity } from './ItemTypes.js';
 import type { SkillDefinition } from './SkillTypes.js';
+import type { SocketedJewels } from './SocketTypes.js';
 import type { AttributeName, DerivedStats, DerivedStatsInput } from './AttributeTypes.js';
 import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES, CLASS_ATTRIBUTE_PROFILES, computeDerivedStats, itemAttributes } from './AttributeTypes.js';
 import { isBag } from './BagTypes.js';
@@ -22,9 +23,11 @@ export type ItemStatLineKind =
   | 'armor'
   | 'resist'
   | 'bag'
+  | 'socket'
   | 'grant'
   | 'classes'
   | 'heirloom'
+  | 'quality'
   | 'consumable'
   | 'material';
 
@@ -150,7 +153,12 @@ export function statDelta(before: DerivedStats, after: DerivedStats, includeUnch
 /** Stat changes if `itemId` replaced what's in its slot now. */
 export function compareEquip(input: DerivedStatsInput, itemId: string): StatDeltaLine[] {
   const before = computeDerivedStats(input);
-  const after = computeDerivedStats({ ...input, equipment: previewEquip(input.equipment, itemId, input.items) });
+  const preview = previewEquip(input.equipment, itemId, input.items);
+  const kept: SocketedJewels = {};
+  for (const [slot, ids] of Object.entries(input.socketedJewels ?? {})) {
+    if (preview[slot] === input.equipment[slot]) kept[slot] = ids;
+  }
+  const after = computeDerivedStats({ ...input, equipment: preview, socketedJewels: kept });
   return statDelta(before, after);
 }
 
@@ -169,6 +177,8 @@ export function describeItemStats(
 
   if (def.equipSlot) lines.push({ kind: 'slot', text: SLOT_TEXT[def.equipSlot] ?? def.equipSlot, slot: def.equipSlot });
   if (isBag(def)) lines.push({ kind: 'bag', text: `${def.bagSlots}-slot bag` });
+  if (def.jewel) lines.push({ kind: 'socket', text: 'Jewel (socketable)' });
+  if ((def.sockets ?? 0) > 0) lines.push({ kind: 'socket', text: `${def.sockets} ${def.sockets === 1 ? 'socket' : 'sockets'}` });
 
   const attrs = itemAttributes(def, opts.level ?? 1);
   for (const name of ATTRIBUTE_NAMES) {
@@ -187,6 +197,7 @@ export function describeItemStats(
   if (isHeirloom && lines.some(l => l.kind === 'attribute' || l.kind === 'attack' || l.kind === 'armor' || l.kind === 'resist')) {
     lines.push({ kind: 'heirloom', text: 'Grows stronger with your level' });
   }
+  if (def.rollQuality !== undefined) lines.push({ kind: 'quality', text: `Quality ${def.rollQuality}%` });
   if (def.classRestriction && def.classRestriction.length > 0) {
     lines.push({ kind: 'classes', text: `Classes: ${def.classRestriction.join(', ')}` });
   }

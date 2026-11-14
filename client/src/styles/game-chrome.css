@@ -432,6 +432,46 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   }
 }
 
+/* "Following X — Stop" chip on the XP bar. */
+.follow-chip {
+  position: relative;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 55%;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 2px solid var(--ink-900);
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, #2f7a74, #17423f);
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.follow-chip[hidden] {
+  display: none;
+}
+.follow-chip::before {
+  content: '';
+  position: absolute;
+  inset: -20px -8px -6px;
+}
+.follow-chip:active {
+  transform: translateY(1px);
+}
+.follow-chip:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
 /* Level badge on the bar's left end, overlapping the portrait's base. */
 .xpbar-level {
   position: absolute;
@@ -744,7 +784,7 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
 
 /* Scroll regions get room to scroll their last rows clear of the perch. */
 .screen-scroll {
-  padding-bottom: var(--perch-height);
+  padding-bottom: calc(var(--perch-height) + var(--tutorial-reserve, 0px));
 }
 
 /* ── Social fly-out submenu ──────────────────────────────── */
@@ -795,4 +835,24 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   .nav-tab.fighting-pulse .nav-icon > * {
     animation: none;
   }
+}
+
+/* New-version banner (build differs from the server's). */
+.reload-prompt {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + var(--s-3));
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  max-width: calc(100vw - 32px);
+  padding: var(--s-2) var(--s-3);
+  transform: translateX(-50%);
+  border: 2px solid var(--gold-700);
+  border-radius: var(--r-md);
+  background: rgba(20, 14, 8, 0.95);
+  font-family: var(--ui-font);
+  font-size: var(--t-small);
+  color: var(--gold-300);
 }

@@ -5,6 +5,7 @@ import type { GameClient } from '../network/GameClient';
 import { renderNotificationPreferences } from '../ui/NotificationPreferences';
 import { GAME_VERSION } from '@idle-party-rpg/shared';
 import { sound } from '../audio/SoundManager';
+import { showTutorialAgain, TUTORIAL_SHOW_EVENT } from '../ui/TutorialPanel';
 import '../styles/screens/settings.css';
 
 /** Stroke icons for the settings rows — drawn inline so there's no art dependency. */
@@ -91,6 +92,7 @@ export class SettingsScreen implements Screen {
             ${rowHtml('btn-sound', ROW_ICONS.sound, 'Sound', 'Sound effects and volume')}
             ${rowHtml('btn-notifications', ROW_ICONS.notifications, 'Notifications', 'Choose how you hear about events')}
             ${rowHtml('btn-replay-tour', ROW_ICONS.tour, 'Replay Tour', 'A quick walk through the game')}
+            ${rowHtml('btn-show-tutorial', ROW_ICONS.tour, 'Show Tutorial', 'Bring back a hidden tutorial tip')}
             ${rowHtml('btn-patch-notes', ROW_ICONS.patchNotes, 'Patch Notes', 'What’s new in the game')}
           </div>
           <div class="st-list st-list--danger">
@@ -108,6 +110,10 @@ export class SettingsScreen implements Screen {
     btnSound.addEventListener('click', () => this.openSoundOptions());
     btnNotifications.addEventListener('click', () => this.openNotificationPreferences());
     btnPatchNotes.addEventListener('click', () => this.onOpenScreen('patch-notes'));
+    this.container.querySelector('#btn-show-tutorial')!.addEventListener('click', () => {
+      showTutorialAgain(this.gameClient.lastState?.username);
+      window.dispatchEvent(new Event(TUTORIAL_SHOW_EVENT));
+    });
     this.container.querySelector('#btn-replay-tour')!.addEventListener('click', () => this.onReplayTour());
 
     const btnSignOut = this.container.querySelector('#btn-sign-out') as HTMLButtonElement;

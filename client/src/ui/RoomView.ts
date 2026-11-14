@@ -131,7 +131,7 @@ export class RoomView {
       .map(g => this.renderPartyCard(g.members, null, 'rv-party--other', g.dungeonName))
       .join('');
     const othersBlock = otherCards
-      ? `<div class="rv-place__divider">Other parties here</div>${otherCards}`
+      ? `<div class="rv-place__divider">Other parties here</div>${otherCards}${this.hiddenPlayersHtml(info)}`
       : '';
 
     const roomActions = this.actions;
@@ -224,7 +224,7 @@ export class RoomView {
     if (playerCount === 0 && !unexplored) facts.push(this.fact('rv-fact--dim', 'No other adventurers here right now.'));
 
     const partiesBlock = (mineCard || otherCards)
-      ? `<div class="gc-divider rv-preview__divider">Adventurers here</div><div class="rv-preview__parties">${mineCard}${otherCards}</div>`
+      ? `<div class="gc-divider rv-preview__divider">Adventurers here</div><div class="rv-preview__parties">${mineCard}${otherCards}</div>${this.hiddenPlayersHtml(info)}`
       : '';
 
     const kind = info.tileType && !unexplored ? ` · ${this.escapeHtml(info.tileType)}` : '';
@@ -351,6 +351,10 @@ export class RoomView {
   }
 
   /** A party as a card of portrait frames, with optional label and dungeon tag. */
+  private hiddenPlayersHtml(info: TileClickInfo): string {
+    return info.hiddenPlayers > 0 ? `<div class="rv-place__divider">+${info.hiddenPlayers} more</div>` : '';
+  }
+
   private renderPartyCard(
     members: Member[],
     label: string | null,

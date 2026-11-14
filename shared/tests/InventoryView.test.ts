@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { resolveItem } from '../src/systems/ItemRolls';
 import {
   getEquippedCount,
   getUnequippedCount,
@@ -8,6 +9,9 @@ import {
   ownsItem,
   getEquippedItemIds,
   getOwnedItemIds,
+  countByTemplate,
+  pickForConsumption,
+  consumeByTemplate,
   listUnequippedEntries,
   getBagCount,
 } from '../src/systems/InventoryView';
@@ -220,5 +224,29 @@ describe('bags in bag slots', () => {
     expect(ownsItem('satchel', {}, {})).toBe(false);
     expect(getUnequippedCount('satchel', {})).toBe(0);
     expect(getOwnedItemIds({}, {}, bags).has('satchel')).toBe(true);
+  });
+});
+
+describe('template-matched requirements', () => {
+  const rolled = (n: number) => `sword~1~${n}`;
+
+  it('countByTemplate adds plain and rolled copies, not other templates', () => {
+    expect(countByTemplate({ sword: 2, [rolled(5)]: 1, swordfish: 4 }, 'sword')).toBe(3);
+  });
+
+  it('pickForConsumption takes plain first, then lowest quality, and null when short', () => {
+    const inv = { sword: 1, [rolled(1)]: 1, [rolled(2)]: 1 };
+    const items = { sword: { id: 'sword', name: 'S', rarity: 'common', rolls: { version: 1, stats: { strength: { min: 1, max: 100 } } } } } as never;
+    const q = (id: string) => resolveItem(id, items)!.rollQuality!;
+    const [lo, hi] = [rolled(1), rolled(2)].sort((a, b) => q(a) - q(b));
+    expect(pickForConsumption(inv, 'sword', 2, items)).toEqual({ sword: 1, [lo]: 1 });
+    expect(pickForConsumption(inv, 'sword', 4, items)).toBeNull();
+    expect(consumeByTemplate(inv, 'sword', 3, items)).toBe(true);
+    expect(inv).toEqual({});
+    expect(hi).toBeDefined();
+  });
+
+  it('room gates and equipped checks match a rolled worn item by template', () => {
+    expect(getEquippedItemIds({ mainhand: rolled(3) }).has('sword')).toBe(true);
   });
 });

@@ -73,6 +73,7 @@ export {
   addCraftXp,
   addGold,
 } from './systems/CharacterStats.js';
+export type { GoldSource } from './systems/Economy.js';
 export type {
   ClassName,
   DamageType,
@@ -147,6 +148,31 @@ export type {
   EquipmentBonuses,
 } from './systems/ItemTypes.js';
 
+// Random stat rolls on gear
+export {
+  ROLL_ID_SEPARATOR,
+  ROLL_STAT_KEYS,
+  hasRollTable,
+  parseRolledItemId,
+  isRolledItemId,
+  templateIdOf,
+  makeRolledItemId,
+  rollNewItemId,
+  findRollTable,
+  rollItemStats,
+  rollQualityLabel,
+  resolveItem,
+  withRolledItems,
+  carryRollHistory,
+  validateRollTable,
+} from './systems/ItemRolls.js';
+export type {
+  RollStatKey,
+  RollRange,
+  ItemRollTable,
+  ParsedRolledId,
+} from './systems/ItemRolls.js';
+
 // Inventory views (read-only helpers over inventory + equipment)
 export {
   getEquippedCount,
@@ -159,6 +185,10 @@ export {
   getEquippedItemIds,
   getOwnedItemIds,
   listUnequippedEntries,
+  countByTemplate,
+  pickForConsumption,
+  spendPicked,
+  consumeByTemplate,
 } from './systems/InventoryView.js';
 
 // Monster types
@@ -253,6 +283,10 @@ export type {
   CombatLogEntry,
   ServerStateMessage,
   ClientMoveMessage,
+  ServerMaintenanceMessage,
+  ServerVersionMismatchMessage,
+  ClientFollowPlayerMessage,
+  ClientStopFollowingMessage,
   ClientRequestStateMessage,
   ClientEquipItemMessage,
   ClientUnequipItemMessage,
@@ -544,6 +578,8 @@ export {
   validateHouseDefinition,
   SEED_HOUSES,
 } from './systems/HousingTypes.js';
+export { MAX_VISIBLE_PLAYERS_PER_ROOM, roomKey, selectVisiblePlayers } from './systems/RoomPlayerCap.js';
+export type { VisiblePlayers } from './systems/RoomPlayerCap.js';
 export type {
   HouseDefinition,
   HouseOffer,
@@ -565,6 +601,25 @@ export type {
   ClientHousingMessage,
   HomeLocation,
 } from './systems/HousingTypes.js';
+
+// World bosses
+export { worldBossCooldownMs, worldBossShare, validateWorldBossDefinition } from './systems/WorldBossTypes.js';
+export type { WorldBossDefinition, WorldBossState, WorldBossCooldown, ClientWorldBoss } from './systems/WorldBossTypes.js';
+export {
+  TUTORIAL_FEATURES,
+  TUTORIAL_TRIGGER_TYPES,
+  SEED_TUTORIAL_STEPS,
+  newTutorialProgress,
+  restoreTutorialProgress,
+  orderedTutorialSteps,
+  currentTutorialStep,
+  lockedTutorialFeatures,
+  buildClientTutorialState,
+  advanceTutorial,
+  skipTutorial,
+  validateTutorialStep,
+} from './systems/TutorialTypes.js';
+export type { TutorialFeature, TutorialTrigger, TutorialEvent, TutorialStepDefinition, TutorialProgress, ClientTutorialState } from './systems/TutorialTypes.js';
 
 // Core attributes and derived stats
 export {
@@ -655,6 +710,29 @@ export type {
   ClientInventoryMessage,
 } from './systems/BagTypes.js';
 
+// Sockets and jewels
+export {
+  MAX_SOCKETS,
+  isJewel,
+  socketCapacity,
+  activeJewelIds,
+  reconcileSockets,
+  socketJewel,
+  peekSocketedJewel,
+  removeSocketedJewel,
+  normalizeSocketedJewels,
+  validateSocketItem,
+  SEED_JEWEL_ITEMS,
+} from './systems/SocketTypes.js';
+export type {
+  SocketedJewels,
+  SocketErrorCode,
+  SocketResult,
+  ClientSocketJewelMessage,
+  ClientUnsocketJewelMessage,
+  ClientSocketMessage,
+} from './systems/SocketTypes.js';
+
 // Bank
 export {
   BANK_BASE_TABS,
@@ -685,3 +763,19 @@ export type {
   ClientBankBuyTabMessage,
   ClientBankMessage,
 } from './systems/BankTypes.js';
+
+// Admin battle simulator
+export {
+  BattleSimulation,
+  runBattleSimulation,
+  buildSimCombatant,
+  autoSkillLoadout,
+  simSlotChoices,
+  sanitizeSkillLoadout,
+  createSeededRng,
+  SIM_MAX_BATTLES,
+  SIM_MAX_TICKS,
+  BATTLE_OVERHEAD_MS,
+  EFFECTS_BUCKET,
+} from './systems/BattleSimulator.js';
+export type { SimContent, SimOpponent, SimMemberSpec, SimInput, SimReport, SimStats, SimMemberReport, SimDrop, SimSlotChoice } from './systems/BattleSimulator.js';
