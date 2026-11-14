@@ -294,6 +294,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Persistent XP bar above the bottom nav, visible on every screen
 - [x] WorldQuest-style shell: framed stone nav with raised active tab, perched Quests + Chat buttons, top HUD (gold, zone/room, settings), XP bar with portrait + level badge
 - [x] First-session coach-mark tour for new players (replayable from Settings)
+- [x] Content-driven new-player tutorial that unlocks nav tabs step by step (skippable; existing players unaffected)
 - [x] WorldQuest-style rebuild of every screen and popup on the component kit (combat, character, map chrome + rooms, social, craft, chat, notifications, settings, title flow)
 - [ ] Painted world map (still hex-based underneath) — see `ideas/ui-revamp-worldquest.md`
 - [ ] Painted art for the `ui` chrome kind and nav icons

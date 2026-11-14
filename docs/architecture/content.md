@@ -123,6 +123,8 @@ Houses are **sold through shops** via `ShopDefinition.houseIds`, exactly like he
 
 `WorldBossDefinition` (`shared/src/systems/WorldBossTypes.ts`) is a content type: `id`, `name`, `monsterId` (the monster whose damage, skills and resistances it fights with), `maxHp` (replaces the monster's hp), `tileIds` (spawn rooms by GUID; each spawn picks one at random), `respawnMinSec`/`respawnMaxSec`, optional `despawnAfterSec`, the retry cooldown trio `retryCooldownSec`/`retryCooldownStepSec`/`retryCooldownMaxSec`, reward pools `rewardXp`/`rewardGold`, optional `rewardItems` (`DungeonReward[]`) and `minContributionPct`. `validateWorldBossDefinition` is the one shape check, shared by the admin route, `DraftEditor` and `validate_draft` (which also checks the monster, rooms and items exist). Stored in `data/world-boss-defs.json`, never seeded, edited in the World Manager's World Bosses tab and through the generic MCP draft tools.
 
+**Tutorial steps** (`tutorialSteps`) are keep-when-absent in `replaceAll` too; see `tutorial.md`.
+
 **Snapshot semantics**: `worldBosses` is keep-when-absent in `ContentStore.replaceAll`, like `houses`. Live HP, spawn schedule and contributions are runtime state (`WorldBossStore`), not content — see `docs/architecture/combat.md` → World bosses.
 
 ## NPC system

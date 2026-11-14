@@ -17,6 +17,7 @@ import { CraftingScreen } from './screens/CraftingScreen';
 import { ClassSelectScreen } from './screens/ClassSelectScreen';
 import { SuspensionScreen } from './screens/SuspensionScreen';
 import { BottomNav } from './ui/BottomNav';
+import { TutorialPanel } from './ui/TutorialPanel';
 import { ChatLocalStore } from './network/ChatLocalStore';
 import { ChatPopout } from './ui/ChatPopout';
 import { PersistentXpBar } from './ui/PersistentXpBar';
@@ -507,6 +508,7 @@ export class App {
     // character screen. Both route through the nav so its highlight stays
     // in sync with the visible root.
     const goToRoot = (id: string) => {
+      if (this.gameClient.lastState?.tutorial?.locked.includes(id as never)) return;
       this.screenManager.switchTo(id);
       nav.setActive(id);
       hud.setSettingsActive(id === 'settings');
@@ -583,6 +585,14 @@ export class App {
     // Subscribed last so it opens above the restored screen; an early summary is replayed.
     const welcomeBack = new WelcomeBackModal();
     this.gameClient.onWelcomeBack((msg) => welcomeBack.show(msg));
-    startTourWhenClear(tour, () => isNewPlayer(this.gameClient.lastState) && !isTourDone());
+    new TutorialPanel(this.gameClient);
+    const applyTutorialLocks = () => {
+      const locked = this.gameClient.lastState?.tutorial?.locked ?? [];
+      nav.setLockedTabs(locked);
+      if (locked.includes((sessionStorage.getItem('activeScreen') ?? '') as never)) goToRoot('combat');
+    };
+    this.gameClient.subscribe(applyTutorialLocks);
+    applyTutorialLocks();
+    startTourWhenClear(tour, () => isNewPlayer(this.gameClient.lastState) && !isTourDone() && !this.gameClient.lastState?.tutorial);
   }
 }

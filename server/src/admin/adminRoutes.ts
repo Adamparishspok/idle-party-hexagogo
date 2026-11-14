@@ -7,8 +7,8 @@ import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
 import { validateItemDefinition, validateSetDefinition } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
-import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
-import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition, WorldBossDefinition } from '@idle-party-rpg/shared';
+import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, validateTutorialStep, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
+import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition, WorldBossDefinition, TutorialStepDefinition } from '@idle-party-rpg/shared';
 import type { AdminAuth } from './adminMiddleware.js';
 import type { ApiTokenStore, ApiTokenRecord } from '../auth/ApiTokenStore.js';
 import { isApiTokenExpired } from '../auth/ApiTokenStore.js';
@@ -330,6 +330,7 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
       henchmen: content.getAllHenchmen(),
       houses: content.getAllHouses(),
       worldBosses: content.getAllWorldBosses(),
+      tutorialSteps: content.getAllTutorialSteps(),
       tileTypes: content.getAllTileTypes(),
       recipes: content.getAllRecipes(),
       npcs: content.getAllNpcs(),
@@ -987,6 +988,47 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
     }
   });
 
+  // ── Tutorial step endpoints ───────────────────────────────
+
+  router.get('/tutorial-steps', (_req, res) => {
+    res.json({ tutorialSteps: getContentStore().getAllTutorialSteps() });
+  });
+
+  /** Add or update a tutorial step. Supports ?versionId= for draft editing. */
+  router.put('/tutorial-steps/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    const step = req.body as TutorialStepDefinition;
+    const invalid = validateTutorialStep(step);
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+    if (versionId) {
+      const result = await draftEditor.upsertTutorialStep(versionId, step);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, tutorialSteps: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      await content.addOrUpdateTutorialStep(step);
+      res.json({ success: true, tutorialSteps: content.getAllTutorialSteps() });
+    }
+  });
+
+  /** Delete a tutorial step. Supports ?versionId= for draft editing. */
+  router.delete('/tutorial-steps/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    if (versionId) {
+      const result = await draftEditor.deleteTutorialStep(versionId, req.params.id);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, tutorialSteps: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      const result = await content.deleteTutorialStep(req.params.id);
+      if (!result.success) { res.status(400).json({ error: result.error }); return; }
+      res.json({ success: true, tutorialSteps: content.getAllTutorialSteps() });
+    }
+  });
+
   // ── Recipe endpoints ──────────────────────────────────────
 
   /** List all recipes. */
@@ -1589,6 +1631,9 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
     const worldBossesRecord = snapshot.worldBosses !== undefined
       ? toRecord(snapshot.worldBosses)
       : getContentStore().getAllWorldBosses();
+    const tutorialStepsRecord = snapshot.tutorialSteps !== undefined
+      ? toRecord(snapshot.tutorialSteps)
+      : getContentStore().getAllTutorialSteps();
     const skillSlotSchedulesRecord: Record<string, SkillSlot[]> = {};
     if (snapshot.skillSlotSchedules !== undefined) {
       for (const entry of snapshot.skillSlotSchedules) skillSlotSchedulesRecord[entry.className] = entry.slots;
@@ -1597,7 +1642,7 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
       const liveSchedules = getContentStore().getAllSkillSlotSchedules();
       for (const [cn, sl] of Object.entries(liveSchedules)) skillSlotSchedulesRecord[cn] = sl;
     }
-    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, houses: housesRecord, worldBosses: worldBossesRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
+    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, houses: housesRecord, worldBosses: worldBossesRecord, tutorialSteps: tutorialStepsRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
   });
 
   /** Rename a draft version. */

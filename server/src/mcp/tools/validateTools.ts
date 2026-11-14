@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateWorldBossDefinition, validateAttributes, validateBagItem, validateSocketItem } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateWorldBossDefinition, validateTutorialStep, validateAttributes, validateBagItem, validateSocketItem } from '@idle-party-rpg/shared';
 import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
@@ -208,6 +208,18 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
     (boss.rewardItems ?? []).forEach((reward, index) => {
       if (!itemIds.has(reward.itemId)) problems.push(`World boss '${boss.id}' rewardItems references unknown item '${reward.itemId}' (index ${index}).`);
     });
+  }
+
+  // --- Tutorial steps ---
+  for (const step of snapshot.tutorialSteps ?? []) {
+    const invalid = validateTutorialStep(step);
+    if (invalid) problems.push(`Tutorial step '${step.id}': ${invalid}`);
+    if (step.trigger?.type === 'completeQuest' && !questIds.has(step.trigger.questId)) {
+      problems.push(`Tutorial step '${step.id}' trigger references unknown quest '${step.trigger.questId}'.`);
+    }
+    if (step.trigger?.type === 'enterRoom' && step.trigger.tileId && !tileById.has(step.trigger.tileId)) {
+      problems.push(`Tutorial step '${step.id}' trigger references unknown room '${step.trigger.tileId}'.`);
+    }
   }
 
   // --- Recipes ---

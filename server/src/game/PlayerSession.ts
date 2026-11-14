@@ -59,6 +59,12 @@ import {
   normalizeBank,
   toClientBankState,
   worldBossCooldownMs,
+  newTutorialProgress,
+  restoreTutorialProgress,
+  advanceTutorial,
+  skipTutorial,
+  buildClientTutorialState,
+  orderedTutorialSteps,
 } from '@idle-party-rpg/shared';
 import type {
   SocketedJewels,
@@ -110,6 +116,8 @@ import type {
   ClientWorldBoss,
   WorldBossCooldown,
   WorldBossDefinition,
+  TutorialProgress,
+  TutorialEvent,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -166,6 +174,8 @@ export class PlayerSession {
   private lostAndFound: Record<string, number> = {};
   private starterBagGranted = false;
   private worldBossCooldowns: Record<string, WorldBossCooldown> = {};
+  private tutorial: TutorialProgress = newTutorialProgress();
+  private lastTutorialTileId: string | undefined;
   private bank: PlayerBank = normalizeBank(undefined);
   /** Copies lost since the last `consumeLostItems` — batched into one notification per battle. */
   private pendingLost: Record<string, number> = {};
@@ -337,6 +347,7 @@ export class PlayerSession {
       gold: applyRestedBonus(baseRewards.gold, this.wellRestedUntil, now),
     };
     this.addLogEntry('Victory!', 'victory');
+    this.handleTutorialEvent({ type: 'battleWon' });
     if (this.awaySnapshot) this.awaySnapshot.battlesWon++;
 
     if (options?.unlockTiles !== false) {
@@ -383,6 +394,26 @@ export class PlayerSession {
   /** Returns true if this player has a character (has selected a class). */
   hasCharacter(): boolean {
     return this.character !== null;
+  }
+
+  private tutorialSteps() {
+    return orderedTutorialSteps(Object.values(this.content.getAllTutorialSteps()));
+  }
+
+  handleTutorialEvent(event: TutorialEvent): void {
+    const step = advanceTutorial(this.tutorialSteps(), this.tutorial, event);
+    if (step) this.addLogEntry(`Tutorial complete: ${step.title}`, 'unlock');
+  }
+
+  /** Called on each battle start; a room counts as travelled-to only when it differs from the last one seen. */
+  noteTutorialRoom(tileId: string): void {
+    const moved = this.lastTutorialTileId !== undefined && this.lastTutorialTileId !== tileId;
+    this.lastTutorialTileId = tileId;
+    this.handleTutorialEvent({ type: 'enterRoom', tileId, moved });
+  }
+
+  handleTutorialSkip(): void {
+    skipTutorial(this.tutorial);
   }
 
   incrementBattleCount(): void {
@@ -763,6 +794,7 @@ export class PlayerSession {
       }
     }
     this.addLogEntry(`Completed quest: ${def.name}`, 'victory');
+    this.handleTutorialEvent({ type: 'questCompleted', questId });
     return { success: true };
   }
 
@@ -837,6 +869,7 @@ export class PlayerSession {
       bank: this.getBankState(),
       worldBosses: this.getWorldBosses?.(),
       following: this.getFollowTarget?.() ?? undefined,
+      tutorial: buildClientTutorialState(this.tutorialSteps(), this.tutorial),
     };
   }
 
@@ -1496,6 +1529,7 @@ export class PlayerSession {
       lostAndFound: { ...this.lostAndFound },
       starterBagGranted: this.starterBagGranted,
       worldBossCooldowns: { ...this.worldBossCooldowns },
+      tutorial: { ...this.tutorial, completedStepIds: [...this.tutorial.completedStepIds] },
       bank: { tabs: this.bank.tabs.map(tab => ({ ...tab })) },
     };
   }
@@ -1616,6 +1650,7 @@ export class PlayerSession {
     session['pendingLost'] = {};
     session['starterBagGranted'] = data.starterBagGranted ?? false;
     session['worldBossCooldowns'] = { ...(data.worldBossCooldowns ?? {}) };
+    session['tutorial'] = restoreTutorialProgress(data.tutorial);
     session['bank'] = normalizeBank(data.bank);
 
     // Restore craft queue (lazy completion happens on next tick)
@@ -1646,6 +1681,7 @@ export class PlayerSession {
     if (result.success) {
       this.reconcileSocketsAfterEquipmentChange(previous);
       this.reconcileLoadoutAfterEquipmentChange();
+      this.handleTutorialEvent({ type: 'equipItem' });
     }
     return result.success;
   }
@@ -1793,6 +1829,7 @@ export class PlayerSession {
     if (result.success) {
       this.reconcileSocketsAfterEquipmentChange(previous);
       this.reconcileLoadoutAfterEquipmentChange();
+      this.handleTutorialEvent({ type: 'equipItem' });
     }
     return result.success;
   }

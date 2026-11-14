@@ -338,6 +338,7 @@ export const adminSwaggerSpec = {
     { name: 'Monsters', description: 'Monster definition CRUD' },
     { name: 'Zones', description: 'Zone definition CRUD' },
     { name: 'World Bosses', description: 'World boss definition CRUD. Live HP and schedule are runtime state, not content.' },
+    { name: 'Tutorial', description: 'New-player tutorial step CRUD. Steps gate nav tabs until completed.' },
     { name: 'Houses', description: 'Player house definition CRUD. Shops sell houses through ShopDefinition.houseIds.' },
     { name: 'Skills', description: 'Skill definition CRUD and per-class slot schedules' },
     { name: 'World', description: 'World map tile CRUD' },
@@ -740,6 +741,42 @@ export const adminSwaggerSpec = {
         responses: {
           200: { description: 'World boss deleted, returns all world bosses' },
           400: { description: 'World boss not found' },
+        },
+      },
+    },
+
+    // ── Tutorial steps ──
+    '/api/admin/tutorial-steps': {
+      get: {
+        tags: ['Tutorial'],
+        summary: 'List all tutorial steps',
+        responses: { 200: { description: 'All tutorial step definitions keyed by ID' } },
+      },
+    },
+    '/api/admin/tutorial-steps/{id}': {
+      put: {
+        tags: ['Tutorial'],
+        summary: 'Add or update a tutorial step',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+        responses: {
+          200: { description: 'Step saved, returns all steps' },
+          400: { description: 'Invalid tutorial step' },
+        },
+      },
+      delete: {
+        tags: ['Tutorial'],
+        summary: 'Delete a tutorial step',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Step deleted, returns all steps' },
+          400: { description: 'Step not found' },
         },
       },
     },

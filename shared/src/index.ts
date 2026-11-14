@@ -576,6 +576,21 @@ export type {
 // World bosses
 export { worldBossCooldownMs, worldBossShare, validateWorldBossDefinition } from './systems/WorldBossTypes.js';
 export type { WorldBossDefinition, WorldBossState, WorldBossCooldown, ClientWorldBoss } from './systems/WorldBossTypes.js';
+export {
+  TUTORIAL_FEATURES,
+  TUTORIAL_TRIGGER_TYPES,
+  SEED_TUTORIAL_STEPS,
+  newTutorialProgress,
+  restoreTutorialProgress,
+  orderedTutorialSteps,
+  currentTutorialStep,
+  lockedTutorialFeatures,
+  buildClientTutorialState,
+  advanceTutorial,
+  skipTutorial,
+  validateTutorialStep,
+} from './systems/TutorialTypes.js';
+export type { TutorialFeature, TutorialTrigger, TutorialEvent, TutorialStepDefinition, TutorialProgress, ClientTutorialState } from './systems/TutorialTypes.js';
 
 // Core attributes and derived stats
 export {
