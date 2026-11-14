@@ -19,6 +19,7 @@ import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
 import type { ClientWorldBoss } from './WorldBossTypes.js';
 import type { DerivedStats } from './AttributeTypes.js';
+import type { ClientSocketMessage, SocketErrorCode, SocketedJewels } from './SocketTypes.js';
 import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
 import type { BankErrorCode, ClientBankState, ClientBankMessage } from './BankTypes.js';
 import type { ClientNotificationMessage, ServerNotificationMessage } from './NotificationTypes.js';
@@ -134,6 +135,8 @@ export interface ClientCharacterState {
   inventoryCapacity: number;
   /** Loot that arrived while the backpack was full; claim or discard from anywhere. */
   lostAndFound: Record<string, number>;
+  /** Jewels socketed per equipment slot. Socketed jewels are not in `inventory`. */
+  socketedJewels: SocketedJewels;
 }
 
 export interface ClientResetXpRateMessage {
@@ -336,6 +339,7 @@ export type ServerErrorCode =
   | 'home_cannot_travel'
   | 'home_invalid_request'
   | InventoryErrorCode
+  | SocketErrorCode
   | BankErrorCode;
 
 export interface WelcomeBackItem {
@@ -481,4 +485,5 @@ export type ClientMessage =
   | ClientNotificationMessage
   | ClientHousingMessage
   | ClientInventoryMessage
+  | ClientSocketMessage
   | ClientBankMessage;

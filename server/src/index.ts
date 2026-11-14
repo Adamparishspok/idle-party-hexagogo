@@ -31,7 +31,7 @@ import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
 import type { ClassName, ClientBankMessage, ClientHousingMessage, ClientInventoryMessage, InventoryErrorCode, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
 import { HOUSING_MESSAGE_TYPES } from './game/housing/HousingService.js';
-import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES } from './game/InventoryErrors.js';
+import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES, SOCKET_ERROR_MESSAGES, SOCKET_MESSAGE_TYPES } from './game/InventoryErrors.js';
 import { BANK_MESSAGE_TYPES } from './game/bank/BankService.js';
 import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
@@ -640,6 +640,20 @@ wss.on('connection', (ws) => {
           case 'discard_lost_found': error = session.handleDiscardLostFound(inventoryMsg.itemId); break;
         }
         if (error) ws.send(JSON.stringify({ type: 'error', message: INVENTORY_ERROR_MESSAGES[error], code: error }));
+        playerManager.sendStateToPlayer(username);
+        return;
+      }
+
+      if (SOCKET_MESSAGE_TYPES.has(msg.type)) {
+        const session = playerManager.getSessionByUsername(username);
+        if (!session) {
+          ws.send(JSON.stringify({ type: 'error', message: 'No session' }));
+          return;
+        }
+        const error = msg.type === 'socket_jewel'
+          ? session.handleSocketJewel(msg.slot, msg.itemId)
+          : session.handleUnsocketJewel(msg.slot, msg.index);
+        if (error) ws.send(JSON.stringify({ type: 'error', message: SOCKET_ERROR_MESSAGES[error], code: error }));
         playerManager.sendStateToPlayer(username);
         return;
       }

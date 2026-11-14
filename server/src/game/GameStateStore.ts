@@ -42,6 +42,8 @@ export interface PlayerSaveData {
     craftXp?: number;
     /** Equipped bag per bag slot. Absent → all empty (`normalizeBagSlots`). */
     bags?: (string | null)[];
+    /** Jewels per equipment slot. Absent → none (`normalizeSocketedJewels`). */
+    socketedJewels?: Record<string, string[]>;
     // Legacy fields (ignored on load, kept for backward compat with old saves)
     skillPoints?: number;
     stats?: Record<string, number>;

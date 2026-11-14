@@ -13,7 +13,7 @@ import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
 import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
-import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_JEWEL_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem, validateSocketItem } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
 const MONSTERS_FILE = path.join(DATA_DIR, 'monsters.json');
@@ -37,7 +37,7 @@ const DESIGN_NOTES_FILE = path.join(DATA_DIR, 'design-notes.json');
 
 /** Shape checks for an authored item's attributes and bag fields. Returns an error message, or null. */
 export function validateItemDefinition(item: ItemDefinition): string | null {
-  return validateAttributes(item.attributes) ?? validateBagItem(item);
+  return validateAttributes(item.attributes) ?? validateBagItem(item) ?? validateSocketItem(item);
 }
 
 /** Set tiers grant whole attribute points; negatives are allowed, as on items. */
@@ -1243,7 +1243,7 @@ export class ContentStore {
     }
 
     // Items
-    for (const i of [...Object.values(SEED_ITEMS), STARTER_BAG_ITEM, ...SEED_BAG_ITEMS]) {
+    for (const i of [...Object.values(SEED_ITEMS), STARTER_BAG_ITEM, ...SEED_BAG_ITEMS, ...SEED_JEWEL_ITEMS]) {
       this.items.set(i.id, { ...i });
     }
 

@@ -47,6 +47,11 @@ import {
   fitsInventoryChanges,
   routeIncomingItems,
   equipBag,
+  socketJewel,
+  peekSocketedJewel,
+  removeSocketedJewel,
+  reconcileSockets,
+  normalizeSocketedJewels,
   unequipBag,
   claimFromPouch,
   grantStarterBag,
@@ -56,6 +61,8 @@ import {
   worldBossCooldownMs,
 } from '@idle-party-rpg/shared';
 import type {
+  SocketedJewels,
+  SocketErrorCode,
   HiredHenchman,
   HenchmanOffer,
   HouseOffer,
@@ -153,6 +160,7 @@ export class PlayerSession {
   private house: PlayerHouse | null = null;
   private wellRestedUntil: number | undefined;
   private bags: BagSlots = normalizeBagSlots(undefined);
+  private socketedJewels: SocketedJewels = {};
   private lostAndFound: Record<string, number> = {};
   private starterBagGranted = false;
   private worldBossCooldowns: Record<string, WorldBossCooldown> = {};
@@ -305,6 +313,7 @@ export class PlayerSession {
       equipment: this.character.equipment,
       items: this.content.getAllItems(),
       sets: this.content.getAllSets(),
+      socketedJewels: this.socketedJewels,
     });
   }
 
@@ -478,7 +487,7 @@ export class PlayerSession {
 
     // Owned items (unequipped + equipped, deduped)
     const ownedIds = getOwnedItemIds(this.character.inventory, this.character.equipment, this.bags);
-    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound)]) {
+    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound), ...Object.values(this.socketedJewels).flat()]) {
       const def = this.content.getItem(itemId);
       if (def) defs[itemId] = def;
     }
@@ -783,6 +792,7 @@ export class PlayerSession {
         bags: [...this.bags],
         inventoryCapacity: this.getInventoryCapacity(),
         lostAndFound: { ...this.lostAndFound },
+        socketedJewels: this.getSocketedJewels(),
       };
     }
 
@@ -1107,6 +1117,35 @@ export class PlayerSession {
   }
 
   getBags(): BagSlots { return [...this.bags]; }
+  getSocketedJewels(): SocketedJewels {
+    return Object.fromEntries(Object.entries(this.socketedJewels).map(([slot, ids]) => [slot, [...ids]]));
+  }
+
+  handleSocketJewel(slot: unknown, itemId: unknown): SocketErrorCode | null {
+    if (!this.character) return 'socket_invalid_slot';
+    if (typeof slot !== 'string') return 'socket_invalid_slot';
+    if (typeof itemId !== 'string') return 'socket_not_a_jewel';
+    const result = socketJewel(this.character.inventory, this.character.equipment, this.socketedJewels, slot, itemId, this.content.getAllItems());
+    return result.ok ? null : result.error;
+  }
+
+  handleUnsocketJewel(slot: unknown, index: unknown): SocketErrorCode | null {
+    if (!this.character) return 'socket_invalid_slot';
+    if (typeof slot !== 'string') return 'socket_invalid_slot';
+    const jewelId = peekSocketedJewel(this.socketedJewels, slot, index as number);
+    if (!jewelId) return 'socket_invalid_index';
+    if (!this.fitsInventory({ [jewelId]: 1 })) return 'socket_inventory_full';
+    removeSocketedJewel(this.socketedJewels, slot, index as number);
+    this.character.inventory[jewelId] = (this.character.inventory[jewelId] ?? 0) + 1;
+    return null;
+  }
+
+  /** Sends jewels that lost their socket back to the player; overflow goes to Lost & Found, never destroyed. */
+  private reconcileSocketsAfterEquipmentChange(previousEquipment: Record<string, string | null>): void {
+    if (!this.character) return;
+    const removed = reconcileSockets(this.socketedJewels, previousEquipment, this.character.equipment, this.content.getAllItems());
+    for (const jewelId of removed) this.receiveItems(jewelId, 1);
+  }
   getLostAndFound(): Record<string, number> { return { ...this.lostAndFound }; }
 
   handleEquipBag(itemId: unknown, bagIndex: unknown): InventoryErrorCode | null {
@@ -1352,6 +1391,7 @@ export class PlayerSession {
       this.character = createCharacter(this.character.className, this.skillContent());
     }
     this.bags = normalizeBagSlots(undefined);
+    this.socketedJewels = {};
     this.lostAndFound = {};
     this.pendingLost = {};
     this.starterBagGranted = false;
@@ -1416,6 +1456,7 @@ export class PlayerSession {
         craftLevel: this.character.craftLevel,
         craftXp: this.character.craftXp,
         bags: [...this.bags],
+        socketedJewels: this.getSocketedJewels(),
       } : undefined,
       friends: [...this.friends],
       outgoingFriendRequests: [...this.outgoingFriendRequests],
@@ -1558,6 +1599,7 @@ export class PlayerSession {
       : null;
     session['wellRestedUntil'] = data.wellRestedUntil;
     session['bags'] = normalizeBagSlots(data.character?.bags);
+    session['socketedJewels'] = normalizeSocketedJewels(data.character?.socketedJewels);
     session['lostAndFound'] = { ...(data.lostAndFound ?? {}) };
     session['pendingLost'] = {};
     session['starterBagGranted'] = data.starterBagGranted ?? false;
@@ -1576,6 +1618,7 @@ export class PlayerSession {
     // Add server-online log entry
     session['addLogEntry']('Server back online — resuming!', 'battle');
     session.grantStarterBagOnce();
+    if (session.character) session.reconcileSocketsAfterEquipmentChange(session.character.equipment);
 
     return session;
   }
@@ -1586,8 +1629,12 @@ export class PlayerSession {
     if (!def || !def.equipSlot) return false;
     if (this.equipOverflowsInventory(itemId)) return false;
 
+    const previous = { ...this.character.equipment };
     const result = equipItem(this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className);
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+    }
     return result.success;
   }
 
@@ -1667,8 +1714,12 @@ export class PlayerSession {
     const changes = this.simulateEquipment((inv, eq) => unequipItem(inv, eq, slot, items).success);
     if (changes && !this.fitsInventory(changes)) return { success: false, inventoryFull: true };
 
+    const previous = { ...this.character.equipment };
     const result = unequipItem(this.character.inventory, this.character.equipment, slot, items);
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+    }
     return { success: result.success };
   }
 
@@ -1723,10 +1774,14 @@ export class PlayerSession {
     if (!def || !def.equipSlot) return false;
     if (this.equipOverflowsInventory(itemId, true)) return false;
 
+    const previous = { ...this.character.equipment };
     const result = equipItemForceDestroy(
       this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className
     );
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+    }
     return result.success;
   }
 

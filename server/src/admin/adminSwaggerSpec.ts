@@ -39,6 +39,8 @@ const sharedComponents = {
             stamina: { type: 'integer' },
           },
         },
+        sockets: { type: 'integer', minimum: 0, maximum: 3, description: 'Jewel sockets on an equippable item.' },
+        jewel: { type: 'boolean', description: 'Marks a socketable jewel (no equipSlot, bagSlots or sockets).' },
         bagSlots: { type: 'integer', minimum: 1, maximum: 24, description: 'Makes the item a bag (no equipSlot): extra backpack slots while in a bag slot.' },
       },
     },

@@ -662,6 +662,29 @@ export type {
   ClientInventoryMessage,
 } from './systems/BagTypes.js';
 
+// Sockets and jewels
+export {
+  MAX_SOCKETS,
+  isJewel,
+  socketCapacity,
+  activeJewelIds,
+  reconcileSockets,
+  socketJewel,
+  peekSocketedJewel,
+  removeSocketedJewel,
+  normalizeSocketedJewels,
+  validateSocketItem,
+  SEED_JEWEL_ITEMS,
+} from './systems/SocketTypes.js';
+export type {
+  SocketedJewels,
+  SocketErrorCode,
+  SocketResult,
+  ClientSocketJewelMessage,
+  ClientUnsocketJewelMessage,
+  ClientSocketMessage,
+} from './systems/SocketTypes.js';
+
 // Bank
 export {
   BANK_BASE_TABS,

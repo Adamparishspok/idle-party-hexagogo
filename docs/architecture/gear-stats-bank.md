@@ -207,6 +207,19 @@ Counting rules:
 - `discard_lost_found { itemId }` destroys a pouch stack.
 - This replaces today's "crafted X but inventory full — lost N" path. Crafted output goes to the pouch first.
 
+### Sockets and jewels (`SocketTypes.ts`)
+
+Items have no per-copy instances, so sockets bind to the **equipment slot**, not the item: `character.socketedJewels: Record<slotKey, jewelId[]>`.
+
+- Content: `ItemDefinition.sockets` (0–3, equippable items only) and `ItemDefinition.jewel` (no `equipSlot`, `bagSlots` or `sockets`). A jewel's `attributes` and attack/armor/resist fields apply while socketed.
+- A 2H weapon's sockets live on `mainhand`; its `offhand` mirror has none (`socketCapacity`).
+- `socket_jewel { slot, itemId }` moves one jewel from the backpack into a free socket of the worn item. `unsocket_jewel { slot, index }` returns it, refused with `socket_inventory_full` when the backpack has no room (`fitsInventoryChanges`). Errors: `socket_invalid_slot`, `socket_not_a_jewel`, `socket_jewel_missing`, `socket_no_free_socket`, `socket_invalid_index`, `socket_inventory_full`.
+- Equip, unequip and force-destroy equip call `reconcileSockets(previousEquipment)`: every jewel of a slot whose item id changed goes back, and extras beyond the item's socket count are popped. Returned jewels go through `receiveItems`, so a full backpack sends them to Lost & Found and nothing is destroyed. The same reconcile runs on restore, which covers an operator shrinking an item's sockets.
+- Stats: `computeDerivedStats({ socketedJewels })` adds jewel attributes and legacy attack/armor/resist like gear (`activeJewelIds` clips each slot to its socket count). `compareEquip` drops a slot's jewels when the previewed item replaces it.
+- Persisted as `PlayerSaveData.character.socketedJewels` (`normalizeSocketedJewels` on load). Sent as `ClientCharacterState.socketedJewels`, and the jewel defs ride in `itemDefinitions`.
+- Client: the gear picker (tap an equipment slot) lists sockets under the worn item, with Remove and Socket buttons. Item stat blocks show "N sockets" / "Jewel (socketable)".
+- Known gap: socketed jewels do not count for quest "have item" checks (they live outside `inventory`/`equipment`).
+
 ## 4. Bank (`BankTypes.ts`)
 
 **Where.** A banker is an ordinary shop with `ShopDefinition.banker: true`. This follows the estate-agent pattern (`houseIds`) and the existing `shopId` link on `WorldTileDefinition`, so there is no new content type and no `ContentSnapshot` change. `ShopSummary.isBanker` lets the map label banker rooms. A banker shop may also sell items.

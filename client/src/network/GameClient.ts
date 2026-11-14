@@ -1,5 +1,6 @@
 import type { ServerStateMessage, ServerEquipBlockedMessage,
-  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage, ClientInventoryMessage, ClientBankMessage } from '@idle-party-rpg/shared';
+  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage, ClientInventoryMessage,
+  ClientSocketMessage, ClientBankMessage } from '@idle-party-rpg/shared';
 
 const RECONNECT_DELAY = 2000;
 
@@ -605,6 +606,14 @@ export class GameClient {
     this.sendRaw({ ...msg });
   }
 
+  sendSocketJewel(slot: string, itemId: string): void {
+    this.sendTyped({ type: 'socket_jewel', slot, itemId });
+  }
+
+  sendUnsocketJewel(slot: string, index: number): void {
+    this.sendTyped({ type: 'unsocket_jewel', slot, index });
+  }
+
   // --- Bags and Lost & Found ---
 
   sendEquipBag(itemId: string, bagIndex: number): void {
@@ -643,7 +652,7 @@ export class GameClient {
     this.sendTyped({ type: 'bank_buy_tab' });
   }
 
-  private sendTyped(msg: ClientInventoryMessage | ClientBankMessage): void {
+  private sendTyped(msg: ClientInventoryMessage | ClientSocketMessage | ClientBankMessage): void {
     this.sendRaw({ ...msg });
   }
 
