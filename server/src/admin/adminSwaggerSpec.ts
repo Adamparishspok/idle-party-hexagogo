@@ -41,6 +41,8 @@ const sharedComponents = {
         },
         sockets: { type: 'integer', minimum: 0, maximum: 3, description: 'Jewel sockets on an equippable item.' },
         jewel: { type: 'boolean', description: 'Marks a socketable jewel (no equipSlot, bagSlots or sockets).' },
+        rolls: { type: 'object', description: 'Random stat ranges {version, stats: {statKey: {min, max}}}. Looted/crafted/rewarded copies get a rolled id templateId~version~seed. The store versions and archives tables.' },
+        rollHistory: { type: 'array', items: { type: 'object' }, description: 'Prior roll tables, maintained by the store so existing rolled items keep their stats.' },
         bagSlots: { type: 'integer', minimum: 1, maximum: 24, description: 'Makes the item a bag (no equipSlot): extra backpack slots while in a bag slot.' },
       },
     },

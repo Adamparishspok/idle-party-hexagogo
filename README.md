@@ -234,6 +234,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Item gifting (mailbox-based, accept/deny, declined gifts return to sender)
 - [x] Backpack capacity, bag slots, free starter bag and a Lost & Found pouch for overflow loot (server; client UI pending)
 - [x] Bank at banker rooms (tabs bought with gold, travel-based access) (server; client UI pending)
+- [x] Random stat rolls on gear (seeded, reproducible, rebalance-safe)
 
 ### Crafting
 - [x] Crafting framework (per-player FIFO queue, materials reserved at queue time, offline progression, save/restore)

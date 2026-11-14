@@ -98,6 +98,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     bonusAttackMin: 1,
     bonusAttackMax: 3,
     value: 1,
+    rolls: { version: 1, stats: { bonusAttackMin: { min: 0, max: 2 }, bonusAttackMax: { min: 2, max: 4 } } },
   },
   leather_vest: {
     id: 'leather_vest',
@@ -108,6 +109,7 @@ export const SEED_ITEMS: Record<string, ItemDefinition> = {
     damageReductionMax: 2,
     value: 1,
     sockets: 1,
+    rolls: { version: 1, stats: { damageReductionMin: { min: 0, max: 1 }, damageReductionMax: { min: 1, max: 3 }, stamina: { min: 0, max: 2 } } },
   },
   old_leather_boots: {
     id: 'old_leather_boots',

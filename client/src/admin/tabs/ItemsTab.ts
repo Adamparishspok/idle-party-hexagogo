@@ -1,7 +1,7 @@
 import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
-import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES, ATTRIBUTE_NAMES, ATTRIBUTE_ABBREVIATIONS, MAX_BAG_SIZE, MAX_SOCKETS, suggestedAttributeBudget } from '@idle-party-rpg/shared';
-import type { ItemDefinition, ItemRarity, EquipSlot, SkillDefinition, PartialAttributes } from '@idle-party-rpg/shared';
+import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES, ATTRIBUTE_NAMES, ATTRIBUTE_ABBREVIATIONS, MAX_BAG_SIZE, MAX_SOCKETS, suggestedAttributeBudget, ROLL_STAT_KEYS, rollItemStats, rollQualityLabel, validateRollTable } from '@idle-party-rpg/shared';
+import type { ItemDefinition, ItemRarity, EquipSlot, SkillDefinition, PartialAttributes, ItemRollTable, RollStatKey } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
 
@@ -16,8 +16,16 @@ const ITEM_EMOJI_PALETTE = [
   '📜', '🗝', '🔮', '💎', '🔱', '⚱️', '🏺', '🪔', '🧿', '⚙',
 ];
 
+const ROLL_STAT_LABELS: Record<RollStatKey, string> = {
+  bonusAttackMin: 'Attack min', bonusAttackMax: 'Attack max',
+  damageReductionMin: 'Armor min', damageReductionMax: 'Armor max',
+  magicReductionMin: 'Resist min', magicReductionMax: 'Resist max',
+  strength: 'STR', agility: 'AGI', intellect: 'INT', stamina: 'STA',
+};
+
 export class ItemsTab implements Tab {
   private slotFilter = 'all';
+  private editingRollVersion = 1;
 
   render(container: HTMLElement, ctx: AdminContext): void {
     const content = ctx.getDisplayContent();
@@ -69,6 +77,7 @@ export class ItemsTab implements Tab {
       }
       if (i.bagSlots) effects.push(`Bag: ${i.bagSlots} slots`);
       if (i.sockets) effects.push(`${i.sockets} sockets`);
+      if (i.rolls) effects.push(`Rolls v${i.rolls.version}`);
       if (i.jewel) effects.push('Jewel');
       const setName = itemSetMap.get(i.id) ?? '—';
 
@@ -154,6 +163,7 @@ export class ItemsTab implements Tab {
     const isNew = !item;
     const readOnly = ctx.isReadOnly();
     const i = item ?? { id: '', name: '', rarity: 'common' as const };
+    this.editingRollVersion = item?.rolls?.version ?? 1;
 
     const skills = Object.values(ctx.getDisplayContent()?.skills ?? {})
       .sort((a, b) => a.className.localeCompare(b.className) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
@@ -204,6 +214,21 @@ export class ItemsTab implements Tab {
           <label>Item level (budget helper)<input type="number" id="if-itemLevel" value="10" min="1"></label>
         </div>
         <div class="admin-form-hint" id="if-attr-budget"></div>
+      </fieldset>
+      <fieldset class="admin-form-fieldset">
+        <legend>Random Rolls${i.rolls ? ` <span class="admin-form-hint">v${i.rolls.version}</span>` : ''}</legend>
+        <div class="admin-form-hint">Fill a range to roll that stat on every dropped, crafted or rewarded copy (it replaces the fixed value above). Shop purchases use the fixed values. Changing ranges only affects new copies.</div>
+        <div class="admin-form-grid">
+          ${ROLL_STAT_KEYS.map(k => {
+            const r = i.rolls?.stats[k];
+            return `<label>${escapeHtml(ROLL_STAT_LABELS[k])}<span style="display:flex;gap:4px">
+              <input type="number" step="1" class="if-roll" data-stat="${k}" data-bound="min" value="${r?.min ?? ''}" placeholder="min">
+              <input type="number" step="1" class="if-roll" data-stat="${k}" data-bound="max" value="${r?.max ?? ''}" placeholder="max">
+            </span></label>`;
+          }).join('')}
+        </div>
+        <button class="admin-btn admin-btn-sm" id="if-roll-preview" type="button">Preview sample rolls</button>
+        <div class="admin-form-hint" id="if-roll-samples"></div>
       </fieldset>
       <fieldset class="admin-form-fieldset">
         <legend>Display & Type</legend>
@@ -278,6 +303,32 @@ export class ItemsTab implements Tab {
 
     this.wireSkillFilter(root);
     this.wireGearFields(root);
+    root.querySelector('#if-roll-preview')?.addEventListener('click', () => this.previewRolls(root, i.id || 'preview'));
+  }
+
+  private readRollTable(root: HTMLElement): ItemRollTable | undefined {
+    const stats: ItemRollTable['stats'] = {};
+    for (const key of ROLL_STAT_KEYS) {
+      const min = root.querySelector<HTMLInputElement>(`.if-roll[data-stat="${key}"][data-bound="min"]`)?.value.trim() ?? '';
+      const max = root.querySelector<HTMLInputElement>(`.if-roll[data-stat="${key}"][data-bound="max"]`)?.value.trim() ?? '';
+      if (min === '' && max === '') continue;
+      stats[key] = { min: Number(min || max), max: Number(max || min) };
+    }
+    return Object.keys(stats).length > 0 ? { version: this.editingRollVersion, stats } : undefined;
+  }
+
+  private previewRolls(root: HTMLElement, templateId: string): void {
+    const out = root.querySelector<HTMLElement>('#if-roll-samples');
+    if (!out) return;
+    const table = this.readRollTable(root);
+    const error = validateRollTable(table);
+    if (!table || error) { out.textContent = error ?? 'No ranges set.'; return; }
+    const samples = Array.from({ length: 5 }, () => rollItemStats(templateId, table, Math.floor(Math.random() * 0x100000000)));
+    out.innerHTML = samples.map(({ stats, quality }) => {
+      const label = rollQualityLabel(quality);
+      const parts = (Object.entries(stats) as [RollStatKey, number][]).map(([k, v]) => `${ROLL_STAT_LABELS[k]} ${v}`);
+      return `<div>${quality}%${label ? ` (${escapeHtml(label)})` : ''}: ${escapeHtml(parts.join(', '))}</div>`;
+    }).join('');
   }
 
   private wireGearFields(root: HTMLElement): void {
@@ -436,6 +487,10 @@ export class ItemsTab implements Tab {
     if (jewel) item.jewel = true;
     else if (sockets > 0) item.sockets = sockets;
     if (Object.keys(attributes).length > 0) item.attributes = attributes;
+    const rolls = this.readRollTable(root);
+    const rollError = validateRollTable(rolls);
+    if (rollError) { alert(rollError); return; }
+    if (rolls) item.rolls = rolls;
 
     const classRestriction: string[] = [];
     root.querySelectorAll<HTMLInputElement>('.if-class-check').forEach(cb => {
