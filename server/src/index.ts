@@ -29,6 +29,7 @@ import { AssetStore } from './game/AssetStore.js';
 import swaggerUi from 'swagger-ui-express';
 import { adminSwaggerSpec, gameSwaggerSpec } from './admin/adminSwaggerSpec.js';
 import { JsonSessionStore } from './auth/JsonSessionStore.js';
+import { FOLLOW_ERROR_CODE } from './game/social/FollowSystem.js';
 import type { ClassName, ClientBankMessage, ClientHousingMessage, ClientInventoryMessage, InventoryErrorCode, ItemDefinition, RoomEntryFailure, ServerMoveBlockedMessage } from '@idle-party-rpg/shared';
 import { HOUSING_MESSAGE_TYPES } from './game/housing/HousingService.js';
 import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES, SOCKET_ERROR_MESSAGES, SOCKET_MESSAGE_TYPES } from './game/InventoryErrors.js';
@@ -403,7 +404,7 @@ wss.on('connection', (ws) => {
 
       if (msg.type === 'follow_player' && typeof msg.username === 'string') {
         const error = playerManager.follow.start(username, msg.username);
-        if (error) ws.send(JSON.stringify({ type: 'error', message: error }));
+        if (error) ws.send(JSON.stringify({ type: 'error', message: error, code: FOLLOW_ERROR_CODE }));
         return;
       }
 

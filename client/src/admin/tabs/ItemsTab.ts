@@ -3,6 +3,7 @@ import type { AdminContext } from '../AdminContext';
 import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES, ATTRIBUTE_NAMES, ATTRIBUTE_ABBREVIATIONS, MAX_BAG_SIZE, MAX_SOCKETS, suggestedAttributeBudget, ROLL_STAT_KEYS, rollItemStats, rollQualityLabel, validateRollTable } from '@idle-party-rpg/shared';
 import type { ItemDefinition, ItemRarity, EquipSlot, SkillDefinition, PartialAttributes, ItemRollTable, RollStatKey } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
+import { importSeedDefaults } from '../importSeed';
 import { openModal } from '../components/Modal';
 
 const RARITIES: ItemRarity[] = ['janky', 'common', 'uncommon', 'rare', 'epic', 'legendary', 'heirloom'];
@@ -106,7 +107,7 @@ export class ItemsTab implements Tab {
       `;
     }).join('');
 
-    const addBtn = readOnly ? '' : '<button class="admin-btn" id="item-add-btn">+ Add Item</button>';
+    const addBtn = readOnly ? '' : '<span><button class="admin-btn" id="item-import-btn" title="Adds default items and recipes (jewels, sockets, bags...) that are missing by id">Import default items</button> <button class="admin-btn" id="item-add-btn">+ Add Item</button></span>';
     const actionsHeader = '<th>Actions</th>';
 
     container.innerHTML = `
@@ -141,6 +142,7 @@ export class ItemsTab implements Tab {
       this.slotFilter = (e.target as HTMLSelectElement).value;
       ctx.rerenderTab();
     });
+    container.querySelector('#item-import-btn')?.addEventListener('click', () => importSeedDefaults(ctx, 'items', 'items and recipes'));
     container.querySelector('#item-add-btn')?.addEventListener('click', () => {
       this.openForm(null, ctx);
     });

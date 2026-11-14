@@ -3,6 +3,7 @@ import type { AdminContext } from '../AdminContext';
 import type { TutorialFeature, TutorialStepDefinition, TutorialTrigger } from '@idle-party-rpg/shared';
 import { TUTORIAL_FEATURES, TUTORIAL_TRIGGER_TYPES, validateTutorialStep } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
+import { importSeedDefaults } from '../importSeed';
 import { openModal } from '../components/Modal';
 
 export class TutorialTab implements Tab {
@@ -33,7 +34,7 @@ export class TutorialTab implements Tab {
       <div class="admin-page">
         <div class="admin-page-header">
           <h2>Tutorial <span class="admin-count-badge">${steps.length}</span></h2>
-          ${readOnly ? '' : '<button class="admin-btn" id="tut-add-btn">+ Add Step</button>'}
+          ${readOnly ? '' : '<span><button class="admin-btn" id="tut-import-btn">Load default tutorial</button> <button class="admin-btn" id="tut-add-btn">+ Add Step</button></span>'}
         </div>
         <p class="admin-form-hint">Steps run in order for new players. A tab that some step unlocks stays hidden until that step is done. No steps means nothing is hidden. Existing players are never affected.</p>
         <div class="admin-table-wrap">
@@ -45,6 +46,7 @@ export class TutorialTab implements Tab {
       </div>
     `;
 
+    container.querySelector('#tut-import-btn')?.addEventListener('click', () => importSeedDefaults(ctx, 'tutorial', 'tutorial steps'));
     container.querySelector('#tut-add-btn')?.addEventListener('click', () => this.openForm(null, ctx));
     container.querySelectorAll<HTMLButtonElement>('.tut-edit-btn, .tut-view-btn').forEach(btn => {
       btn.addEventListener('click', () => {

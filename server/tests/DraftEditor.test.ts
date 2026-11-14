@@ -27,6 +27,8 @@ let ContentStore: ContentStoreCtor;
 let VersionStore: VersionStoreCtor;
 let DraftEditor: DraftEditorCtor;
 let toRecord: ToRecordFn;
+let seedCatalog: typeof import('../src/game/SeedImport.js').seedCatalog;
+let parseSeedImportKinds: typeof import('../src/game/SeedImport.js').parseSeedImportKinds;
 let tmpDir: string;
 let originalCwd: string;
 
@@ -37,6 +39,7 @@ beforeAll(async () => {
   ({ ContentStore } = await import('../src/game/ContentStore.js'));
   ({ VersionStore } = await import('../src/game/VersionStore.js'));
   ({ DraftEditor, toRecord } = await import('../src/game/DraftEditor.js'));
+  ({ seedCatalog, parseSeedImportKinds } = await import('../src/game/SeedImport.js'));
 });
 
 afterAll(async () => {
@@ -504,6 +507,56 @@ describe('DraftEditor', () => {
       if (!result.success) throw new Error('unreachable');
       expect(result.skills.length).toBeGreaterThan(0);
       expect(result.skillSlotSchedules.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('importMissingSeed', () => {
+    it('draft: adds missing tutorial steps, items and recipes by id and keeps edits', async () => {
+      const { draftEditor, versionId } = await setupDraft();
+      await draftEditor.upsertTutorialStep(versionId, { id: 'fight', order: 1, title: 'Mine', body: 'edited', trigger: { type: 'equipItem' } });
+      const first = await draftEditor.importMissingSeed(versionId, ['tutorial', 'items']);
+      if (!first.success) throw new Error('unreachable');
+      const edited = first.snapshot.tutorialSteps!.find(t => t.id === 'fight');
+      expect(edited?.title).toBe('Mine');
+      const seed = seedCatalog();
+      expect(first.snapshot.tutorialSteps!.map(t => t.id)).toEqual(expect.arrayContaining(seed.tutorialSteps.map(t => t.id)));
+      expect(first.snapshot.recipes!.map(r => r.id)).toEqual(expect.arrayContaining(seed.recipes.map(r => r.id)));
+      const again = await draftEditor.importMissingSeed(versionId, ['tutorial', 'items']);
+      if (!again.success) throw new Error('unreachable');
+      expect(again.counts).toEqual({ tutorialSteps: 0, items: 0, recipes: 0 });
+    });
+
+    it('draft: restores a deleted seed item without overwriting an edited one', async () => {
+      const { draftEditor, versionId } = await setupDraft();
+      const seed = seedCatalog();
+      const [removed, edited] = [seed.items[1], seed.items[2]];
+      await draftEditor.deleteItem(versionId, removed.id);
+      await draftEditor.upsertItem(versionId, { ...edited, name: 'Renamed' });
+      const result = await draftEditor.importMissingSeed(versionId, ['items']);
+      if (!result.success) throw new Error('unreachable');
+      expect(result.snapshot.items.find(i => i.id === removed.id)).toBeDefined();
+      expect(result.snapshot.items.find(i => i.id === edited.id)?.name).toBe('Renamed');
+    });
+
+    it('live: adds only missing entries and persists', async () => {
+      const { contentStore } = await setupDraft();
+      await contentStore.replaceAll({ ...contentStore.toSnapshot(), tutorialSteps: [] });
+      const counts = await contentStore.importMissingSeed(['tutorial']);
+      expect(counts.tutorialSteps).toBe(seedCatalog().tutorialSteps.length);
+      expect(counts.items).toBe(0);
+      expect((await contentStore.importMissingSeed(['tutorial'])).tutorialSteps).toBe(0);
+    });
+
+    it('rejects unknown kinds', () => {
+      expect(parseSeedImportKinds(['nope'])).toBeNull();
+      expect(parseSeedImportKinds([])).toBeNull();
+      expect(parseSeedImportKinds(['items'])).toEqual(['items']);
+    });
+
+    it('rejects a published version', async () => {
+      const { draftEditor, versionStore, versionId } = await setupDraft();
+      await versionStore.publish(versionId);
+      expect((await draftEditor.importMissingSeed(versionId, ['items'])).success).toBe(false);
     });
   });
 });

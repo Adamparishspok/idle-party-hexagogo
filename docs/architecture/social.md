@@ -114,6 +114,8 @@ Same-room checks (party invites, nearby players, the Room filter) compare `mapId
 
 `FollowSystem` (`server/src/game/social/FollowSystem.ts`) lets a party owner or leader tail a player who is not in their party. "Follow" in the user popup sends `follow_player`; the server paths the party to the target's room through `PartyBattleManager.handleMove` (same pathfinding, room-entry gates and fog rules as a manual move), then re-paths every time the target's party moves (`onMembersMoved` hook). State exposes `following` to the client; the XP-bar `FollowChip` shows "Following X - Stop" (`stop_following`).
 
+- A re-path calls `handleMove(..., requireDiscovered = true)`: if the route crosses a room none of the party's members has discovered, the move is rolled back and the follow stops (`The way to X's room crosses rooms you have not discovered.`) rather than stalling at the fog edge.
+- Every follow refusal/stop reaches the player as an `error` message with code `follow_stopped`; `installFollowToasts` (`GameToast.ts`) shows it as a toast.
 - Start is refused for: self, non-movers, offline target, target already in the party, dungeon/home targets, a different map, an undiscovered target room, or an unreachable/gated path.
 - Stops on: Stop, any successful manual move/dungeon entry/transition by a party member, target going offline (last socket closed), target becoming unreachable on a re-path, the follower losing move rights, or joining the target's party.
 - Persists across the follower's disconnect and server restarts (`PlayerSaveData.followTarget`, restored into `FollowSystem` at session creation); a restored follow is validated on the target's next move, so a stale one ends there.

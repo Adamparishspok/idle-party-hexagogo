@@ -25,7 +25,7 @@ import { TopHud } from './ui/TopHud';
 import { NotificationCenter } from './ui/NotificationCenter';
 import { HomeView } from './ui/HomeView';
 import { BankView } from './ui/BankView';
-import { installGearErrorToasts } from './ui/GameToast';
+import { installGearErrorToasts, installFollowToasts } from './ui/GameToast';
 import { installItemTooltips } from './ui/ItemStats';
 import { derivedInputFromState, isKnownClass } from './ui/GearModel';
 import { WellRestedChip } from './ui/WellRestedChip';
@@ -522,6 +522,7 @@ export class App {
     const bank = new BankView(this.gameClient, skills);
     mapScreen.setOnOpenBank(() => bank.show());
     installGearErrorToasts(this.gameClient, (code) => bank.claimsError(code));
+    installFollowToasts(this.gameClient);
     installItemTooltips(() => {
       const state = this.gameClient.lastState;
       const cls = state?.character?.className;

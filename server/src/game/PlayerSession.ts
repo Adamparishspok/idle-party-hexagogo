@@ -418,6 +418,11 @@ export class PlayerSession {
     skipTutorial(this.tutorial);
   }
 
+  resetTutorial(): void {
+    this.tutorial = newTutorialProgress();
+    this.lastTutorialTileId = undefined;
+  }
+
   incrementBattleCount(): void {
     this.battleCount++;
   }
