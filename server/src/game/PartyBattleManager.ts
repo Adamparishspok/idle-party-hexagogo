@@ -259,7 +259,7 @@ export class PartyBattleManager {
   }
 
   /** Handle move request. Returns the unmet requirement if the path is gated. */
-  handleMove(partyId: string, col: number, row: number): { success: true } | { success: false; blocked?: RoomEntryFailure } {
+  handleMove(partyId: string, col: number, row: number, requireDiscovered = false): { success: true } | { success: false; blocked?: RoomEntryFailure; undiscovered?: true } {
     const entry = this.entries.get(partyId);
     if (!entry) return { success: false };
 
@@ -280,6 +280,11 @@ export class PartyBattleManager {
     if (blocked) {
       entry.serverParty.restoreMovementQueue(previousPath);
       return { success: false, blocked };
+    }
+
+    if (requireDiscovered && !this.pathIsDiscovered(entry)) {
+      entry.serverParty.restoreMovementQueue(previousPath);
+      return { success: false, undiscovered: true };
     }
 
     for (const m of entry.members) {
@@ -401,6 +406,11 @@ export class PartyBattleManager {
    * requirements. All members must satisfy every gate. Member info is built
    * once and reused across the path.
    */
+  private pathIsDiscovered(entry: PartyBattleEntry): boolean {
+    const sessions = [...entry.members].map(m => this.getSession(m)).filter(s => s !== undefined);
+    return entry.serverParty.remainingPath.every(tile => sessions.some(s => s.isTileUnlocked(tile)));
+  }
+
   private validatePathRequirements(entry: PartyBattleEntry): RoomEntryFailure | null {
     const path = entry.serverParty.remainingPath;
     if (!path.some(tile => tile.entryRequirements)) return null;

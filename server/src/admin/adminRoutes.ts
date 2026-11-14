@@ -7,6 +7,7 @@ import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
 import { validateItemDefinition, validateSetDefinition } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
+import { SEED_IMPORT_KINDS, parseSeedImportKinds } from '../game/SeedImport.js';
 import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, validateTutorialStep, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
 import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition, WorldBossDefinition, TutorialStepDefinition } from '@idle-party-rpg/shared';
 import type { AdminAuth } from './adminMiddleware.js';
@@ -1029,6 +1030,29 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
     }
   });
 
+  /** Import seed entries (kinds: 'tutorial' | 'items' incl. recipes) whose ids are missing. Never overwrites. Supports ?versionId=. */
+  router.post('/import-seed-defaults', async (req, res) => {
+    const kinds = parseSeedImportKinds((req.body as { kinds?: unknown })?.kinds);
+    if (!kinds) {
+      res.status(400).json({ error: `kinds must be a non-empty list of: ${SEED_IMPORT_KINDS.join(', ')}` });
+      return;
+    }
+    const versionId = req.query.versionId as string | undefined;
+    if (versionId) {
+      const result = await draftEditor.importMissingSeed(versionId, kinds);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      const { snapshot } = result;
+      res.json({
+        success: true, counts: result.counts,
+        tutorialSteps: toRecord(snapshot.tutorialSteps ?? []), items: toRecord(snapshot.items), recipes: toRecord(snapshot.recipes ?? []),
+      });
+    } else {
+      const content = getContentStore();
+      const counts = await content.importMissingSeed(kinds);
+      res.json({ success: true, counts, tutorialSteps: content.getAllTutorialSteps(), items: content.getAllItems(), recipes: content.getAllRecipes() });
+    }
+  });
+
   // ── Recipe endpoints ──────────────────────────────────────
 
   /** List all recipes. */
@@ -1724,6 +1748,26 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
     }
     console.log(`[Admin] Changed "${username}" class to ${className}`);
     res.json({ success: true, className, level: session.getLevel() });
+  });
+
+  /** Reset ('reset') or finish ('complete') a player's tutorial (admin). */
+  router.post('/players/:username/tutorial', (req, res) => {
+    const { username } = req.params;
+    const { action } = req.body as { action?: string };
+    if (action !== 'reset' && action !== 'complete') {
+      res.status(400).json({ error: "action must be 'reset' or 'complete'" });
+      return;
+    }
+    const pm = getPlayerManager();
+    const session = pm.getSessionByUsername(username);
+    if (!session) {
+      res.status(404).json({ error: `Player "${username}" not found` });
+      return;
+    }
+    if (action === 'reset') session.resetTutorial(); else session.handleTutorialSkip();
+    pm.sendStateToPlayer(username);
+    console.log(`[Admin] Tutorial ${action} for "${username}"`);
+    res.json({ success: true });
   });
 
   /** Deploy a published version to the live game. */

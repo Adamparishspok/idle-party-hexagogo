@@ -297,6 +297,11 @@ export class AccountsTab implements Tab {
 
     const roleControl = this.renderRoleControl(account, ctx);
 
+    const tutorialBtns = account.username
+      ? `<button class="admin-btn" id="account-tutorial-reset-btn">Reset tutorial</button>
+         <button class="admin-btn" id="account-tutorial-complete-btn">Complete tutorial</button>`
+      : '';
+
     const actionBtn = account.deactivated
       ? `<button class="admin-btn" id="account-reactivate-btn">Reactivate Account</button>`
       : account.username
@@ -312,7 +317,7 @@ export class AccountsTab implements Tab {
         <div><dt>Class / Level</dt><dd>${account.className ?? '—'} Lv${account.level ?? '—'}</dd></div>
         <div><dt>Admin Role</dt><dd>${roleControl}</dd></div>
       </dl>
-      <div class="admin-modal-actions">${actionBtn}</div>
+      <div class="admin-modal-actions">${tutorialBtns} ${actionBtn}</div>
       ${reactivationSection}
       ${linkedSection}
       <h4>Session History (last ${account.sessionHistory?.length ?? 0})</h4>
@@ -344,6 +349,18 @@ export class AccountsTab implements Tab {
         alert(err instanceof Error ? err.message : 'Failed to suspend');
       }
     });
+
+    for (const action of ['reset', 'complete'] as const) {
+      modal.body.querySelector(`#account-tutorial-${action}-btn`)?.addEventListener('click', async () => {
+        if (!confirm(`${action === 'reset' ? 'Reset' : 'Complete'} the tutorial for "${account.username}"?`)) return;
+        try {
+          await postAdmin(`/api/admin/players/${encodeURIComponent(account.username!)}/tutorial`, { action });
+          alert(`Tutorial ${action === 'reset' ? 'reset' : 'completed'}.`);
+        } catch (err) {
+          alert(err instanceof Error ? err.message : 'Network error');
+        }
+      });
+    }
 
     modal.body.querySelector('#account-reactivate-btn')?.addEventListener('click', async () => {
       if (!confirm(`Reactivate account "${account.username}"?`)) return;

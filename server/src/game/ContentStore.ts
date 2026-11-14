@@ -1,4 +1,6 @@
 import fs from 'fs/promises';
+import { seedCatalog, collectionsForKinds, missingById } from './SeedImport.js';
+import type { SeedImportKind, SeedImportCounts, SeedCatalog } from './SeedImport.js';
 import path from 'path';
 import crypto from 'crypto';
 import type { MonsterDefinition, ItemDefinition, ZoneDefinition, WorldData, WorldTileDefinition, WorldMapMeta, EncounterDefinition, EncounterTableEntry, TileTypeDefinition } from '@idle-party-rpg/shared';
@@ -12,8 +14,8 @@ import type { QuestDefinition } from '@idle-party-rpg/shared';
 import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
-import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_TUTORIAL_STEPS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
-import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_JEWEL_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem, validateSocketItem, validateRollTable, resolveItem, withRolledItems, carryRollHistory, templateIdOf, ROLL_ID_SEPARATOR } from '@idle-party-rpg/shared';
+import { SEED_MONSTERS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_TUTORIAL_STEPS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
+import { TileType, STARTER_BAG_ITEM, SEED_BANKER_SHOP, validateAttributes, validateBagItem, validateSocketItem, validateRollTable, resolveItem, withRolledItems, carryRollHistory, templateIdOf, ROLL_ID_SEPARATOR } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
 const MONSTERS_FILE = path.join(DATA_DIR, 'monsters.json');
@@ -612,6 +614,22 @@ export class ContentStore {
     this.henchmen.delete(id);
     await this.save();
     return { success: true };
+  }
+
+  /** Adds seed entries (tutorial steps, items + recipes) whose ids are missing. Never overwrites. */
+  async importMissingSeed(kinds: readonly SeedImportKind[]): Promise<SeedImportCounts> {
+    const seed = seedCatalog();
+    const stores: Record<keyof SeedCatalog, Map<string, { id: string }>> = {
+      tutorialSteps: this.tutorialSteps, items: this.items, recipes: this.recipes,
+    };
+    const counts: SeedImportCounts = { tutorialSteps: 0, items: 0, recipes: 0 };
+    for (const key of collectionsForKinds(kinds)) {
+      const added = missingById(stores[key].keys(), seed[key]);
+      for (const e of added) stores[key].set(e.id, structuredClone(e));
+      counts[key] = added.length;
+    }
+    if (Object.values(counts).some(n => n > 0)) await this.save();
+    return counts;
   }
 
   // --- Tutorial step CRUD ---
@@ -1284,7 +1302,7 @@ export class ContentStore {
     }
 
     // Items
-    for (const i of [...Object.values(SEED_ITEMS), STARTER_BAG_ITEM, ...SEED_BAG_ITEMS, ...SEED_JEWEL_ITEMS]) {
+    for (const i of seedCatalog().items) {
       this.items.set(i.id, { ...i });
     }
 

@@ -55,4 +55,14 @@ describe('tutorial progress on PlayerSession', () => {
     fresh.noteTutorialRoom('tile-other');
     expect(fresh.getState([]).tutorial?.step?.id).toBe('quests');
   });
+
+  it('admin reset restarts the tutorial after skip, and survives a save round trip', () => {
+    const kit = kitWithTutorial();
+    const session = kit.newSession('alice');
+    session.handleTutorialSkip();
+    expect(session.getState([]).tutorial).toBeUndefined();
+    session.resetTutorial();
+    expect(session.getState([]).tutorial?.step?.id).toBe('fight');
+    expect(kit.roundTrip(session).getState([]).tutorial?.step?.id).toBe('fight');
+  });
 });

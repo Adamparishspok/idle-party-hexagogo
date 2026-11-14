@@ -23,7 +23,7 @@ import { PartyBattleManager } from './PartyBattleManager.js';
 import { HousingService } from './housing/HousingService.js';
 import { BankService } from './bank/BankService.js';
 import { WorldBossSystem } from './WorldBossSystem.js';
-import { FollowSystem } from './social/FollowSystem.js';
+import { FollowSystem, FOLLOW_ERROR_CODE } from './social/FollowSystem.js';
 import type { ContentStore } from './ContentStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 
@@ -123,8 +123,8 @@ export class PlayerManager {
         const tile = partyId ? this.partyBattles.getTile(partyId) : null;
         return !!tile && !!this.sessions.get(follower)?.isTileUnlocked(tile);
       },
-      moveParty: (partyId, col, row) => this.partyBattles.handleMove(partyId, col, row),
-      tell: (username, message) => this.sendErrorToPlayer(username, message),
+      moveParty: (partyId, col, row) => this.partyBattles.handleMove(partyId, col, row, true),
+      tell: (username, message) => this.sendErrorToPlayer(username, message, FOLLOW_ERROR_CODE),
       pushState: (username) => this.sendStateToPlayer(username),
     });
     this.bank = new BankService({
@@ -468,10 +468,10 @@ export class PlayerManager {
   }
 
   /** Send an error message to all connections for a specific player. */
-  sendErrorToPlayer(username: string, message: string): void {
+  sendErrorToPlayer(username: string, message: string, code?: string): void {
     const wsSet = this.playerConnections.get(username);
     if (!wsSet || wsSet.size === 0) return;
-    const payload = JSON.stringify({ type: 'error', message });
+    const payload = JSON.stringify({ type: 'error', message, code });
     for (const ws of wsSet) {
       if (ws.readyState === WebSocket.OPEN) ws.send(payload);
     }

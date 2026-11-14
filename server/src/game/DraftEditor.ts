@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import type { VersionStore, ContentSnapshot } from './VersionStore.js';
 import type { ContentStore } from './ContentStore.js';
+import { seedCatalog, collectionsForKinds, missingById } from './SeedImport.js';
+import type { SeedImportKind, SeedImportCounts } from './SeedImport.js';
 import { validateItemDefinition, validateShopDefinition, STARTER_BAG_DELETE_ERROR } from './ContentStore.js';
 import type {
   MonsterDefinition,
@@ -405,6 +407,26 @@ export class DraftEditor {
     snapshot.worldBosses.splice(idx, 1);
     await this.persist(versionId, snapshot);
     return { success: true, snapshot, entries: snapshot.worldBosses };
+  }
+
+  /** Adds seed entries (tutorial steps, items + recipes) whose ids are missing from the draft. Never overwrites. */
+  async importMissingSeed(versionId: string, kinds: readonly SeedImportKind[]): Promise<{ success: true; snapshot: ContentSnapshot; counts: SeedImportCounts } | { success: false; status: number; error: string }> {
+    const draft = await this.loadDraft(versionId);
+    if ('error' in draft) return { success: false, status: draft.status, error: draft.error };
+    const { snapshot } = draft;
+    const live = this.liveContent();
+    snapshot.tutorialSteps ??= Object.values(live.getAllTutorialSteps());
+    snapshot.recipes ??= Object.values(live.getAllRecipes());
+    const seed = seedCatalog();
+    const counts: SeedImportCounts = { tutorialSteps: 0, items: 0, recipes: 0 };
+    for (const key of collectionsForKinds(kinds)) {
+      const target = snapshot[key] as { id: string }[];
+      const added = missingById(target.map(e => e.id), seed[key]);
+      target.push(...added.map(e => structuredClone(e)));
+      counts[key] = added.length;
+    }
+    await this.persist(versionId, snapshot);
+    return { success: true, snapshot, counts };
   }
 
   // --- Tutorial step CRUD ---

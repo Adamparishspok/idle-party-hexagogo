@@ -11,7 +11,7 @@ function setup() {
   };
   const moves: Array<[string, number, number]> = [];
   const told: Array<[string, string]> = [];
-  const state = { moveOk: true, discovered: true };
+  const state = { moveOk: true, discovered: true, undiscoveredPath: false };
   const host: FollowHost = {
     isOnline: (u) => online.has(u),
     canMoveParty: (u) => movers.has(u),
@@ -19,6 +19,7 @@ function setup() {
     isDiscovered: () => state.discovered,
     moveParty: (p, c, r) => {
       moves.push([p, c, r]);
+      if (state.undiscoveredPath) return { success: false, undiscovered: true };
       return state.moveOk ? { success: true } : { success: false };
     },
     tell: (u, m) => told.push([u, m]),
@@ -113,5 +114,19 @@ describe('FollowSystem', () => {
     expect(t.sys.getTarget('alice')).toBe('bob');
     t.sys.rename('bob', 'bobby');
     expect(t.sys.getTarget('alice')).toBe('bobby');
+  });
+
+  it('refuses to start and tells the player when the path crosses undiscovered rooms', () => {
+    t.state.undiscoveredPath = true;
+    expect(t.sys.start('alice', 'bob')).toMatch(/not discovered/);
+    expect(t.sys.getTarget('alice')).toBeNull();
+  });
+
+  it('stops with a reason instead of stalling when a re-path crosses undiscovered rooms', () => {
+    t.sys.start('alice', 'bob');
+    t.state.undiscoveredPath = true;
+    t.sys.onPartyMoved(new Set(['bob']));
+    expect(t.sys.getTarget('alice')).toBeNull();
+    expect(t.told[0]).toEqual(['alice', expect.stringMatching(/not discovered.*stopped following/)]);
   });
 });

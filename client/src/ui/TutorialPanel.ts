@@ -2,10 +2,36 @@ import type { ClientTutorialState } from '@idle-party-rpg/shared';
 import type { GameClient } from '../network/GameClient';
 import '../styles/screens/tutorial.css';
 
-/** Small card above the nav showing the current tutorial step. Dismissing hides that step only until the next one. */
+export const TUTORIAL_SHOW_EVENT = 'idleparty:tutorial-show';
+const HIDDEN_KEY_PREFIX = 'idleparty.tutorialHidden.';
+
+export function tutorialHiddenKey(username: string): string {
+  return HIDDEN_KEY_PREFIX + username;
+}
+
+function readHiddenStep(username: string | undefined): string | null {
+  if (!username) return null;
+  try { return localStorage.getItem(tutorialHiddenKey(username)); } catch { return null; }
+}
+
+function writeHiddenStep(username: string | undefined, stepId: string | null): void {
+  if (!username) return;
+  try {
+    if (stepId) localStorage.setItem(tutorialHiddenKey(username), stepId);
+    else localStorage.removeItem(tutorialHiddenKey(username));
+  } catch { /* storage unavailable: hide lasts until reload */ }
+}
+
+/** Forgets the saved Hide so the current step shows again. Returns true if one was set. */
+export function showTutorialAgain(username: string | undefined): boolean {
+  const had = readHiddenStep(username) !== null;
+  writeHiddenStep(username, null);
+  return had;
+}
+
+/** Small card above the nav showing the current tutorial step. Hide is remembered per player until the next step. */
 export class TutorialPanel {
   private el: HTMLElement;
-  private dismissedStepId: string | null = null;
 
   constructor(private gameClient: GameClient) {
     this.el = document.createElement('div');
@@ -13,13 +39,14 @@ export class TutorialPanel {
     this.el.setAttribute('role', 'status');
     this.el.hidden = true;
     document.body.appendChild(this.el);
-    gameClient.subscribe((state) => this.render(state.tutorial));
-    this.render(gameClient.lastState?.tutorial);
+    gameClient.subscribe((state) => this.render(state.tutorial, state.username));
+    this.render(gameClient.lastState?.tutorial, gameClient.lastState?.username);
+    window.addEventListener(TUTORIAL_SHOW_EVENT, () => this.render(gameClient.lastState?.tutorial, gameClient.lastState?.username));
   }
 
-  private render(tutorial: ClientTutorialState | undefined): void {
+  private render(tutorial: ClientTutorialState | undefined, username: string | undefined): void {
     const step = tutorial?.step;
-    if (!step || step.id === this.dismissedStepId) {
+    if (!step || step.id === readHiddenStep(username)) {
       this.el.hidden = true;
       return;
     }
@@ -39,7 +66,7 @@ export class TutorialPanel {
       if (confirm('Skip the tutorial and unlock everything?')) this.gameClient.sendTutorialSkip();
     });
     this.el.querySelector('[data-act="hide"]')!.addEventListener('click', () => {
-      this.dismissedStepId = step.id;
+      writeHiddenStep(username, step.id);
       this.el.hidden = true;
     });
   }

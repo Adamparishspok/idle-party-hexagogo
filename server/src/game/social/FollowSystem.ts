@@ -1,4 +1,6 @@
-import type { RoomEntryFailure } from '@idle-party-rpg/shared';
+import type { RoomEntryFailure, ServerErrorCode } from '@idle-party-rpg/shared';
+
+export const FOLLOW_ERROR_CODE: ServerErrorCode = 'follow_stopped';
 
 export interface FollowLocation {
   partyId: string;
@@ -14,7 +16,7 @@ export interface FollowHost {
   canMoveParty(username: string): boolean;
   location(username: string): FollowLocation | null;
   isDiscovered(follower: string, target: string): boolean;
-  moveParty(partyId: string, col: number, row: number): { success: true } | { success: false; blocked?: RoomEntryFailure };
+  moveParty(partyId: string, col: number, row: number): { success: true } | { success: false; blocked?: RoomEntryFailure; undiscovered?: true };
   tell(username: string, message: string): void;
   pushState(username: string): void;
 }
@@ -111,6 +113,7 @@ export class FollowSystem {
     if (!this.host.isDiscovered(follower, target)) return `You have not discovered ${target}'s room.`;
     const result = this.host.moveParty(mine.partyId, theirs.col, theirs.row);
     if (result.success) return null;
+    if (result.undiscovered) return `The way to ${target}'s room crosses rooms you have not discovered.`;
     return result.blocked?.reason ?? `You cannot reach ${target}'s room.`;
   }
 }

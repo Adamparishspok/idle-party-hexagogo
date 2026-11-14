@@ -328,6 +328,7 @@ export interface ClientUnequipSkillMessage {
  * to rather than just log. Most errors carry no code.
  */
 export type ServerErrorCode =
+  | 'follow_stopped'
   | 'trade_nonce_mismatch'
   | 'house_not_for_sale'
   | 'house_already_owned'
