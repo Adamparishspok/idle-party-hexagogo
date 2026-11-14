@@ -1,6 +1,6 @@
 import { MAX_STACK } from './ItemTypes.js';
 import type { ItemDefinition } from './ItemTypes.js';
-import { countByTemplate, consumeByTemplate } from './InventoryView.js';
+import { countByTemplate, pickForConsumption, spendPicked } from './InventoryView.js';
 
 export const MAX_CRAFT_QUEUE = 5;
 
@@ -31,6 +31,8 @@ export interface RecipeDefinition {
 
 export interface CraftJob {
   recipeId: string;
+  /** Exact ids reserved at enqueue (may be rolled copies); refunded as-is on cancel. */
+  spent?: Record<string, number>;
 }
 
 /**
@@ -91,11 +93,14 @@ export function enqueueRecipe(
 ): { ok: true } | { ok: false; reason: EnqueueError } {
   const check = canQueueRecipe(recipe, inventory, queue, className, level);
   if (!check.ok) return check;
+  const spent: Record<string, number> = {};
   for (const ing of recipe.ingredients) {
-    consumeByTemplate(inventory, ing.itemId, ing.quantity, items);
+    const picked = pickForConsumption(inventory, ing.itemId, ing.quantity, items) ?? {};
+    spendPicked(inventory, picked);
+    for (const [id, n] of Object.entries(picked)) spent[id] = (spent[id] ?? 0) + n;
   }
   if (queue.jobs.length === 0) queue.activeStartedAtMs = now;
-  queue.jobs.push({ recipeId: recipe.id });
+  queue.jobs.push({ recipeId: recipe.id, spent });
   return { ok: true };
 }
 
@@ -114,11 +119,10 @@ export function cancelJobAt(
   if (index < 0 || index >= queue.jobs.length) return false;
   const job = queue.jobs[index];
   const recipe = recipes[job.recipeId];
-  if (recipe) {
-    for (const ing of recipe.ingredients) {
-      const cur = inventory[ing.itemId] ?? 0;
-      inventory[ing.itemId] = Math.min(MAX_STACK, cur + ing.quantity);
-    }
+  const refund: Record<string, number> = job.spent
+    ?? Object.fromEntries((recipe?.ingredients ?? []).map(ing => [ing.itemId, ing.quantity]));
+  for (const [id, n] of Object.entries(refund)) {
+    inventory[id] = Math.min(MAX_STACK, (inventory[id] ?? 0) + n);
   }
   queue.jobs.splice(index, 1);
   if (index === 0) {

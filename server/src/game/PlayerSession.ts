@@ -930,14 +930,17 @@ export class PlayerSession {
     if (this.craftQueue.jobs.length === 0) return false;
     const recipes = this.content.getAllRecipes();
     const items = this.content.getAllItems();
+    const deliveredIds: string[][] = [];
     const events = processCompletions(recipes, this.character.inventory, this.craftQueue, now, (itemId, quantity) => {
       const routing = this.receiveItems(itemId, quantity);
+      deliveredIds.push(routing.ids);
       return { produced: routing.toInventory + routing.toPouch, lost: routing.lost };
     });
     if (events.length === 0) return false;
     let totalCraftXp = 0;
-    for (const ev of events) {
-      const itemDef = items[ev.resultItemId];
+    for (const [i, ev] of events.entries()) {
+      const ids = deliveredIds[i] ?? [];
+      const itemDef = items[ids.length === 1 ? ids[0] : ev.resultItemId];
       const itemName = itemDef?.name ?? ev.resultItemId;
       if (ev.quantityProduced > 0) {
         const qtyStr = ev.quantityProduced > 1 ? `x${ev.quantityProduced}` : '';
