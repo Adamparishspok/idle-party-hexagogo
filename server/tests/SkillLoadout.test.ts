@@ -49,6 +49,7 @@ function makeContentStore(skills: Record<string, SkillDefinition>, items: Record
     getAllSkills: () => skills,
     getSkillSlotSchedule: (className: string) => (className === 'Knight' ? KNIGHT_SCHEDULE : undefined),
     getAllSkillSlotSchedules: () => ({ Knight: KNIGHT_SCHEDULE }),
+    getAllTutorialSteps: () => ({}),
   } as unknown as ContentStore;
 }
 

@@ -814,6 +814,18 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      if (msg.type === 'tutorial_open_screen' && typeof msg.screen === 'string') {
+        playerManager.getSessionByUsername(username)?.handleTutorialEvent({ type: 'openScreen', screen: msg.screen });
+        playerManager.sendStateToPlayer(username);
+        return;
+      }
+
+      if (msg.type === 'tutorial_skip') {
+        playerManager.getSessionByUsername(username)?.handleTutorialSkip();
+        playerManager.sendStateToPlayer(username);
+        return;
+      }
+
       // --- View player profile ---
       if (msg.type === 'view_player' && typeof msg.username === 'string') {
         const targetSession = playerManager.getSessionByUsername(msg.username);

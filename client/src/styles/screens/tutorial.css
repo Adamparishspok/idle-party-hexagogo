@@ -1,0 +1,40 @@
+.tutorial-panel {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--chrome-bottom) + var(--s-2));
+  transform: translateX(-50%);
+  z-index: 950;
+  width: min(340px, calc(100vw - 2 * var(--s-4)));
+  padding: var(--s-3) var(--s-4) var(--s-2);
+}
+.tutorial-panel[hidden] {
+  display: none;
+}
+.tutorial-panel__title {
+  font-size: var(--t-heading);
+  line-height: 1.1;
+}
+.tutorial-panel__body {
+  margin: var(--s-1) 0 var(--s-2);
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: var(--parch-ink);
+}
+.tutorial-panel__actions {
+  display: flex;
+  justify-content: space-between;
+}
+.tutorial-panel__link {
+  min-height: var(--tap-min);
+  padding: 0 var(--s-2);
+  border: none;
+  background: none;
+  font-size: var(--t-small);
+  color: var(--parch-ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.nav-tab[hidden] {
+  display: none;
+}

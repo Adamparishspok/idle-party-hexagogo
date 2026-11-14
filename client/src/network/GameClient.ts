@@ -332,6 +332,14 @@ export class GameClient {
     this.sendRaw({ type: 'set_class', className });
   }
 
+  sendTutorialOpenScreen(screen: string): void {
+    this.sendRaw({ type: 'tutorial_open_screen', screen });
+  }
+
+  sendTutorialSkip(): void {
+    this.sendRaw({ type: 'tutorial_skip' });
+  }
+
   sendEquipItem(itemId: string): void {
     this.sendRaw({ type: 'equip_item', itemId });
   }

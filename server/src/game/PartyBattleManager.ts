@@ -120,6 +120,7 @@ export class PartyBattleManager {
             const s = this.getSession(m);
             if (!s) continue;
             s.incrementBattleCount();
+            s.noteTutorialRoom(serverParty.tile.id);
             s.addLogEntry('Battle begins!', 'battle');
           }
         },

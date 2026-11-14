@@ -66,7 +66,7 @@ export class BottomNav {
      *  user re-clicked the already-active tab (e.g. for "tap Map again to
      *  recenter on player"). */
     private onTabChange: (tabId: string, wasActive: boolean) => void,
-    gameClient: GameClient,
+    private gameClient: GameClient,
     private onOverlayToggle?: (tabId: string, currentlyActive: boolean) => void,
     private onSubmenuPick?: (tabId: string, itemId: string) => void,
     private onAction?: (tabId: string) => void,
@@ -115,8 +115,14 @@ export class BottomNav {
     this.wireStatusIndicators(gameClient);
   }
 
+  /** Hides the tabs a tutorial step has not unlocked yet. */
+  setLockedTabs(ids: readonly string[]): void {
+    for (const [id, button] of this.tabButtons) button.hidden = ids.includes(id);
+  }
+
   private handleClick(tab: NavTabConfig): void {
     const mode: NavMode = tab.mode ?? 'screen';
+    if (this.gameClient.lastState?.tutorial?.step) this.gameClient.sendTutorialOpenScreen(tab.id);
     // Nav buttons are excluded from the global tap sound (SoundEvents) so each
     // mode can speak for itself: screens get the tab "tock", a submenu gets a
     // tap, and overlays (Chat) and actions (Quests) are voiced by ModalStack's open/close.

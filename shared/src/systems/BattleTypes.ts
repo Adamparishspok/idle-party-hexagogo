@@ -18,6 +18,7 @@ import type {
 import type { SkillLoadout } from './SkillTypes.js';
 import type { DungeonRunInfo } from './DungeonTypes.js';
 import type { ClientWorldBoss } from './WorldBossTypes.js';
+import type { ClientTutorialState } from './TutorialTypes.js';
 import type { DerivedStats } from './AttributeTypes.js';
 import type { BagSlots, ClientInventoryMessage, InventoryErrorCode } from './BagTypes.js';
 import type { BankErrorCode, ClientBankState, ClientBankMessage } from './BankTypes.js';
@@ -223,6 +224,8 @@ export interface ServerStateMessage {
   bank?: ClientBankState;
   /** Every live world boss, with this player's retry cooldown. */
   worldBosses?: ClientWorldBoss[];
+  /** New-player tutorial step and locked tabs. Absent when there is nothing to show or lock. */
+  tutorial?: ClientTutorialState;
   /** Server version identifier — changes on restart/deploy, triggers client reload on mismatch. */
   serverVersion: string;
 }
@@ -455,7 +458,13 @@ export interface ClientEnterTransitionMessage {
   tileId: string;
 }
 
+export interface ClientTutorialMessage {
+  type: 'tutorial_open_screen' | 'tutorial_skip';
+  screen?: string;
+}
+
 export type ClientMessage =
+  | ClientTutorialMessage
   | ClientMoveMessage
   | ClientRequestStateMessage
   | ClientEquipItemMessage
