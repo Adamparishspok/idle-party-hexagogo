@@ -1,7 +1,11 @@
-import type { ServerStateMessage, ServerEquipBlockedMessage,
-  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage, ClientInventoryMessage, ClientBankMessage } from '@idle-party-rpg/shared';
+import { GAME_VERSION } from '@idle-party-rpg/shared';
+import type { ServerMaintenanceMessage, ServerStateMessage, ServerEquipBlockedMessage,
+  ServerMoveBlockedMessage, PlayerProfileMessage, BlockLevel, ChatMessage, ChatChannelType, TradeOfferItem, NotificationEntry, NotificationPreferences, WebPushSubscription, ServerErrorCode, ServerWelcomeBackMessage, ClientHousingMessage, ClientInventoryMessage,
+  ClientSocketMessage, ClientBankMessage } from '@idle-party-rpg/shared';
 
 const RECONNECT_DELAY = 2000;
+const MAINTENANCE_CLOSE_CODE = 4503;
+export const MAINTENANCE_ERROR = 'maintenance';
 
 type StateListener = (state: ServerStateMessage) => void;
 type ChatListener = (message: ChatMessage) => void;
@@ -11,6 +15,8 @@ type WorldUpdateListener = () => void;
 type EquipBlockedListener = (msg: ServerEquipBlockedMessage) => void;
 type SuspensionListener = () => void;
 type ResumeListener = () => void;
+type MaintenanceListener = (msg: ServerMaintenanceMessage) => void;
+type VersionMismatchListener = () => void;
 type MoveBlockedListener = (msg: ServerMoveBlockedMessage) => void;
 type PlayerProfileListener = (profile: PlayerProfileMessage) => void;
 type NotificationListener = (notification: NotificationEntry) => void;
@@ -33,6 +39,8 @@ export class GameClient {
   private moveBlockedListeners = new Set<MoveBlockedListener>();
   private suspensionListeners = new Set<SuspensionListener>();
   private resumeListeners = new Set<ResumeListener>();
+  private maintenanceListeners = new Set<MaintenanceListener>();
+  private versionMismatchListeners = new Set<VersionMismatchListener>();
   private playerProfileListeners = new Set<PlayerProfileListener>();
   private notificationListeners = new Set<NotificationListener>();
   private serverErrorListeners = new Set<ServerErrorListener>();
@@ -61,6 +69,7 @@ export class GameClient {
     this.url = port
       ? `${protocol}//${host}:${port}`
       : `${protocol}//${host}`;
+    this.url += `/?v=${encodeURIComponent(GAME_VERSION)}`;
 
     // Snap party position when returning from a background browser tab
     document.addEventListener('visibilitychange', () => {
@@ -113,6 +122,18 @@ export class GameClient {
   onSuspension(listener: SuspensionListener): () => void {
     this.suspensionListeners.add(listener);
     return () => { this.suspensionListeners.delete(listener); };
+  }
+
+  /** Subscribe to the server turning this player away for maintenance. */
+  onMaintenance(listener: MaintenanceListener): () => void {
+    this.maintenanceListeners.add(listener);
+    return () => { this.maintenanceListeners.delete(listener); };
+  }
+
+  /** Subscribe to the server reporting that this client build is out of date. */
+  onVersionMismatch(listener: VersionMismatchListener): () => void {
+    this.versionMismatchListeners.add(listener);
+    return () => { this.versionMismatchListeners.delete(listener); };
   }
 
   /** Subscribe to tab resume (visibilitychange → visible). Returns an unsubscribe function. */
@@ -170,6 +191,15 @@ export class GameClient {
           }
         }
         this.isInitialState = false;
+      } else if (msg.type === 'maintenance') {
+        this.destroyed = true;
+        if (this.connectResolve) {
+          this.connectResolve({ success: false, error: MAINTENANCE_ERROR });
+          this.connectResolve = undefined;
+        }
+        for (const listener of this.maintenanceListeners) listener(msg);
+      } else if (msg.type === 'version_mismatch') {
+        for (const listener of this.versionMismatchListeners) listener();
       } else if (msg.type === 'chat_message') {
         for (const listener of this.chatListeners) {
           try {
@@ -253,6 +283,11 @@ export class GameClient {
     this.ws.onclose = (event) => {
       console.log('[GameClient] disconnected', event.code);
 
+      if (event.code === MAINTENANCE_CLOSE_CODE) {
+        this.destroyed = true;
+        return;
+      }
+
       // Account suspended — don't reconnect, notify listeners
       if (event.code === 4001) {
         this.destroyed = true;
@@ -301,6 +336,14 @@ export class GameClient {
     this.sendRaw({ type: 'move', col, row });
   }
 
+  sendFollowPlayer(username: string): void {
+    this.sendRaw({ type: 'follow_player', username });
+  }
+
+  sendStopFollowing(): void {
+    this.sendRaw({ type: 'stop_following' });
+  }
+
   sendRun(): void {
     this.sendRaw({ type: 'run' });
   }
@@ -330,6 +373,14 @@ export class GameClient {
 
   sendSetClass(className: string): void {
     this.sendRaw({ type: 'set_class', className });
+  }
+
+  sendTutorialOpenScreen(screen: string): void {
+    this.sendRaw({ type: 'tutorial_open_screen', screen });
+  }
+
+  sendTutorialSkip(): void {
+    this.sendRaw({ type: 'tutorial_skip' });
   }
 
   sendEquipItem(itemId: string): void {
@@ -605,6 +656,14 @@ export class GameClient {
     this.sendRaw({ ...msg });
   }
 
+  sendSocketJewel(slot: string, itemId: string): void {
+    this.sendTyped({ type: 'socket_jewel', slot, itemId });
+  }
+
+  sendUnsocketJewel(slot: string, index: number): void {
+    this.sendTyped({ type: 'unsocket_jewel', slot, index });
+  }
+
   // --- Bags and Lost & Found ---
 
   sendEquipBag(itemId: string, bagIndex: number): void {
@@ -643,7 +702,7 @@ export class GameClient {
     this.sendTyped({ type: 'bank_buy_tab' });
   }
 
-  private sendTyped(msg: ClientInventoryMessage | ClientBankMessage): void {
+  private sendTyped(msg: ClientInventoryMessage | ClientSocketMessage | ClientBankMessage): void {
     this.sendRaw({ ...msg });
   }
 

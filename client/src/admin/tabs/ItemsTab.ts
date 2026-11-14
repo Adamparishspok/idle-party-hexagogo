@@ -1,6 +1,6 @@
 import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
-import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES, ATTRIBUTE_NAMES, ATTRIBUTE_ABBREVIATIONS, MAX_BAG_SIZE, suggestedAttributeBudget } from '@idle-party-rpg/shared';
+import { EQUIP_SLOTS, DISPLAY_EQUIP_SLOTS, ALL_CLASS_NAMES, ATTRIBUTE_NAMES, ATTRIBUTE_ABBREVIATIONS, MAX_BAG_SIZE, MAX_SOCKETS, suggestedAttributeBudget } from '@idle-party-rpg/shared';
 import type { ItemDefinition, ItemRarity, EquipSlot, SkillDefinition, PartialAttributes } from '@idle-party-rpg/shared';
 import { escapeHtml, putAdmin, deleteAdmin } from '../api';
 import { openModal } from '../components/Modal';
@@ -68,6 +68,8 @@ export class ItemsTab implements Tab {
         if (v) effects.push(`${v > 0 ? '+' : ''}${v} ${ATTRIBUTE_ABBREVIATIONS[attr]}`);
       }
       if (i.bagSlots) effects.push(`Bag: ${i.bagSlots} slots`);
+      if (i.sockets) effects.push(`${i.sockets} sockets`);
+      if (i.jewel) effects.push('Jewel');
       const setName = itemSetMap.get(i.id) ?? '—';
 
       const actions = readOnly
@@ -192,6 +194,8 @@ export class ItemsTab implements Tab {
         <label>MR Max<input type="number" id="if-mrMax" value="${i.magicReductionMax ?? 0}" min="0"></label>
         <label>Value<input type="number" id="if-value" value="${i.value ?? 1}" min="0"></label>
         <label>Bag Slots<input type="number" id="if-bagSlots" value="${i.bagSlots ?? 0}" min="0" max="${MAX_BAG_SIZE}" title="Above 0 makes this a bag (no equip slot)"></label>
+        <label>Sockets<input type="number" id="if-sockets" value="${i.sockets ?? 0}" min="0" max="${MAX_SOCKETS}" title="Jewel sockets on equippable items"></label>
+        <label><input type="checkbox" id="if-jewel" ${i.jewel ? 'checked' : ''}> Jewel (socketable; no equip slot)</label>
       </div>
       <fieldset class="admin-form-fieldset">
         <legend>Attributes</legend>
@@ -279,13 +283,21 @@ export class ItemsTab implements Tab {
   private wireGearFields(root: HTMLElement): void {
     const bagInput = root.querySelector<HTMLInputElement>('#if-bagSlots');
     const slotSelect = root.querySelector<HTMLSelectElement>('#if-equipSlot');
+    const jewelBox = root.querySelector<HTMLInputElement>('#if-jewel');
+    const socketsInput = root.querySelector<HTMLInputElement>('#if-sockets');
     const syncBag = () => {
       if (!bagInput || !slotSelect) return;
       const isBag = (parseInt(bagInput.value) || 0) > 0;
-      if (isBag) slotSelect.value = '';
-      slotSelect.disabled = isBag;
+      const isJewel = !!jewelBox?.checked;
+      if (isBag || isJewel) slotSelect.value = '';
+      slotSelect.disabled = isBag || isJewel;
+      if (socketsInput) {
+        if (isBag || isJewel) socketsInput.value = '0';
+        socketsInput.disabled = isBag || isJewel;
+      }
     };
     bagInput?.addEventListener('input', syncBag);
+    jewelBox?.addEventListener('change', syncBag);
     syncBag();
 
     const budget = root.querySelector<HTMLElement>('#if-attr-budget');
@@ -400,6 +412,8 @@ export class ItemsTab implements Tab {
     const magicReductionMax = parseInt((root.querySelector('#if-mrMax') as HTMLInputElement).value) || 0;
     const value = parseInt((root.querySelector('#if-value') as HTMLInputElement).value) || 1;
     const bagSlots = parseInt((root.querySelector('#if-bagSlots') as HTMLInputElement).value) || 0;
+    const sockets = parseInt((root.querySelector('#if-sockets') as HTMLInputElement).value) || 0;
+    const jewel = (root.querySelector('#if-jewel') as HTMLInputElement).checked;
     const attributes: PartialAttributes = {};
     root.querySelectorAll<HTMLInputElement>('.if-attr').forEach(input => {
       const v = parseInt(input.value) || 0;
@@ -417,8 +431,10 @@ export class ItemsTab implements Tab {
     }
     const id = existingId || crypto.randomUUID();
     const item: ItemDefinition = { id, name, rarity };
-    if (equipSlot && bagSlots <= 0) item.equipSlot = equipSlot as EquipSlot;
+    if (equipSlot && bagSlots <= 0 && !jewel) item.equipSlot = equipSlot as EquipSlot;
     if (bagSlots > 0) item.bagSlots = bagSlots;
+    if (jewel) item.jewel = true;
+    else if (sockets > 0) item.sockets = sockets;
     if (Object.keys(attributes).length > 0) item.attributes = attributes;
 
     const classRestriction: string[] = [];

@@ -1,4 +1,4 @@
-import type { PlayerBank, HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse, WorldBossCooldown } from '@idle-party-rpg/shared';
+import type { PlayerBank, HiredHenchman, CombatLogEntry, BlockLevel, ChatMessage, FriendRequest, SkillLoadout, MailboxEntry, CraftQueueState, QuestProgressEntry, CompletedQuestEntry, NotificationEntry, NotificationPreferences, WebPushSubscription, PlayerHouse, WorldBossCooldown, TutorialProgress } from '@idle-party-rpg/shared';
 
 /** Progress baseline taken when a player's last connection closes; diffed on return. */
 export interface AwaySnapshot {
@@ -42,6 +42,8 @@ export interface PlayerSaveData {
     craftXp?: number;
     /** Equipped bag per bag slot. Absent → all empty (`normalizeBagSlots`). */
     bags?: (string | null)[];
+    /** Jewels per equipment slot. Absent → none (`normalizeSocketedJewels`). */
+    socketedJewels?: Record<string, string[]>;
     // Legacy fields (ignored on load, kept for backward compat with old saves)
     skillPoints?: number;
     stats?: Record<string, number>;
@@ -89,6 +91,8 @@ export interface PlayerSaveData {
   house?: PlayerHouse;
   /** Epoch ms the Well Rested bonus lasts until. */
   wellRestedUntil?: number;
+  /** Player this party is following; re-validated on the target's next move. */
+  followTarget?: string;
   /** Lost & Found pouch: loot that arrived while the backpack was full. */
   lostAndFound?: Record<string, number>;
   /** The one-time starter bag was given. Absent → grant on load. */
@@ -97,6 +101,8 @@ export interface PlayerSaveData {
   bank?: PlayerBank;
   /** Retry cooldowns by world boss id. */
   worldBossCooldowns?: Record<string, WorldBossCooldown>;
+  /** Tutorial progress. Absent (legacy save) → completed, everything unlocked. */
+  tutorial?: TutorialProgress;
 }
 
 /**

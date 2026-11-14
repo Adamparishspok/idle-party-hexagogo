@@ -538,3 +538,8 @@
   .ss-attr,
   .ss-stat { transition: none; }
 }
+
+.gp-sockets { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.gp-socket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.gp-socket { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gp-socket.is-empty { opacity: 0.6; font-style: italic; }

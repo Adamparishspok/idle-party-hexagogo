@@ -279,6 +279,10 @@ export type {
   CombatLogEntry,
   ServerStateMessage,
   ClientMoveMessage,
+  ServerMaintenanceMessage,
+  ServerVersionMismatchMessage,
+  ClientFollowPlayerMessage,
+  ClientStopFollowingMessage,
   ClientRequestStateMessage,
   ClientEquipItemMessage,
   ClientUnequipItemMessage,
@@ -597,6 +601,21 @@ export type {
 // World bosses
 export { worldBossCooldownMs, worldBossShare, validateWorldBossDefinition } from './systems/WorldBossTypes.js';
 export type { WorldBossDefinition, WorldBossState, WorldBossCooldown, ClientWorldBoss } from './systems/WorldBossTypes.js';
+export {
+  TUTORIAL_FEATURES,
+  TUTORIAL_TRIGGER_TYPES,
+  SEED_TUTORIAL_STEPS,
+  newTutorialProgress,
+  restoreTutorialProgress,
+  orderedTutorialSteps,
+  currentTutorialStep,
+  lockedTutorialFeatures,
+  buildClientTutorialState,
+  advanceTutorial,
+  skipTutorial,
+  validateTutorialStep,
+} from './systems/TutorialTypes.js';
+export type { TutorialFeature, TutorialTrigger, TutorialEvent, TutorialStepDefinition, TutorialProgress, ClientTutorialState } from './systems/TutorialTypes.js';
 
 // Core attributes and derived stats
 export {
@@ -687,6 +706,29 @@ export type {
   ClientInventoryMessage,
 } from './systems/BagTypes.js';
 
+// Sockets and jewels
+export {
+  MAX_SOCKETS,
+  isJewel,
+  socketCapacity,
+  activeJewelIds,
+  reconcileSockets,
+  socketJewel,
+  peekSocketedJewel,
+  removeSocketedJewel,
+  normalizeSocketedJewels,
+  validateSocketItem,
+  SEED_JEWEL_ITEMS,
+} from './systems/SocketTypes.js';
+export type {
+  SocketedJewels,
+  SocketErrorCode,
+  SocketResult,
+  ClientSocketJewelMessage,
+  ClientUnsocketJewelMessage,
+  ClientSocketMessage,
+} from './systems/SocketTypes.js';
+
 // Bank
 export {
   BANK_BASE_TABS,
@@ -717,3 +759,17 @@ export type {
   ClientBankBuyTabMessage,
   ClientBankMessage,
 } from './systems/BankTypes.js';
+
+// Admin battle simulator
+export {
+  BattleSimulation,
+  runBattleSimulation,
+  buildSimCombatant,
+  autoSkillLoadout,
+  createSeededRng,
+  SIM_MAX_BATTLES,
+  SIM_MAX_TICKS,
+  BATTLE_OVERHEAD_MS,
+  EFFECTS_BUCKET,
+} from './systems/BattleSimulator.js';
+export type { SimContent, SimOpponent, SimMemberSpec, SimInput, SimReport, SimStats, SimMemberReport } from './systems/BattleSimulator.js';

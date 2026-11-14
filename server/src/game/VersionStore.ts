@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
-import type { MonsterDefinition, ItemDefinition, ZoneDefinition, WorldData, EncounterDefinition, EncounterTableEntry, SetDefinition, ShopDefinition, HenchmanDefinition, HouseDefinition, WorldBossDefinition, TileTypeDefinition, RecipeDefinition, NpcDefinition, QuestDefinition, DungeonDefinition, SkillDefinition, SkillSlot, DesignNote } from '@idle-party-rpg/shared';
+import type { MonsterDefinition, ItemDefinition, ZoneDefinition, WorldData, EncounterDefinition, EncounterTableEntry, SetDefinition, ShopDefinition, HenchmanDefinition, HouseDefinition, WorldBossDefinition, TutorialStepDefinition, TileTypeDefinition, RecipeDefinition, NpcDefinition, QuestDefinition, DungeonDefinition, SkillDefinition, SkillSlot, DesignNote } from '@idle-party-rpg/shared';
 import { migrateWorldData, migrateLegacySkill } from '@idle-party-rpg/shared';
 
 export type VersionStatus = 'draft' | 'published';
@@ -16,6 +16,7 @@ export interface ContentSnapshot {
   henchmen?: HenchmanDefinition[];
   houses?: HouseDefinition[];
   worldBosses?: WorldBossDefinition[];
+  tutorialSteps?: TutorialStepDefinition[];
   tileTypes?: TileTypeDefinition[];
   recipes?: RecipeDefinition[];
   npcs?: NpcDefinition[];
@@ -190,7 +191,7 @@ export class VersionStore {
     if (!snapshot.dungeons) {
       snapshot.dungeons = [];
     }
-    // keep-when-absent: leave `henchmen`, `houses` and `worldBosses` undefined so replaceAll keeps live ones.
+    // keep-when-absent: leave `henchmen`, `houses`, `worldBosses` and `tutorialSteps` undefined so replaceAll keeps live ones.
     // Normalize legacy-shaped skills (treeOrder / singular effects). Idempotent, no save needed —
     // snapshots that predate skills stay undefined so replaceAll keeps live skills intact.
     if (snapshot.skills !== undefined) {

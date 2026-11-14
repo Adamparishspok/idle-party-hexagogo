@@ -36,5 +36,6 @@ export function fakeSkillContent() {
     getAllSkills: () => SEED_SKILLS,
     getSkillSlotSchedule: (className: string) => (SEED_SKILL_SLOT_SCHEDULES as Record<string, SkillSlot[]>)[className],
     getAllSkillSlotSchedules: () => SEED_SKILL_SLOT_SCHEDULES as Record<string, SkillSlot[]>,
+    getAllTutorialSteps: () => ({}),
   };
 }

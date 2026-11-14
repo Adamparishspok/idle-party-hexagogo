@@ -7,8 +7,8 @@ import type { InviteListStore } from '../auth/InviteListStore.js';
 import type { ContentStore } from '../game/ContentStore.js';
 import { validateItemDefinition, validateSetDefinition } from '../game/ContentStore.js';
 import type { VersionStore } from '../game/VersionStore.js';
-import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
-import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition, WorldBossDefinition } from '@idle-party-rpg/shared';
+import { ALL_CLASS_NAMES, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, migrateLegacySet, migrateLegacySkill, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, validateTutorialStep, DEFAULT_MAP_ID, isManagedAssetKind, isDeferredAssetKind } from '@idle-party-rpg/shared';
+import type { ClassName, SkillDefinition, SkillSlot, SkillSlotType, RoomEntryRequirements, HouseDefinition, WorldBossDefinition, TutorialStepDefinition } from '@idle-party-rpg/shared';
 import type { AdminAuth } from './adminMiddleware.js';
 import type { ApiTokenStore, ApiTokenRecord } from '../auth/ApiTokenStore.js';
 import { isApiTokenExpired } from '../auth/ApiTokenStore.js';
@@ -16,7 +16,9 @@ import { grantedAdminRole, isAdminRole, isEnvSuperAdmin } from '../auth/AdminRol
 import { DraftEditor, toRecord } from '../game/DraftEditor.js';
 import { AssetValidationError, MAX_ASSET_BYTES } from '../game/AssetStore.js';
 import type { AssetStore } from '../game/AssetStore.js';
+import type { MaintenanceMode } from '../game/MaintenanceMode.js';
 import { registerAssetRoutes, assetUploadErrorHandler } from './assetRoutes.js';
+import { registerSimulatorRoutes } from './simulatorRoutes.js';
 
 /**
  * Coerce an untrusted room/transition entry gate from a request body, dropping
@@ -40,6 +42,8 @@ function normalizeRoomRequirements(raw: unknown): RoomEntryRequirements | undefi
 const artworkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ASSET_BYTES } });
 
 interface AdminRouteOptions {
+  maintenance: MaintenanceMode;
+  onMaintenanceChange: () => void;
   playerManager: () => PlayerManager;
   accountStore: AccountStore;
   inviteListStore: InviteListStore;
@@ -81,7 +85,7 @@ function parseExpiry(raw: unknown): { ok: true; value: string | null } | { ok: f
   return { ok: true, value: new Date(parsed).toISOString() };
 }
 
-export function createAdminRoutes({ playerManager: getPlayerManager, accountStore, inviteListStore, apiTokenStore, adminAuth, contentStore: getContentStore, versionStore: getVersionStore, assetStore, rebuildGrid, deployVersion }: AdminRouteOptions): Router {
+export function createAdminRoutes({ maintenance, onMaintenanceChange, playerManager: getPlayerManager, accountStore, inviteListStore, apiTokenStore, adminAuth, contentStore: getContentStore, versionStore: getVersionStore, assetStore, rebuildGrid, deployVersion }: AdminRouteOptions): Router {
   const router = Router();
   router.use(adminAuth.requireAdmin);
   const draftEditor = new DraftEditor(getVersionStore(), getContentStore);
@@ -195,6 +199,16 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       totalAccounts: accountStore.getAllAccounts().length,
       uptime: Math.floor(process.uptime()),
     });
+  });
+
+  router.get('/maintenance', (_req, res) => {
+    res.json(maintenance.get());
+  });
+
+  router.put('/maintenance', async (req: Request, res: Response) => {
+    const state = await maintenance.set(req.body);
+    onMaintenanceChange();
+    res.json(state);
   });
 
   router.get('/economy', (req, res) => {
@@ -316,6 +330,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       henchmen: content.getAllHenchmen(),
       houses: content.getAllHouses(),
       worldBosses: content.getAllWorldBosses(),
+      tutorialSteps: content.getAllTutorialSteps(),
       tileTypes: content.getAllTileTypes(),
       recipes: content.getAllRecipes(),
       npcs: content.getAllNpcs(),
@@ -677,6 +692,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   // Every kind of artwork the game serves lives under `/api/admin/assets`,
   // described by the shared ASSET_KIND_INFO registry. See assetRoutes.ts.
   registerAssetRoutes(router, { contentStore: getContentStore, assetStore });
+  registerSimulatorRoutes(router, { playerManager: getPlayerManager, contentStore: getContentStore });
 
   /**
    * Deprecated aliases for the pre-registry artwork endpoints. The admin UI
@@ -969,6 +985,47 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       const result = await content.deleteWorldBoss(req.params.id);
       if (!result.success) { res.status(400).json({ error: result.error }); return; }
       res.json({ success: true, worldBosses: content.getAllWorldBosses() });
+    }
+  });
+
+  // ── Tutorial step endpoints ───────────────────────────────
+
+  router.get('/tutorial-steps', (_req, res) => {
+    res.json({ tutorialSteps: getContentStore().getAllTutorialSteps() });
+  });
+
+  /** Add or update a tutorial step. Supports ?versionId= for draft editing. */
+  router.put('/tutorial-steps/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    const step = req.body as TutorialStepDefinition;
+    const invalid = validateTutorialStep(step);
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+    if (versionId) {
+      const result = await draftEditor.upsertTutorialStep(versionId, step);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, tutorialSteps: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      await content.addOrUpdateTutorialStep(step);
+      res.json({ success: true, tutorialSteps: content.getAllTutorialSteps() });
+    }
+  });
+
+  /** Delete a tutorial step. Supports ?versionId= for draft editing. */
+  router.delete('/tutorial-steps/:id', async (req, res) => {
+    const versionId = req.query.versionId as string | undefined;
+    if (versionId) {
+      const result = await draftEditor.deleteTutorialStep(versionId, req.params.id);
+      if (!result.success) { res.status(result.status).json({ error: result.error }); return; }
+      res.json({ success: true, tutorialSteps: toRecord(result.entries) });
+    } else {
+      const content = getContentStore();
+      const result = await content.deleteTutorialStep(req.params.id);
+      if (!result.success) { res.status(400).json({ error: result.error }); return; }
+      res.json({ success: true, tutorialSteps: content.getAllTutorialSteps() });
     }
   });
 
@@ -1574,6 +1631,9 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
     const worldBossesRecord = snapshot.worldBosses !== undefined
       ? toRecord(snapshot.worldBosses)
       : getContentStore().getAllWorldBosses();
+    const tutorialStepsRecord = snapshot.tutorialSteps !== undefined
+      ? toRecord(snapshot.tutorialSteps)
+      : getContentStore().getAllTutorialSteps();
     const skillSlotSchedulesRecord: Record<string, SkillSlot[]> = {};
     if (snapshot.skillSlotSchedules !== undefined) {
       for (const entry of snapshot.skillSlotSchedules) skillSlotSchedulesRecord[entry.className] = entry.slots;
@@ -1582,7 +1642,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       const liveSchedules = getContentStore().getAllSkillSlotSchedules();
       for (const [cn, sl] of Object.entries(liveSchedules)) skillSlotSchedulesRecord[cn] = sl;
     }
-    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, houses: housesRecord, worldBosses: worldBossesRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
+    res.json({ monsters: monstersRecord, items: itemsRecord, zones: zonesRecord, encounters: encountersRecord, sets: setsRecord, shops: shopsRecord, henchmen: henchmenRecord, houses: housesRecord, worldBosses: worldBossesRecord, tutorialSteps: tutorialStepsRecord, tileTypes: tileTypesRecord, recipes: recipesRecord, npcs: npcsRecord, quests: questsRecord, dungeons: dungeonsRecord, skills: skillsRecord, skillSlotSchedules: skillSlotSchedulesRecord, designNotes: designNotesRecord, world: snapshot.world });
   });
 
   /** Rename a draft version. */

@@ -49,6 +49,11 @@ import {
   fitsInventoryChanges,
   routeIncomingItems,
   equipBag,
+  socketJewel,
+  peekSocketedJewel,
+  removeSocketedJewel,
+  reconcileSockets,
+  normalizeSocketedJewels,
   unequipBag,
   claimFromPouch,
   grantStarterBag,
@@ -56,8 +61,16 @@ import {
   normalizeBank,
   toClientBankState,
   worldBossCooldownMs,
+  newTutorialProgress,
+  restoreTutorialProgress,
+  advanceTutorial,
+  skipTutorial,
+  buildClientTutorialState,
+  orderedTutorialSteps,
 } from '@idle-party-rpg/shared';
 import type {
+  SocketedJewels,
+  SocketErrorCode,
   HiredHenchman,
   HenchmanOffer,
   HouseOffer,
@@ -105,6 +118,8 @@ import type {
   ClientWorldBoss,
   WorldBossCooldown,
   WorldBossDefinition,
+  TutorialProgress,
+  TutorialEvent,
 } from '@idle-party-rpg/shared';
 import type { PlayerSaveData, AwaySnapshot } from './GameStateStore.js';
 import type { ContentStore } from './ContentStore.js';
@@ -143,6 +158,8 @@ export class PlayerSession {
   private craftQueue: CraftQueueState = emptyCraftQueue();
   /** Initial mailbox snapshot from save data; live state lives in MailboxSystem. */
   private initialMailbox: MailboxEntry[] = [];
+  private initialFollowTarget: string | null = null;
+  getFollowTarget?: () => string | null;
   /** Callback to fetch the player's live mailbox from MailboxSystem. */
   getMailbox?: () => MailboxEntry[];
   /** Initial notification inbox snapshot from save data; live state lives in NotificationSystem. */
@@ -155,9 +172,12 @@ export class PlayerSession {
   private house: PlayerHouse | null = null;
   private wellRestedUntil: number | undefined;
   private bags: BagSlots = normalizeBagSlots(undefined);
+  private socketedJewels: SocketedJewels = {};
   private lostAndFound: Record<string, number> = {};
   private starterBagGranted = false;
   private worldBossCooldowns: Record<string, WorldBossCooldown> = {};
+  private tutorial: TutorialProgress = newTutorialProgress();
+  private lastTutorialTileId: string | undefined;
   private bank: PlayerBank = normalizeBank(undefined);
   /** Copies lost since the last `consumeLostItems` — batched into one notification per battle. */
   private pendingLost: Record<string, number> = {};
@@ -307,6 +327,7 @@ export class PlayerSession {
       equipment: this.character.equipment,
       items: this.content.getAllItems(),
       sets: this.content.getAllSets(),
+      socketedJewels: this.socketedJewels,
     });
   }
 
@@ -328,6 +349,7 @@ export class PlayerSession {
       gold: applyRestedBonus(baseRewards.gold, this.wellRestedUntil, now),
     };
     this.addLogEntry('Victory!', 'victory');
+    this.handleTutorialEvent({ type: 'battleWon' });
     if (this.awaySnapshot) this.awaySnapshot.battlesWon++;
 
     if (options?.unlockTiles !== false) {
@@ -374,6 +396,26 @@ export class PlayerSession {
   /** Returns true if this player has a character (has selected a class). */
   hasCharacter(): boolean {
     return this.character !== null;
+  }
+
+  private tutorialSteps() {
+    return orderedTutorialSteps(Object.values(this.content.getAllTutorialSteps()));
+  }
+
+  handleTutorialEvent(event: TutorialEvent): void {
+    const step = advanceTutorial(this.tutorialSteps(), this.tutorial, event);
+    if (step) this.addLogEntry(`Tutorial complete: ${step.title}`, 'unlock');
+  }
+
+  /** Called on each battle start; a room counts as travelled-to only when it differs from the last one seen. */
+  noteTutorialRoom(tileId: string): void {
+    const moved = this.lastTutorialTileId !== undefined && this.lastTutorialTileId !== tileId;
+    this.lastTutorialTileId = tileId;
+    this.handleTutorialEvent({ type: 'enterRoom', tileId, moved });
+  }
+
+  handleTutorialSkip(): void {
+    skipTutorial(this.tutorial);
   }
 
   incrementBattleCount(): void {
@@ -480,7 +522,7 @@ export class PlayerSession {
 
     // Owned items (unequipped + equipped, deduped)
     const ownedIds = getOwnedItemIds(this.character.inventory, this.character.equipment, this.bags);
-    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound)]) {
+    for (const itemId of [...ownedIds, ...Object.keys(this.lostAndFound), ...Object.values(this.socketedJewels).flat()]) {
       const def = this.content.getItem(itemId);
       if (def) defs[itemId] = def;
     }
@@ -754,6 +796,7 @@ export class PlayerSession {
       }
     }
     this.addLogEntry(`Completed quest: ${def.name}`, 'victory');
+    this.handleTutorialEvent({ type: 'questCompleted', questId });
     return { success: true };
   }
 
@@ -785,6 +828,7 @@ export class PlayerSession {
         bags: [...this.bags],
         inventoryCapacity: this.getInventoryCapacity(),
         lostAndFound: { ...this.lostAndFound },
+        socketedJewels: this.getSocketedJewels(),
       };
     }
 
@@ -826,6 +870,8 @@ export class PlayerSession {
       dungeon: this.getDungeonState?.() ?? undefined,
       bank: this.getBankState(),
       worldBosses: this.getWorldBosses?.(),
+      following: this.getFollowTarget?.() ?? undefined,
+      tutorial: buildClientTutorialState(this.tutorialSteps(), this.tutorial),
     };
   }
 
@@ -975,6 +1021,13 @@ export class PlayerSession {
     return m;
   }
 
+  /** Saved follow target — handed to FollowSystem once at session creation. */
+  consumeInitialFollowTarget(): string | null {
+    const t = this.initialFollowTarget;
+    this.initialFollowTarget = null;
+    return t;
+  }
+
   /** Notification inbox snapshot from save data — used once at startup to populate NotificationSystem. */
   consumeInitialNotifications(): NotificationEntry[] {
     const n = this.initialNotifications;
@@ -1122,6 +1175,35 @@ export class PlayerSession {
   }
 
   getBags(): BagSlots { return [...this.bags]; }
+  getSocketedJewels(): SocketedJewels {
+    return Object.fromEntries(Object.entries(this.socketedJewels).map(([slot, ids]) => [slot, [...ids]]));
+  }
+
+  handleSocketJewel(slot: unknown, itemId: unknown): SocketErrorCode | null {
+    if (!this.character) return 'socket_invalid_slot';
+    if (typeof slot !== 'string') return 'socket_invalid_slot';
+    if (typeof itemId !== 'string') return 'socket_not_a_jewel';
+    const result = socketJewel(this.character.inventory, this.character.equipment, this.socketedJewels, slot, itemId, this.content.getAllItems());
+    return result.ok ? null : result.error;
+  }
+
+  handleUnsocketJewel(slot: unknown, index: unknown): SocketErrorCode | null {
+    if (!this.character) return 'socket_invalid_slot';
+    if (typeof slot !== 'string') return 'socket_invalid_slot';
+    const jewelId = peekSocketedJewel(this.socketedJewels, slot, index as number);
+    if (!jewelId) return 'socket_invalid_index';
+    if (!this.fitsInventory({ [jewelId]: 1 })) return 'socket_inventory_full';
+    removeSocketedJewel(this.socketedJewels, slot, index as number);
+    this.character.inventory[jewelId] = (this.character.inventory[jewelId] ?? 0) + 1;
+    return null;
+  }
+
+  /** Sends jewels that lost their socket back to the player; overflow goes to Lost & Found, never destroyed. */
+  private reconcileSocketsAfterEquipmentChange(previousEquipment: Record<string, string | null>): void {
+    if (!this.character) return;
+    const removed = reconcileSockets(this.socketedJewels, previousEquipment, this.character.equipment, this.content.getAllItems());
+    for (const jewelId of removed) this.receiveItems(jewelId, 1);
+  }
   getLostAndFound(): Record<string, number> { return { ...this.lostAndFound }; }
 
   handleEquipBag(itemId: unknown, bagIndex: unknown): InventoryErrorCode | null {
@@ -1367,6 +1449,7 @@ export class PlayerSession {
       this.character = createCharacter(this.character.className, this.skillContent());
     }
     this.bags = normalizeBagSlots(undefined);
+    this.socketedJewels = {};
     this.lostAndFound = {};
     this.pendingLost = {};
     this.starterBagGranted = false;
@@ -1431,6 +1514,7 @@ export class PlayerSession {
         craftLevel: this.character.craftLevel,
         craftXp: this.character.craftXp,
         bags: [...this.bags],
+        socketedJewels: this.getSocketedJewels(),
       } : undefined,
       friends: [...this.friends],
       outgoingFriendRequests: [...this.outgoingFriendRequests],
@@ -1456,9 +1540,11 @@ export class PlayerSession {
       awaySnapshot: this.awaySnapshot ? { ...this.awaySnapshot, inventory: { ...this.awaySnapshot.inventory } } : undefined,
       house: this.house ? { ...this.house, storage: { ...this.house.storage }, displays: [...this.house.displays] } : undefined,
       wellRestedUntil: this.wellRestedUntil,
+      followTarget: (this.getFollowTarget ? this.getFollowTarget() : this.initialFollowTarget) ?? undefined,
       lostAndFound: { ...this.lostAndFound },
       starterBagGranted: this.starterBagGranted,
       worldBossCooldowns: { ...this.worldBossCooldowns },
+      tutorial: { ...this.tutorial, completedStepIds: [...this.tutorial.completedStepIds] },
       bank: { tabs: this.bank.tabs.map(tab => ({ ...tab })) },
     };
   }
@@ -1561,6 +1647,7 @@ export class PlayerSession {
     session['chatSendChannel'] = (data.chatSendChannel as ChatChannelType) ?? 'zone';
     session['chatDmTarget'] = data.chatDmTarget ?? '';
     session['initialMailbox'] = data.mailbox ? [...data.mailbox] : [];
+    session['initialFollowTarget'] = data.followTarget ?? null;
     session['initialNotifications'] = data.notifications ? [...data.notifications] : [];
     session['notificationPreferences'] = data.notificationPreferences ?? emptyNotificationPreferences();
     session['pushSubscriptions'] = data.pushSubscriptions ? [...data.pushSubscriptions] : [];
@@ -1573,10 +1660,12 @@ export class PlayerSession {
       : null;
     session['wellRestedUntil'] = data.wellRestedUntil;
     session['bags'] = normalizeBagSlots(data.character?.bags);
+    session['socketedJewels'] = normalizeSocketedJewels(data.character?.socketedJewels);
     session['lostAndFound'] = { ...(data.lostAndFound ?? {}) };
     session['pendingLost'] = {};
     session['starterBagGranted'] = data.starterBagGranted ?? false;
     session['worldBossCooldowns'] = { ...(data.worldBossCooldowns ?? {}) };
+    session['tutorial'] = restoreTutorialProgress(data.tutorial);
     session['bank'] = normalizeBank(data.bank);
 
     // Restore craft queue (lazy completion happens on next tick)
@@ -1591,6 +1680,7 @@ export class PlayerSession {
     // Add server-online log entry
     session['addLogEntry']('Server back online — resuming!', 'battle');
     session.grantStarterBagOnce();
+    if (session.character) session.reconcileSocketsAfterEquipmentChange(session.character.equipment);
 
     return session;
   }
@@ -1601,8 +1691,13 @@ export class PlayerSession {
     if (!def || !def.equipSlot) return false;
     if (this.equipOverflowsInventory(itemId)) return false;
 
+    const previous = { ...this.character.equipment };
     const result = equipItem(this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className);
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+      this.handleTutorialEvent({ type: 'equipItem' });
+    }
     return result.success;
   }
 
@@ -1682,8 +1777,12 @@ export class PlayerSession {
     const changes = this.simulateEquipment((inv, eq) => unequipItem(inv, eq, slot, items).success);
     if (changes && !this.fitsInventory(changes)) return { success: false, inventoryFull: true };
 
+    const previous = { ...this.character.equipment };
     const result = unequipItem(this.character.inventory, this.character.equipment, slot, items);
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+    }
     return { success: result.success };
   }
 
@@ -1738,10 +1837,15 @@ export class PlayerSession {
     if (!def || !def.equipSlot) return false;
     if (this.equipOverflowsInventory(itemId, true)) return false;
 
+    const previous = { ...this.character.equipment };
     const result = equipItemForceDestroy(
       this.character.inventory, this.character.equipment, itemId, this.content.getAllItems(), this.character.className
     );
-    if (result.success) this.reconcileLoadoutAfterEquipmentChange();
+    if (result.success) {
+      this.reconcileSocketsAfterEquipmentChange(previous);
+      this.reconcileLoadoutAfterEquipmentChange();
+      this.handleTutorialEvent({ type: 'equipItem' });
+    }
     return result.success;
   }
 

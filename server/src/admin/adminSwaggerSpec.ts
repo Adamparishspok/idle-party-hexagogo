@@ -39,6 +39,8 @@ const sharedComponents = {
             stamina: { type: 'integer' },
           },
         },
+        sockets: { type: 'integer', minimum: 0, maximum: 3, description: 'Jewel sockets on an equippable item.' },
+        jewel: { type: 'boolean', description: 'Marks a socketable jewel (no equipSlot, bagSlots or sockets).' },
         bagSlots: { type: 'integer', minimum: 1, maximum: 24, description: 'Makes the item a bag (no equipSlot): extra backpack slots while in a bag slot.' },
       },
     },
@@ -336,10 +338,12 @@ export const adminSwaggerSpec = {
     { name: 'Monsters', description: 'Monster definition CRUD' },
     { name: 'Zones', description: 'Zone definition CRUD' },
     { name: 'World Bosses', description: 'World boss definition CRUD. Live HP and schedule are runtime state, not content.' },
+    { name: 'Tutorial', description: 'New-player tutorial step CRUD. Steps gate nav tabs until completed.' },
     { name: 'Houses', description: 'Player house definition CRUD. Shops sell houses through ShopDefinition.houseIds.' },
     { name: 'Skills', description: 'Skill definition CRUD and per-class slot schedules' },
     { name: 'World', description: 'World map tile CRUD' },
     { name: 'Assets', description: 'Game imagery — kind registry, coverage audit, and PNG upload/delete. The `set` kind exists in the game but is not managed here yet; GET /api/admin/assets lists them under `deferred` with the reason. Assets are live and unversioned: they are not part of ContentSnapshot, so uploads bypass the draft/publish/deploy flow and take effect immediately.' },
+    { name: 'Simulator', description: 'Headless balance simulation on the real combat engine. Uses live content; touches no player, party, world boss, ledger or save.' },
     { name: 'Versions', description: 'Content versioning' },
     { name: 'Players', description: 'Player management' },
   ],
@@ -674,6 +678,37 @@ export const adminSwaggerSpec = {
       },
     },
 
+    // ── Simulator ──
+    '/api/admin/simulator/parties': {
+      get: {
+        tags: ['Simulator'],
+        summary: 'Loaded player parties available to copy',
+        responses: { 200: { description: 'Parties with member class/level, plus the party-size and battle-count caps' } },
+      },
+    },
+    '/api/admin/simulator/run': {
+      post: {
+        tags: ['Simulator'],
+        summary: 'Simulate N battles of a party against an opponent',
+        description: 'One run at a time (429 otherwise). `party` is either `{ copyFrom: username }` (that player\'s party as it is now, henchmen included) or `{ members: [{ className, level, equipment: { slot: itemId }, skillIds?, gridPosition? }], henchmanIds? }` (skills auto-fill from the class tree when omitted). `opponent.type` is `encounter`, `zone` (its encounter pool), `dungeon` (a full run) or `worldBoss` (one attempt from full HP). `battles` is capped at 1000; a fixed `seed` reproduces the run.',
+        requestBody: { required: true, content: { 'application/json': { schema: {
+          type: 'object',
+          required: ['party', 'opponent', 'battles'],
+          properties: {
+            party: { type: 'object' },
+            opponent: { type: 'object', properties: { type: { type: 'string', enum: ['encounter', 'zone', 'dungeon', 'worldBoss'] }, id: { type: 'string' } } },
+            battles: { type: 'integer', minimum: 1, maximum: 1000 },
+            seed: { type: 'integer' },
+          },
+        } } } },
+        responses: {
+          200: { description: 'Win rate, ticks (avg/median/p90), deaths, per-member damage, XP and gold per hour, and world boss damage when relevant' },
+          400: { description: 'Invalid party, opponent or battle count' },
+          429: { description: 'A simulation is already running' },
+        },
+      },
+    },
+
     // ── World bosses ──
     '/api/admin/world-bosses': {
       get: {
@@ -706,6 +741,42 @@ export const adminSwaggerSpec = {
         responses: {
           200: { description: 'World boss deleted, returns all world bosses' },
           400: { description: 'World boss not found' },
+        },
+      },
+    },
+
+    // ── Tutorial steps ──
+    '/api/admin/tutorial-steps': {
+      get: {
+        tags: ['Tutorial'],
+        summary: 'List all tutorial steps',
+        responses: { 200: { description: 'All tutorial step definitions keyed by ID' } },
+      },
+    },
+    '/api/admin/tutorial-steps/{id}': {
+      put: {
+        tags: ['Tutorial'],
+        summary: 'Add or update a tutorial step',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
+        responses: {
+          200: { description: 'Step saved, returns all steps' },
+          400: { description: 'Invalid tutorial step' },
+        },
+      },
+      delete: {
+        tags: ['Tutorial'],
+        summary: 'Delete a tutorial step',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'versionId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Step deleted, returns all steps' },
+          400: { description: 'Step not found' },
         },
       },
     },

@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateWorldBossDefinition, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { migrateLegacySet, findZonesSpanningMaps, validateHouseDefinition, validateWorldBossDefinition, validateTutorialStep, validateAttributes, validateBagItem, validateSocketItem } from '@idle-party-rpg/shared';
 import type { RoomEntryRequirements } from '@idle-party-rpg/shared';
 import type { ContentSnapshot } from '../../game/VersionStore.js';
 import type { McpToolDeps } from './McpToolDeps.js';
@@ -210,6 +210,18 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
     });
   }
 
+  // --- Tutorial steps ---
+  for (const step of snapshot.tutorialSteps ?? []) {
+    const invalid = validateTutorialStep(step);
+    if (invalid) problems.push(`Tutorial step '${step.id}': ${invalid}`);
+    if (step.trigger?.type === 'completeQuest' && !questIds.has(step.trigger.questId)) {
+      problems.push(`Tutorial step '${step.id}' trigger references unknown quest '${step.trigger.questId}'.`);
+    }
+    if (step.trigger?.type === 'enterRoom' && step.trigger.tileId && !tileById.has(step.trigger.tileId)) {
+      problems.push(`Tutorial step '${step.id}' trigger references unknown room '${step.trigger.tileId}'.`);
+    }
+  }
+
   // --- Recipes ---
   for (const recipe of snapshot.recipes ?? []) {
     recipe.ingredients.forEach((ing, index) => {
@@ -295,7 +307,7 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
 
   // --- Items ---
   for (const item of snapshot.items) {
-    const shapeError = validateAttributes(item.attributes) ?? validateBagItem(item);
+    const shapeError = validateAttributes(item.attributes) ?? validateBagItem(item) ?? validateSocketItem(item);
     if (shapeError) problems.push(`Item '${item.id}': ${shapeError}`);
     (item.grantedSkillIds ?? []).forEach((skillId, index) => {
       if (!skillIds.has(skillId)) {

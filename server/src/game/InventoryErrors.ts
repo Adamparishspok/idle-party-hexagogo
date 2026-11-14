@@ -1,4 +1,4 @@
-import type { InventoryErrorCode } from '@idle-party-rpg/shared';
+import type { InventoryErrorCode, SocketErrorCode } from '@idle-party-rpg/shared';
 
 export const INVENTORY_ERROR_MESSAGES: Record<InventoryErrorCode, string> = {
   inventory_full: 'Your backpack is full.',
@@ -11,3 +11,14 @@ export const INVENTORY_ERROR_MESSAGES: Record<InventoryErrorCode, string> = {
 };
 
 export const INVENTORY_MESSAGE_TYPES: ReadonlySet<string> = new Set(['equip_bag', 'unequip_bag', 'claim_lost_found', 'discard_lost_found']);
+
+export const SOCKET_ERROR_MESSAGES: Record<SocketErrorCode, string> = {
+  socket_invalid_slot: 'That item has no sockets.',
+  socket_not_a_jewel: "That isn't a jewel.",
+  socket_jewel_missing: "That jewel isn't in your backpack.",
+  socket_no_free_socket: 'All sockets on that item are full.',
+  socket_invalid_index: 'No jewel in that socket.',
+  socket_inventory_full: 'Your backpack is full.',
+};
+
+export const SOCKET_MESSAGE_TYPES: ReadonlySet<string> = new Set(['socket_jewel', 'unsocket_jewel']);

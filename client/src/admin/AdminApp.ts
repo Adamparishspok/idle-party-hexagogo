@@ -28,6 +28,8 @@ import { ShopsTab } from './tabs/ShopsTab';
 import { HenchmenTab } from './tabs/HenchmenTab';
 import { HousesTab } from './tabs/HousesTab';
 import { WorldBossesTab } from './tabs/WorldBossesTab';
+import { SimulatorTab } from './tabs/SimulatorTab';
+import { TutorialTab } from './tabs/TutorialTab';
 import { RecipesTab } from './tabs/RecipesTab';
 import { NpcsTab } from './tabs/NpcsTab';
 import { QuestsTab } from './tabs/QuestsTab';
@@ -69,6 +71,8 @@ export class AdminApp implements AdminContext {
     'henchmen':   new HenchmenTab(),
     'houses':     new HousesTab(),
     'world-bosses': new WorldBossesTab(),
+    'simulator':  new SimulatorTab(),
+    'tutorial': new TutorialTab(),
     'recipes':    new RecipesTab(),
     'npcs':       new NpcsTab(),
     'quests':     new QuestsTab(),

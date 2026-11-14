@@ -9,6 +9,7 @@ import type {
   HenchmanDefinition,
   HouseDefinition,
   WorldBossDefinition,
+  TutorialStepDefinition,
   TileTypeDefinition,
   RecipeDefinition,
   NpcDefinition,
@@ -94,6 +95,7 @@ export interface ContentData {
   henchmen: Record<string, HenchmanDefinition>;
   houses: Record<string, HouseDefinition>;
   worldBosses: Record<string, WorldBossDefinition>;
+  tutorialSteps: Record<string, TutorialStepDefinition>;
   tileTypes: Record<string, TileTypeDefinition>;
   recipes: Record<string, RecipeDefinition>;
   npcs: Record<string, NpcDefinition>;
@@ -126,6 +128,8 @@ export type TabId =
   | 'henchmen'
   | 'houses'
   | 'world-bosses'
+  | 'simulator'
+  | 'tutorial'
   | 'recipes'
   | 'npcs'
   | 'quests'
@@ -161,6 +165,8 @@ export const TABS: TabDef[] = [
   { id: 'henchmen',   label: 'Henchmen',   icon: '♟' },
   { id: 'houses',     label: 'Houses',     icon: '⌂' },
   { id: 'world-bosses', label: 'World Bosses', icon: '♛' },
+  { id: 'simulator', label: 'Simulator', icon: '∑' },
+  { id: 'tutorial',   label: 'Tutorial',   icon: '?' },
   { id: 'recipes',    label: 'Recipes',    icon: '⚒' },
   { id: 'npcs',       label: 'NPCs',       icon: '☺' },
   { id: 'quests',     label: 'Quests',     icon: '!' },
