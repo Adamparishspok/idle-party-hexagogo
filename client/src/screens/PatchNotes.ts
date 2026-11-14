@@ -6,6 +6,11 @@ export const PATCH_NOTES: { version: string; notes: string[] }[] = [
       'Help bring a world boss down and you share the rewards. The more damage you dealt, the bigger your share.',
       'If a world boss wipes out your party, you will need to wait before challenging it again. The wait grows with each defeat, and the room panel shows how long is left.',
       'Busy rooms now show up to 12 other adventurers at once, plus a "+N more" count. Your party and guild members always show.',
+      'New adventurers get a short tutorial that walks them through their first fights, gear and travel, opening up each part of the game as they go. You can skip it at any time.',
+      'Gear sockets! Some gear now has sockets that hold jewels. Craft Rubies, Sapphires, Emeralds and Topazes and socket them from your gear slots for extra stats. Swap the gear out and your jewels come back to your bag.',
+      'Some gear found in battle or crafted now comes with random stats. Look for Flawed, Superior and Perfect versions, and check the Quality rating on each item.',
+      'Follow other players! Open someone\'s profile and tap Follow, and your party will travel after them wherever they go. Tap Stop on the bar to stop following.',
+      'When the game is down for maintenance you\'ll now see a message saying so, with an estimate of when it will be back. If a new version comes out while you\'re playing, you\'ll be asked to reload.',
     ],
   },
   {
