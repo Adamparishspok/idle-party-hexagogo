@@ -79,6 +79,15 @@ with world size, and a 1000-zone world would blow past mobile GPU limits.
    unexplored rooms in entered zones; soft dimming outside the current zone.
 7. Faint hex grid on explored land only; soft dashed gold zone borders.
 
+## Smooth walking
+
+The server moves a party one room per battle cycle, then waits
+`MOVE_DURATION` before the next fight. The client glides each marker across
+that window: `MarkerGlide` (`map/markerMotion.ts`) derives the position from
+the hop's start (when the push arrived) and the two room centers, so nothing
+extra goes over the wire. Anything that isn't a live one-room hop (reconnect,
+tab resume, map switch, teleport) snaps. Reduced motion always snaps.
+
 ## Phase 2 — streaming (not built yet)
 
 Today the client still downloads every tile of the current map (`/api/world`).

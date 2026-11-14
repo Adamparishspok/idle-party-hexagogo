@@ -133,10 +133,7 @@
 .wm-marker--party {
   --mk: 48px;
   z-index: 2;
-  /* Movement tween matches MOVE_DURATION in shared/BattleTypes. */
-  transition: left 400ms ease-in-out, top 400ms ease-in-out;
 }
-.wm-marker--party[data-snap="1"] { transition: none; }
 
 .wm-marker__body {
   position: absolute;
@@ -1428,7 +1425,6 @@
 /* ── Reduced motion ────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .wm-marker--party,
   .rv-member,
   .shop-cell,
   .shop-replace-confirm,

@@ -8,7 +8,9 @@
  *     live on the GPU, so per-frame work collapses to a camera-matrix update.
  *   • An HTML overlay (`.wm-overlay`) sits on top of the canvas
  *     and hosts every *dynamic* element — party marker, other-party
- *     portrait markers + pips, hover highlight, path preview. The overlay
+ *     portrait markers + pips, hover highlight, path preview. Party
+ *     markers glide between rooms (MarkerGlide) on a short RAF loop that
+ *     only touches the overlay. The overlay
  *     carries a single `transform: translate scale translate` mirroring
  *     the three.js camera, so a single style update moves all children
  *     together when the user pans/zooms.
@@ -17,8 +19,7 @@
  *
  * Why this matters: the WebGL scene is render-on-demand. Idle = zero
  * GPU/CPU. Panning re-renders the scene but the textures are already on
- * the GPU. Party pulse + tween live entirely in CSS so they don't drive
- * any JS frame work.
+ * the GPU.
  *
  * Public API parity with the prior CanvasWorldMap:
  *   setSendMove, setOnTileClick, adjustZoom, applyServerState,
@@ -49,6 +50,7 @@ import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
 import { buildPaintTiles, roomBuilding, type PaintTileInput } from './map/paintTiles';
 import { TileArtCache, tileArtUrls } from './map/tileArt';
+import { MarkerGlide, isSingleHop, prefersReducedMotion, type Room } from './map/markerMotion';
 import { ROOM_ICONS, WORLD_BOSS_ICON, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
 import type { RoomAction, RoomHome } from './RoomActions';
 
@@ -78,6 +80,10 @@ const SEA_FALLBACK_COLOR = '#2f86bf';
 
 /** Key glyph for the "party inside this room's dungeon" marker pip. */
 const KEY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M11.5 11.5 20 20M16 16l2.5-2.5M18.5 18.5 21 16" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>';
+
+function roomPixel(room: Room): { x: number; y: number } {
+  return cubeToPixel(offsetToCube({ col: room.col, row: room.row }));
+}
 
 function escapeMarkerText(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -198,11 +204,15 @@ export class ThreeWorldMap {
   private bossTiles: ReadonlySet<string> = new Set();
   private markersDirty = true;
 
-  // Party rendering. Movement is animated by a CSS transition on the
-  // `.wm-marker--party` element (`left`/`top`); we just push the target.
+  // Party rendering: the target room, and the glide drawing the marker toward it.
   private partyRendered = false;
   private partyTargetCol = 0;
   private partyTargetRow = 0;
+  private partyGlide: MarkerGlide | null = null;
+  /** Other players' marker glides, by username. */
+  private otherGlides = new Map<string, Room & { glide: MarkerGlide }>();
+  /** RAF id while a marker is mid-glide (overlay only, no WebGL render). */
+  private markerRafId: number | null = null;
 
   // Server-provided path (col,row pairs).
   private serverPath: { col: number; row: number }[] = [];
@@ -445,6 +455,7 @@ export class ThreeWorldMap {
       if (mapId === (state.currentMapId ?? '')) this.hiddenByTile.set(tile, hidden);
     }
     this.othersByTile = this.groupOtherPlayers();
+    this.updateOtherGlides(shouldSnap);
     this.serverPath = state.party.path ?? [];
 
     const home = roomHome(state.house);
@@ -481,6 +492,7 @@ export class ThreeWorldMap {
     if (this.markersDirty) this.updateMarkersOverlay();
     this.updateFlagsOverlay();
     this.updateBattleVisualClass();
+    if (this.positionMarkers(performance.now())) this.ensureMarkerLoop();
     if (this.tooltipEl.style.display !== 'none') this.updateHover();
     this.requestRender();
   }
@@ -542,6 +554,8 @@ export class ThreeWorldMap {
     this.destroyed = true;
     if (this.animRafId !== null) cancelAnimationFrame(this.animRafId);
     this.animRafId = null;
+    if (this.markerRafId !== null) cancelAnimationFrame(this.markerRafId);
+    this.markerRafId = null;
 
     window.removeEventListener('resize', this.resizeHandler);
     this.resizeObserver?.disconnect();
@@ -560,6 +574,10 @@ export class ThreeWorldMap {
     if (this.animRafId !== null) {
       cancelAnimationFrame(this.animRafId);
       this.animRafId = null;
+    }
+    if (this.markerRafId !== null) {
+      cancelAnimationFrame(this.markerRafId);
+      this.markerRafId = null;
     }
   }
 
@@ -1044,21 +1062,70 @@ export class ThreeWorldMap {
   // ─── Party state / animation ──────────────────────────────
 
   private applyPartyState(party: ServerPartyState, snap: boolean): void {
-    if (!this.partyRendered) {
-      this.partyTargetCol = party.col;
-      this.partyTargetRow = party.row;
-      this.partyRendered = true;
-      // First-ever placement should always snap — no transition from
-      // (0,0). The data attribute below is read by CSS to disable the
-      // transition for this one render.
-      this.partyEl.dataset.snap = '1';
-      return;
+    const to = roomPixel(party);
+    if (!this.partyGlide) {
+      this.partyGlide = new MarkerGlide(to);
+    } else if (party.col !== this.partyTargetCol || party.row !== this.partyTargetRow) {
+      const from = { col: this.partyTargetCol, row: this.partyTargetRow };
+      this.partyGlide.moveTo(to, performance.now(), this.canGlide(snap, from, party));
     }
-    const posChanged = party.col !== this.partyTargetCol || party.row !== this.partyTargetRow;
-    if (!posChanged) return;
     this.partyTargetCol = party.col;
     this.partyTargetRow = party.row;
-    this.partyEl.dataset.snap = snap ? '1' : '0';
+    this.partyRendered = true;
+  }
+
+  /** Glide only a live single-room hop; reconnects, tab resumes and teleports snap. */
+  private canGlide(snap: boolean, from: Room, to: Room): boolean {
+    return !snap && !document.hidden && !prefersReducedMotion() && isSingleHop(from, to);
+  }
+
+  private updateOtherGlides(snap: boolean): void {
+    const now = performance.now();
+    const seen = new Set<string>();
+    for (const p of this.lastOtherPlayers) {
+      seen.add(p.username);
+      const entry = this.otherGlides.get(p.username);
+      if (!entry) {
+        this.otherGlides.set(p.username, { col: p.col, row: p.row, glide: new MarkerGlide(roomPixel(p)) });
+        continue;
+      }
+      if (entry.col === p.col && entry.row === p.row) continue;
+      entry.glide.moveTo(roomPixel(p), now, this.canGlide(snap, entry, p));
+      entry.col = p.col;
+      entry.row = p.row;
+    }
+    for (const name of [...this.otherGlides.keys()]) {
+      if (!seen.has(name)) this.otherGlides.delete(name);
+    }
+  }
+
+  /** Place every party marker at its glide position; true while any is still moving. */
+  private positionMarkers(now: number): boolean {
+    let moving = false;
+    if (this.partyGlide && this.partyRendered) {
+      const p = this.partyGlide.at(now);
+      this.partyEl.style.left = `${p.x}px`;
+      this.partyEl.style.top = `${p.y}px`;
+      moving = this.partyGlide.isMoving(now);
+    }
+    for (const el of Array.from(this.flagsEl.children) as HTMLElement[]) {
+      const entry = this.otherGlides.get(el.dataset.lead ?? '');
+      if (!entry) continue;
+      const p = entry.glide.at(now);
+      el.style.left = `${p.x}px`;
+      el.style.top = `${p.y}px`;
+      if (entry.glide.isMoving(now)) moving = true;
+    }
+    return moving;
+  }
+
+  private ensureMarkerLoop(): void {
+    if (this.markerRafId !== null || this.destroyed) return;
+    this.markerRafId = requestAnimationFrame(() => {
+      this.markerRafId = null;
+      if (this.destroyed) return;
+      if (this.positionMarkers(performance.now())) this.ensureMarkerLoop();
+    });
   }
 
   // ─── Render loop (on-demand) ──────────────────────────────
@@ -1078,11 +1145,7 @@ export class ThreeWorldMap {
     });
   }
 
-  /**
-   * Continuous animation loop, used only while the spring-back is active.
-   * Party movement uses a CSS transition on the DOM party element, so it
-   * doesn't need this loop at all. Self-cancels when the spring lands.
-   */
+  /** Continuous animation loop, used only while the spring-back is active. Self-cancels when the spring lands. */
   private ensureAnimLoop(): void {
     if (this.destroyed) return;
     if (this.animRafId !== null) return;
@@ -1236,15 +1299,7 @@ export class ThreeWorldMap {
       this.partyEl.style.display = 'none';
       return;
     }
-    const px = cubeToPixel(offsetToCube({ col: this.partyTargetCol, row: this.partyTargetRow }));
     this.partyEl.style.display = '';
-    this.partyEl.style.left = `${px.x}px`;
-    this.partyEl.style.top = `${px.y}px`;
-    // Allow the snap-to-position render to land, then re-enable the
-    // transition so the next move tweens. Reset on the following frame.
-    if (this.partyEl.dataset.snap === '1') {
-      requestAnimationFrame(() => { this.partyEl.dataset.snap = '0'; });
-    }
   }
 
   /** Name, level pip, and class portrait on the party marker. */
@@ -1377,7 +1432,7 @@ export class ThreeWorldMap {
           ? `<span class="wm-marker__key" title="A party is in the dungeon">${KEY_SVG}</span>`
           : '';
         html.push(
-          `<div class="wm-marker wm-marker--other" data-col="${group.col}" data-row="${group.row}" style="left:${p.x}px;top:${p.y}px;--wm-hue:${hue}">
+          `<div class="wm-marker wm-marker--other" data-col="${group.col}" data-row="${group.row}" data-lead="${escapeMarkerText(lead.username)}" style="left:${p.x}px;top:${p.y}px;--wm-hue:${hue}">
             <div class="wm-marker__body">
               <span class="wm-marker__frame"><span class="wm-marker__initial" aria-hidden="true">${initial}</span>${img}</span>
               ${count}${key}

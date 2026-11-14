@@ -96,7 +96,9 @@ The **`.wm-overlay` HTML layer** sits on top of the canvas and holds every dynam
 
 The **tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element, with no map transform.
 
-**Render-on-demand.** There's no always-on RAF loop. `requestRender()` schedules one render on the next animation frame, coalescing multiple state pushes. The chunk layer schedules its own time-sliced bake frames and calls back to re-render as chunks land. An animation loop runs only while the spring-back is active. Party movement and the party pulse live in CSS. An idle map costs effectively zero.
+**Render-on-demand.** There's no always-on RAF loop. `requestRender()` schedules one render on the next animation frame, coalescing multiple state pushes. The chunk layer schedules its own time-sliced bake frames and calls back to re-render as chunks land. An animation loop runs only while the spring-back is active. The party pulse lives in CSS. An idle map costs effectively zero.
+
+**Smooth walking.** Party markers — yours and every other party's — glide between rooms instead of jumping. `map/markerMotion.ts` holds `MarkerGlide`, whose position is a pure function of the last move: it starts where the marker was drawn when the new room arrived in a state push and lands on that room `MOVE_DURATION` (400 ms, the server's move window in `ServerBattleTimer`) later, eased in and out. No extra network traffic: the start time is the push's arrival. Only a live single-room hop glides (`isSingleHop`); a snap push (first state, reconnect, Map tab re-entry), a map switch, a push that arrives while the tab is hidden, or a jump of more than one room snaps straight to the room. Reduced motion always snaps. Other parties' markers carry `data-lead` (their lead player's name) so their glide follows the player, not the room. A short RAF loop runs only while a marker is mid-glide and only writes overlay `left`/`top`; it never re-renders the WebGL scene.
 
 ## Room actions
 
