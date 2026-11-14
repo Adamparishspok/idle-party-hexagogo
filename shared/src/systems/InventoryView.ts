@@ -21,6 +21,8 @@
  * Pure functions, no state. Safe to call from client or server.
  */
 
+import { templateIdOf } from './ItemRolls.js';
+
 type Inventory = Record<string, number>;
 type Equipment = Record<string, string | null>;
 /** Bags sitting in bag slots: outside both `inventory` and `equipment`. */
@@ -71,28 +73,33 @@ export function ownsItem(itemId: string, inventory: Inventory, equipment: Equipm
 
 // ── Sets ─────────────────────────────────────────────────────────────────────
 
-/** Set of distinct item IDs currently equipped (deduped across slots). */
+/** Set of distinct item IDs currently equipped (deduped across slots), plus the template id of each rolled item. */
 export function getEquippedItemIds(equipment: Equipment): Set<string> {
   const ids = new Set<string>();
   for (const id of Object.values(equipment)) {
-    if (id) ids.add(id);
+    if (id) addWithTemplate(ids, id);
   }
   return ids;
 }
 
-/** Set of distinct item IDs the player owns (unequipped + equipped + bag slots). */
+/** Set of distinct item IDs the player owns (unequipped + equipped + bag slots), plus the template id of each rolled item. */
 export function getOwnedItemIds(inventory: Inventory, equipment: Equipment, bags: Bags = []): Set<string> {
   const ids = new Set<string>();
   for (const id of bags) {
-    if (id) ids.add(id);
+    if (id) addWithTemplate(ids, id);
   }
   for (const [id, count] of Object.entries(inventory)) {
-    if (count > 0) ids.add(id);
+    if (count > 0) addWithTemplate(ids, id);
   }
   for (const id of Object.values(equipment)) {
-    if (id) ids.add(id);
+    if (id) addWithTemplate(ids, id);
   }
   return ids;
+}
+
+function addWithTemplate(ids: Set<string>, id: string): void {
+  ids.add(id);
+  ids.add(templateIdOf(id));
 }
 
 // ── Lists ────────────────────────────────────────────────────────────────────

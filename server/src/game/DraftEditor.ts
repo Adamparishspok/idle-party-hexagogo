@@ -23,7 +23,7 @@ import type {
   WorldTileDefinition,
   WorldMapMeta,
 } from '@idle-party-rpg/shared';
-import { STARTER_BAG_ITEM, migrateLegacySet, migrateLegacySkill, findSetConflicts, zoneMapConflict, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES } from '@idle-party-rpg/shared';
+import { STARTER_BAG_ITEM, migrateLegacySet, migrateLegacySkill, findSetConflicts, zoneMapConflict, validateSkillDefinition, validateHouseDefinition, validateWorldBossDefinition, SEED_TILE_TYPES, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, carryRollHistory } from '@idle-party-rpg/shared';
 
 /** Content types editable through the generic (MCP) draft-write surface. Single source of truth — derive z.enum(...) lists from this array, don't hand-copy the literals. */
 export const DRAFT_CONTENT_TYPES = [
@@ -147,7 +147,8 @@ export class DraftEditor {
       }
     }
     const idx = snapshot.items.findIndex(i => i.id === item.id);
-    if (idx >= 0) snapshot.items[idx] = item; else snapshot.items.push(item);
+    const saved = carryRollHistory(idx >= 0 ? snapshot.items[idx] : this.liveContent().getAllItems()[item.id], item);
+    if (idx >= 0) snapshot.items[idx] = saved; else snapshot.items.push(saved);
     return null;
   }
 

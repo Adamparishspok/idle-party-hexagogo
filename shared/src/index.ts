@@ -148,6 +148,31 @@ export type {
   EquipmentBonuses,
 } from './systems/ItemTypes.js';
 
+// Random stat rolls on gear
+export {
+  ROLL_ID_SEPARATOR,
+  ROLL_STAT_KEYS,
+  hasRollTable,
+  parseRolledItemId,
+  isRolledItemId,
+  templateIdOf,
+  makeRolledItemId,
+  rollNewItemId,
+  findRollTable,
+  rollItemStats,
+  rollQualityLabel,
+  resolveItem,
+  withRolledItems,
+  carryRollHistory,
+  validateRollTable,
+} from './systems/ItemRolls.js';
+export type {
+  RollStatKey,
+  RollRange,
+  ItemRollTable,
+  ParsedRolledId,
+} from './systems/ItemRolls.js';
+
 // Inventory views (read-only helpers over inventory + equipment)
 export {
   getEquippedCount,

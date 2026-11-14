@@ -4,6 +4,7 @@ import type { EquipmentBonuses, ItemDefinition, ItemRarity } from './ItemTypes.j
 import { computeEquipmentBonuses } from './ItemTypes.js';
 import type { SetBonuses, SetDefinition } from './SetTypes.js';
 import { computeActiveSetBonuses, getActiveBreakpoint, setAppliesToClass } from './SetTypes.js';
+import { getEquippedItemIds } from './InventoryView.js';
 
 // See docs/architecture/gear-stats-bank.md for the formulas and worked numbers.
 
@@ -162,8 +163,7 @@ export function computeSetAttributes(
   className?: string | null,
 ): AttributeBlock {
   const total = emptyAttributes();
-  const equipped = new Set<string>();
-  for (const id of Object.values(equipment)) if (id) equipped.add(id);
+  const equipped = getEquippedItemIds(equipment);
   for (const set of Object.values(sets)) {
     if (!setAppliesToClass(set, className)) continue;
     const count = set.itemIds.filter(id => equipped.has(id)).length;

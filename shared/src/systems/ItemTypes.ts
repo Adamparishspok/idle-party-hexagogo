@@ -1,5 +1,6 @@
 import type { SkillDefinition } from './SkillTypes.js';
 import type { PartialAttributes } from './AttributeTypes.js';
+import type { ItemRollTable } from './ItemRolls.js';
 
 // --- Types ---
 
@@ -32,6 +33,14 @@ export interface ItemDefinition {
   attributes?: PartialAttributes;
   /** Present (> 0) only on bags: extra backpack slots while the bag sits in a bag slot. Bags have no `equipSlot`. */
   bagSlots?: number;
+  /** Random stat ranges: new copies get a rolled id (`templateId~version~seed`). See docs/architecture/gear-stats-bank.md. */
+  rolls?: ItemRollTable;
+  /** Earlier roll tables, kept so items rolled before a rebalance keep their stats. Maintained by the content store. */
+  rollHistory?: ItemRollTable[];
+  /** Set only on a resolved rolled item: the authored item it was rolled from. */
+  templateId?: string;
+  /** Set only on a resolved rolled item: 0–100, how high its rolls landed. */
+  rollQuality?: number;
 }
 
 export interface ItemDrop {

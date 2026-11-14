@@ -25,6 +25,7 @@ export type ItemStatLineKind =
   | 'grant'
   | 'classes'
   | 'heirloom'
+  | 'quality'
   | 'consumable'
   | 'material';
 
@@ -187,6 +188,7 @@ export function describeItemStats(
   if (isHeirloom && lines.some(l => l.kind === 'attribute' || l.kind === 'attack' || l.kind === 'armor' || l.kind === 'resist')) {
     lines.push({ kind: 'heirloom', text: 'Grows stronger with your level' });
   }
+  if (def.rollQuality !== undefined) lines.push({ kind: 'quality', text: `Quality ${def.rollQuality}%` });
   if (def.classRestriction && def.classRestriction.length > 0) {
     lines.push({ kind: 'classes', text: `Classes: ${def.classRestriction.join(', ')}` });
   }

@@ -2,6 +2,8 @@ import type { EquipmentBonuses, ItemDefinition } from './ItemTypes.js';
 import type { SkillDefinition } from './SkillTypes.js';
 import type { PartialAttributes } from './AttributeTypes.js';
 import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES } from './AttributeTypes.js';
+import { getEquippedItemIds } from './InventoryView.js';
+import { templateIdOf } from './ItemRolls.js';
 
 // --- Types ---
 
@@ -165,10 +167,7 @@ export function computeActiveSetBonuses(
   sets: Record<string, SetDefinition>,
   className?: string | null,
 ): { activeSetIds: string[]; bonuses: SetBonuses } {
-  const equippedItemIds = new Set<string>();
-  for (const itemId of Object.values(equipment)) {
-    if (itemId) equippedItemIds.add(itemId);
-  }
+  const equippedItemIds = getEquippedItemIds(equipment);
 
   const activeSetIds: string[] = [];
   const combined: Required<Omit<SetBonuses, 'attributes'>> = {
@@ -305,7 +304,7 @@ export function getSetsForItem(
 ): SetDefinition[] {
   const result: SetDefinition[] = [];
   for (const set of Object.values(sets)) {
-    if (!set.itemIds.includes(itemId)) continue;
+    if (!set.itemIds.includes(templateIdOf(itemId))) continue;
     if (className !== undefined && !setAppliesToClass(set, className)) continue;
     result.push(set);
   }

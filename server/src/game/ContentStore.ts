@@ -13,7 +13,7 @@ import type { DungeonDefinition } from '@idle-party-rpg/shared';
 import type { SkillDefinition, SkillSlot } from '@idle-party-rpg/shared';
 import type { DesignNote } from '@idle-party-rpg/shared';
 import { SEED_MONSTERS, SEED_ITEMS, SEED_ZONES, SEED_ENCOUNTERS, SEED_TILE_TYPES, SEED_RECIPES, SEED_NPCS, SEED_HENCHMEN, SEED_HOUSES, SEED_DUNGEONS, SEED_SKILLS, SEED_SKILL_SLOT_SCHEDULES, TILE_CONFIGS, migrateLegacySet, migrateLegacySkill, findSetConflicts, DEFAULT_MAP_ID, migrateWorldData } from '@idle-party-rpg/shared';
-import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem } from '@idle-party-rpg/shared';
+import { TileType, STARTER_BAG_ITEM, SEED_BAG_ITEMS, SEED_BANKER_SHOP, validateAttributes, validateBagItem, validateRollTable, resolveItem, withRolledItems, carryRollHistory, templateIdOf, ROLL_ID_SEPARATOR } from '@idle-party-rpg/shared';
 
 const DATA_DIR = path.resolve('data');
 const MONSTERS_FILE = path.join(DATA_DIR, 'monsters.json');
@@ -37,7 +37,8 @@ const DESIGN_NOTES_FILE = path.join(DATA_DIR, 'design-notes.json');
 
 /** Shape checks for an authored item's attributes and bag fields. Returns an error message, or null. */
 export function validateItemDefinition(item: ItemDefinition): string | null {
-  return validateAttributes(item.attributes) ?? validateBagItem(item);
+  if (typeof item.id === 'string' && item.id.includes(ROLL_ID_SEPARATOR)) return `Item ids may not contain "${ROLL_ID_SEPARATOR}".`;
+  return validateAttributes(item.attributes) ?? validateBagItem(item) ?? validateRollTable(item.rolls);
 }
 
 /** Set tiers grant whole attribute points; negatives are allowed, as on items. */
@@ -137,14 +138,19 @@ export class ContentStore {
     return result;
   }
 
+  /** Resolves rolled ids (`templateId~version~seed`) too. */
   getItem(id: string): ItemDefinition | undefined {
-    return this.items.get(id);
+    const direct = this.items.get(id);
+    if (direct) return direct;
+    const template = this.items.get(templateIdOf(id));
+    return template ? resolveItem(id, { [template.id]: template }) : undefined;
   }
 
+  /** Authored templates only when iterated; indexing by a rolled id resolves it. */
   getAllItems(): Record<string, ItemDefinition> {
     const result: Record<string, ItemDefinition> = {};
     for (const [id, def] of this.items) result[id] = def;
-    return result;
+    return withRolledItems(result);
   }
 
   getZone(id: string): ZoneDefinition | undefined {
@@ -438,7 +444,7 @@ export class ContentStore {
   async addOrUpdateItem(item: ItemDefinition): Promise<string | null> {
     const error = validateItemDefinition(item);
     if (error) return error;
-    this.items.set(item.id, item);
+    this.items.set(item.id, carryRollHistory(this.items.get(item.id), item));
     await this.save();
     return null;
   }
@@ -822,8 +828,9 @@ export class ContentStore {
     this.monsters.clear();
     for (const m of snapshot.monsters) this.monsters.set(m.id, m);
 
+    const previousItems = new Map(this.items);
     this.items.clear();
-    for (const i of snapshot.items) this.items.set(i.id, i);
+    for (const i of snapshot.items) this.items.set(i.id, carryRollHistory(previousItems.get(i.id), i));
 
     this.zones.clear();
     for (const z of snapshot.zones) this.zones.set(z.id, z);

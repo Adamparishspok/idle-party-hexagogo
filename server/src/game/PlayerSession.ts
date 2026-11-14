@@ -1,4 +1,7 @@
 import {
+  hasRollTable,
+  templateIdOf,
+  rollNewItemId,
   HexGrid,
   HexTile,
   UnlockSystem,
@@ -21,7 +24,6 @@ import {
   isTwoHandedEquipped,
   getOwnedItemIds,
   getEquippedItemIds,
-  hasItemEquipped as inventoryHasItemEquipped,
   getZone,
   setAppliesToClass,
   createDefaultSkillLoadout,
@@ -1075,7 +1077,20 @@ export class PlayerSession {
   /** Unattended delivery (loot, rewards, crafts): backpack, then Lost & Found, then lost. Logs pouch and lost copies. */
   receiveItems(itemId: string, quantity: number): ItemRouting {
     if (!this.character) return { toInventory: 0, toPouch: 0, lost: 0 };
-    const routing = routeIncomingItems(this.character.inventory, this.getInventoryCapacity(), this.lostAndFound, itemId, quantity);
+    const template = this.content.getItem(itemId);
+    if (!template || !hasRollTable(template)) return this.routeIncoming(itemId, quantity);
+    const total: ItemRouting = { toInventory: 0, toPouch: 0, lost: 0 };
+    for (let i = 0; i < quantity; i++) {
+      const routing = this.routeIncoming(rollNewItemId(template), 1);
+      total.toInventory += routing.toInventory;
+      total.toPouch += routing.toPouch;
+      total.lost += routing.lost;
+    }
+    return total;
+  }
+
+  private routeIncoming(itemId: string, quantity: number): ItemRouting {
+    const routing = routeIncomingItems(this.character!.inventory, this.getInventoryCapacity(), this.lostAndFound, itemId, quantity);
     const name = this.content.getItem(itemId)?.name ?? itemId;
     if (routing.toPouch > 0) {
       this.addLogEntry(`Your bags are full — ${routing.toPouch}× ${name} went to Lost & Found`, 'damage');
@@ -1628,10 +1643,10 @@ export class PlayerSession {
     );
   }
 
-  /** Check if the player has a specific item equipped in any slot. */
+  /** Check if the player has a specific item equipped in any slot; a template id also matches its rolled copies. */
   hasItemEquipped(itemId: string): boolean {
     if (!this.character) return false;
-    return inventoryHasItemEquipped(itemId, this.character.equipment);
+    return this.getEquippedItemIds().has(itemId);
   }
 
   /** Every item ID currently equipped — used to evaluate room entry gates. */
@@ -1660,7 +1675,7 @@ export class PlayerSession {
     const equippedInSlot = this.character.equipment[slot];
     if (equippedInSlot) {
       const lockedIds = this.getLockedItemIds();
-      if (lockedIds.includes(equippedInSlot)) return { success: false, lockedByTile: true };
+      if (lockedIds.includes(templateIdOf(equippedInSlot))) return { success: false, lockedByTile: true };
     }
 
     const items = this.content.getAllItems();
