@@ -192,6 +192,8 @@ export class ItemsTab implements Tab {
       ? `<img src="/item-artwork/${i.id}.png" class="admin-art-preview" onerror="this.style.display='none'">`
       : '';
 
+    const rollPreviewHtml = `<button class="admin-btn admin-btn-sm" id="if-roll-preview" type="button">Preview sample rolls</button>
+        <div class="admin-form-hint" id="if-roll-samples"></div>`;
     const bodyHtml = `
       <input type="hidden" id="if-id" value="${escapeHtml(i.id)}">
       <div class="admin-form-grid">
@@ -229,8 +231,7 @@ export class ItemsTab implements Tab {
             </span></label>`;
           }).join('')}
         </div>
-        <button class="admin-btn admin-btn-sm" id="if-roll-preview" type="button">Preview sample rolls</button>
-        <div class="admin-form-hint" id="if-roll-samples"></div>
+        ${rollPreviewHtml}
       </fieldset>
       <fieldset class="admin-form-fieldset">
         <legend>Display & Type</legend>
@@ -280,7 +281,7 @@ export class ItemsTab implements Tab {
           <button class="admin-btn admin-btn-secondary" id="if-cancel" type="button">Cancel</button>
         </div>`;
     const wrappedBody = readOnly
-      ? `<fieldset class="admin-form-readonly-wrap" disabled>${bodyHtml}</fieldset>${actionsHtml}`
+      ? `<fieldset class="admin-form-readonly-wrap" disabled>${bodyHtml.replace(rollPreviewHtml, '')}</fieldset>${rollPreviewHtml}${actionsHtml}`
       : `${bodyHtml}${actionsHtml}`;
     const titlePrefix = isNew ? 'Add' : (readOnly ? 'View' : 'Edit');
     const modal = openModal({

@@ -35,7 +35,7 @@ The shell is styled after WorldQuest — painted fantasy mobile chrome. Plan, sl
 
 - **Top HUD** (`TopHud.ts`) — gold pill on the left, current zone + room name centered, settings gear on the right beside the notification bell. Once you own a house, a framed house button (`.hud-home`, 48px) sits left of the gear and travels home (`HomeView.travelTo()`, switching to the map); it lights gold while you're inside it. Hidden at nav depth > 1 (the back header owns the top edge), as is the bell.
 - **XP bar** (`PersistentXpBar.ts`) — teal fill with `xp / next XP` centered, round level badge on the left end, and the class portrait perched above it (tap → Character). While Well Rested, `WellRestedChip.ts` adds a glowing moon chip at the bar's right end with the time left (refreshed every 30s, hidden on expiry); tapping it shows what the buff does. Sits at z-index 999, under the nav, so the active tab's banner can overhang it.
-- **Perch** — the Quests and Chat buttons resting on a plinth above the XP bar, overhanging screen content (`.screen-scroll` regions get `--perch-height` of bottom padding so their last rows can scroll clear).
+- **Perch** — the Quests and Chat buttons resting on a plinth above the XP bar, overhanging screen content (`.screen-scroll` regions get `--perch-height` of bottom padding so their last rows can scroll clear). While the tutorial panel shows, `TutorialPanel` publishes its height as `--tutorial-reserve`, which `.screen-scroll` adds to its bottom padding so the fixed panel never covers content.
 
 ## Bottom nav structure
 

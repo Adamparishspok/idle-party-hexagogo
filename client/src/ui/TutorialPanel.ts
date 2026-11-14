@@ -39,6 +39,7 @@ export class TutorialPanel {
     this.el.setAttribute('role', 'status');
     this.el.hidden = true;
     document.body.appendChild(this.el);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.syncReserve()).observe(this.el);
     gameClient.subscribe((state) => this.render(state.tutorial, state.username));
     this.render(gameClient.lastState?.tutorial, gameClient.lastState?.username);
     window.addEventListener(TUTORIAL_SHOW_EVENT, () => this.render(gameClient.lastState?.tutorial, gameClient.lastState?.username));
@@ -48,6 +49,7 @@ export class TutorialPanel {
     const step = tutorial?.step;
     if (!step || step.id === readHiddenStep(username)) {
       this.el.hidden = true;
+      this.syncReserve();
       return;
     }
     const goal = step.trigger.type === 'winBattles' ? ` (${tutorial.count}/${step.trigger.count})` : '';
@@ -68,6 +70,13 @@ export class TutorialPanel {
     this.el.querySelector('[data-act="hide"]')!.addEventListener('click', () => {
       writeHiddenStep(username, step.id);
       this.el.hidden = true;
+      this.syncReserve();
     });
+    this.syncReserve();
+  }
+
+  private syncReserve(): void {
+    const px = this.el.hidden ? 0 : this.el.offsetHeight + 8;
+    document.documentElement.style.setProperty('--tutorial-reserve', `${px}px`);
   }
 }

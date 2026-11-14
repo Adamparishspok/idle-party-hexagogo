@@ -34,4 +34,10 @@ describe('TutorialPanel hide persistence', () => {
     expect(showTutorialAgain('alice')).toBe(true);
     expect(localStorage.getItem(tutorialHiddenKey('alice'))).toBeNull();
   });
+
+  it('clears the layout reserve when hidden', () => {
+    new TutorialPanel(fakeClient());
+    document.querySelector<HTMLButtonElement>('[data-act="hide"]')!.click();
+    expect(document.documentElement.style.getPropertyValue('--tutorial-reserve')).toBe('0px');
+  });
 });
