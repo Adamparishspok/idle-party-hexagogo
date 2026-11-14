@@ -550,6 +550,7 @@ export {
   NAV_ICON_IDS,
   CLASS_ICON_EXTRA_IDS,
   SFX_IDS,
+  MAP_PROP_IDS,
 } from './assets/AssetKinds.js';
 export type {
   AssetKind,
@@ -561,6 +562,7 @@ export type {
   AssetFallback,
   AssetFileFormat,
   SfxId,
+  MapPropId,
 } from './assets/AssetKinds.js';
 
 export {

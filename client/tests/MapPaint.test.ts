@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cubeToKey, getNeighbors, offsetToCube } from '@idle-party-rpg/shared';
+import { MAP_PROP_IDS, cubeToKey, getNeighbors, offsetToCube } from '@idle-party-rpg/shared';
 import type { ShopSummary, WorldTileDefinition } from '@idle-party-rpg/shared';
 import { buildPaintTiles, roomBuilding } from '../src/ui/map/paintTiles';
+import { landmarkArtUrl } from '../src/ui/map/tileArt';
 import { hasBuiltInLook, paintFingerprint, type PaintTile } from '../src/ui/map/terrainPainter';
 import { TerrainTileIndex } from '../src/ui/map/terrainChunks';
 import { markerGlyphs, MAX_MARKER_ICONS, ROOM_ICONS, type RoomAction } from '../src/ui/RoomActions';
@@ -65,9 +66,10 @@ describe('buildPaintTiles', () => {
 });
 
 describe('roomBuilding', () => {
-  const lookups = (s?: ShopSummary, dungeon = true) => ({
+  const lookups = (s?: ShopSummary, dungeon = true, npc = true) => ({
     getShop: () => s,
     getDungeon: () => (dungeon ? { id: 'd' } : undefined),
+    getNpc: () => (npc ? { id: 'n' } : undefined),
   });
 
   it('gives a dungeon room a cave, even with a shop', () => {
@@ -82,6 +84,19 @@ describe('roomBuilding', () => {
     expect(roomBuilding({ shopId: 's' }, lookups(shop({ isBanker: true, sellsItems: true })))).toBe('bank');
     expect(roomBuilding({ shopId: 's' }, lookups(shop({ sellsHouses: true, sellsItems: false })))).toBe('houses');
     expect(roomBuilding({ shopId: 's' }, lookups(shop({ hiresHenchmen: true, sellsItems: false })))).toBe('shop');
+  });
+
+  it('stands your home on its room, under a dungeon but over a shop', () => {
+    expect(roomBuilding({ id: 'r1', shopId: 's' }, lookups(shop()), 'r1')).toBe('home');
+    expect(roomBuilding({ id: 'r1', dungeonId: 'd' }, lookups(shop()), 'r1')).toBe('cave');
+    expect(roomBuilding({ id: 'r2', shopId: 's' }, lookups(shop()), 'r1')).toBe('shop');
+  });
+
+  it('marks NPC rooms, then town rooms, when nothing bigger is there', () => {
+    expect(roomBuilding({ npcId: 'n', type: 'town' }, lookups(undefined))).toBe('npc');
+    expect(roomBuilding({ npcId: 'gone', type: 'town' }, lookups(undefined, true, false))).toBe('town');
+    expect(roomBuilding({ npcId: 'n', shopId: 's' }, lookups(shop()))).toBe('shop');
+    expect(roomBuilding({ type: 'town' }, lookups(undefined))).toBe('town');
   });
 
   it('leaves plain rooms alone', () => {
@@ -188,5 +203,17 @@ describe('typeClusterTiles', () => {
     expect(tiles).toHaveLength(7);
     expect(new Set(tiles.map(t => t.type))).toEqual(new Set(['forest']));
     expect(tiles[0].neighborKeys.filter(Boolean)).toHaveLength(6);
+  });
+});
+
+describe('landmarkArtUrl', () => {
+  it('serves every landmark from a fixed map-prop id', () => {
+    for (const b of ['cave', 'bank', 'houses', 'shop', 'npc', 'home', 'town'] as const) {
+      const url = landmarkArtUrl(b);
+      const id = url.slice('/map-prop-artwork/'.length, -'.png'.length);
+      expect(url.startsWith('/map-prop-artwork/')).toBe(true);
+      expect(MAP_PROP_IDS).toContain(id);
+    }
+    expect(landmarkArtUrl('town')).toBe('/map-prop-artwork/building-inn.png');
   });
 });

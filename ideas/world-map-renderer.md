@@ -111,7 +111,11 @@ already pure (tiles + rect + scale in, pixels out) so it moves as-is.
 ## Art hooks
 
 - `tile` / `tile-type` art: drawn clipped into the tile blob (props skipped).
-- Map props from the user's other projects are staged in `server/data/map-props/`
-  (e.g. 64px inn/tavern/merchant/dungeon buildings) — a later step can let the
-  painter place them on town/dungeon tiles instead of procedural houses.
+- **Landmarks** (built): explored rooms with a dungeon, your home, a shop
+  (bank / estate agent / merchant), an NPC, or a town get one painted building.
+  Art comes from the `map-prop` asset kind (`data/map-props/`, served at
+  `/map-prop-artwork/{id}.png`, fixed ids in `MAP_PROP_IDS`), so the staged
+  64px buildings in `server/data/map-props/` serve as-is under their file
+  names. Missing props fall back to procedural buildings. The staged arena,
+  raid and trainer props have no landmark yet.
 - Per-map sea/backdrop art via the existing `parchment` kind.

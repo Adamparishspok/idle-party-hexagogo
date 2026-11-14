@@ -44,6 +44,7 @@ export const ASSET_GROUPS: readonly AssetGroup[] = [
   { kind: 'slot-icon', hint: 'Glyphs on the equipment-slot dogears.' },
   { kind: 'class', hint: 'Character portraits on the combat, character, and profile screens.' },
   { kind: 'class-icon', hint: 'Small class glyphs in party lists, chat, and leaderboards.' },
+  { kind: 'map-prop', hint: 'Landmark buildings on explored map rooms. Missing props use the painted fallback.' },
   { kind: 'sfx', hint: 'OGG (preferred) or MP3. Missing sounds play a synthesized placeholder.' },
 ];
 

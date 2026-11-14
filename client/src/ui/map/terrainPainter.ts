@@ -16,7 +16,7 @@ import { HEX_SIZE, getHexCorners } from '@idle-party-rpg/shared';
 export type FogState = 'open' | 'haze' | 'fog';
 
 /** A landmark drawn from what a room holds rather than its type. */
-export type RoomBuilding = 'cave' | 'bank' | 'houses' | 'shop';
+export type RoomBuilding = 'cave' | 'bank' | 'houses' | 'shop' | 'npc' | 'home' | 'town';
 
 export interface PaintTile {
   /** Cube key — stable identity, also the RNG seed. */
@@ -46,6 +46,8 @@ export interface PaintOptions {
   getTile: (key: string) => PaintTile | undefined;
   /** Uploaded art for a tile, already clipped to a hex sprite; null if none. */
   getArt: (tile: PaintTile) => CanvasImageSource | null;
+  /** Uploaded landmark prop for a tile's building; null falls back to the procedural one. */
+  getPropArt?: (tile: PaintTile) => CanvasImageSource | null;
 }
 
 // ─── Deterministic noise ─────────────────────────────────────────
@@ -157,11 +159,14 @@ export function paintFingerprint(t: PaintTile): string {
   return `${t.type}|${t.fog}|${t.dimmed ? 1 : 0}|${t.zone}|${t.building ?? ''}|${t.color}|${t.icon ?? ''}`;
 }
 
-const BUILDINGS: Record<RoomBuilding, PropPainter> = {
+/** Procedural landmarks; a town without prop art keeps its type's houses. */
+const BUILDINGS: Partial<Record<RoomBuilding, PropPainter>> = {
   cave: caveMouth,
   bank: bankHall,
   houses: estate,
   shop: marketStall,
+  npc: questHut,
+  home: homeCottage,
 };
 
 function recipeFor(t: PaintTile): Recipe {
@@ -237,10 +242,12 @@ export function paintTerrain(ctx: CanvasRenderingContext2D, tiles: PaintTile[], 
     for (const t of propTiles) {
       const rec = RECIPES[t.type];
       const r = rng(hashString(t.key) ^ 0x9e3779b9);
+      const art = t.building ? opts.getPropArt?.(t) ?? null : null;
       const building = t.building ? BUILDINGS[t.building] : undefined;
-      if (building) {
+      if (art || building) {
         if (rec?.props && rec.flatProps) rec.props(ctx, t, r);
-        building(ctx, t, r);
+        if (art) drawPropArt(ctx, t, art, opts.scale);
+        else building?.(ctx, t, r);
       } else if (rec?.props) rec.props(ctx, t, r);
       else if (t.icon) drawIcon(ctx, t);
     }
@@ -595,6 +602,41 @@ function caveMouth(ctx: CanvasRenderingContext2D, t: PaintTile, _r: () => number
   ctx.lineTo(x - 10, y);
   ctx.closePath();
   ctx.fill();
+}
+
+const PROP_ART_SIZE = HEX_SIZE * 1.5;
+
+function drawPropArt(ctx: CanvasRenderingContext2D, t: PaintTile, art: CanvasImageSource, scale: number): void {
+  const base = t.y + PROP_ART_SIZE * 0.35;
+  groundShadow(ctx, t.x, base - 2, PROP_ART_SIZE * 0.38);
+  const smooth = ctx.imageSmoothingEnabled;
+  // Pixel-art props stay crisp when magnified; smoothing only helps when shrinking.
+  ctx.imageSmoothingEnabled = scale < 1;
+  ctx.drawImage(art, t.x - PROP_ART_SIZE / 2, base - PROP_ART_SIZE, PROP_ART_SIZE, PROP_ART_SIZE);
+  ctx.imageSmoothingEnabled = smooth;
+}
+
+function questHut(ctx: CanvasRenderingContext2D, t: PaintTile, _r: () => number): void {
+  dirtPad(ctx, t);
+  house(ctx, t.x - 4, t.y + 12, 15, '#3f6fae');
+  const sx = t.x + 16;
+  const sy = t.y + 14;
+  ctx.fillStyle = '#6b4526';
+  ctx.fillRect(sx - 1, sy - 16, 2.4, 16);
+  ctx.fillStyle = '#f2c230';
+  ctx.strokeStyle = '#a77a12';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(sx, sy - 18, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function homeCottage(ctx: CanvasRenderingContext2D, t: PaintTile, _r: () => number): void {
+  dirtPad(ctx, t);
+  house(ctx, t.x, t.y + 12, 18, '#b8452f');
+  ctx.fillStyle = '#7a5a44';
+  ctx.fillRect(t.x + 6, t.y + 12 - 18 * 0.85 - 12, 4, 9);
 }
 
 function dirtPad(ctx: CanvasRenderingContext2D, t: PaintTile): void {

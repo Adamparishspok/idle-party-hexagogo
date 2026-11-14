@@ -49,7 +49,7 @@ import { artworkUrl } from './assets';
 import { ChunkedMapLayer } from './map/ChunkedMapLayer';
 import { createSeaCanvas, type PaintTile, type FogState } from './map/terrainPainter';
 import { buildPaintTiles, roomBuilding, type PaintTileInput } from './map/paintTiles';
-import { TileArtCache, tileArtUrls } from './map/tileArt';
+import { TileArtCache, landmarkArtUrl, tileArtUrls } from './map/tileArt';
 import { MarkerGlide, isSingleHop, prefersReducedMotion, type Room } from './map/markerMotion';
 import { ROOM_ICONS, WORLD_BOSS_ICON, getRoomActions, markerGlyphs, readyQuestIds, roomHome } from './RoomActions';
 import type { RoomAction, RoomHome } from './RoomActions';
@@ -367,6 +367,7 @@ export class ThreeWorldMap {
     });
     this.terrain = new ChunkedMapLayer(this.scene, {
       getArt: (tile) => this.getTileArt(tile),
+      getPropArt: (tile) => (tile.building ? this.tileArt.image(landmarkArtUrl(tile.building), tile.key) : null),
       onBaked: () => this.requestRender(),
     });
 
@@ -443,6 +444,12 @@ export class ThreeWorldMap {
     const prevZone = this.currentZone;
     this.currentZone = myTile?.zone ?? '';
     if (this.currentZone !== prevZone) terrainStale = true;
+    const home = roomHome(state.house);
+    if (home?.tileId !== this.home?.tileId || home?.name !== this.home?.name) {
+      if (home?.tileId !== this.home?.tileId) terrainStale = true;
+      this.home = home;
+      this.markersDirty = true;
+    }
     // Only chunks touching tiles whose fog/zone-dim state changed re-bake.
     if (terrainStale) this.syncTerrain(mapChanged);
 
@@ -457,12 +464,6 @@ export class ThreeWorldMap {
     this.othersByTile = this.groupOtherPlayers();
     this.updateOtherGlides(shouldSnap);
     this.serverPath = state.party.path ?? [];
-
-    const home = roomHome(state.house);
-    if (home?.tileId !== this.home?.tileId || home?.name !== this.home?.name) {
-      this.home = home;
-      this.markersDirty = true;
-    }
 
     const bossTiles = new Set((state.worldBosses ?? []).map(b => b.tileId));
     if ([...bossTiles].sort().join(',') !== [...this.bossTiles].sort().join(',')) {
@@ -1246,7 +1247,7 @@ export class ThreeWorldMap {
         fog = zoneOpen ? 'haze' : 'fog';
       }
       const def = this.worldTileDefs.get(`${offset.col},${offset.row}`);
-      const building = def && explored ? roomBuilding(def, this.worldCache) : undefined;
+      const building = def && explored ? roomBuilding(def, this.worldCache, this.home?.tileId) : undefined;
       inputs.push({
         col: offset.col,
         row: offset.row,

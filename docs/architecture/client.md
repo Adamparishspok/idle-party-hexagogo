@@ -88,7 +88,7 @@ The **painter** draws its passes in this order:
 2. Terrain fills in layer order, with feathered borders and brush dabs.
 3. Lakes.
 4. Uploaded `tile` / `tile-type` art, clipped to the tile. It replaces the procedural props for that tile.
-5. Depth-sorted procedural props: pines, peaks, houses, dunes, lava cracks, volcano, hedges, cave mouths, tufts. Unknown types fall back to their emoji.
+5. Depth-sorted props: pines, peaks, houses, dunes, lava cracks, volcano, hedges, cave mouths, tufts. Unknown types fall back to their emoji. **Landmarks** replace a room's tall props on explored rooms only: `roomBuilding` (`map/paintTiles.ts`) picks one per room — dungeon `cave`, your `home`, then the shop's `bank` / `houses` / `shop`, an `npc`, and finally `town` for town-type rooms. Each draws its `map-prop` art (`landmarkArtUrl` in `map/tileArt.ts`: inn, merchant, dungeon, tavern, bank, estate, home) bottom-anchored on the room, crisp when magnified. Without art it falls back to a procedural building (cave mouth, bank hall, estate, market stall, quest hut, cottage; a town keeps its houses). Art that lands late re-bakes only the tiles that asked for it.
 6. Fog clouds over tiles in zones you have never entered, a faint veil over unexplored rooms in zones you have entered, and dimming outside the current zone.
 7. A faint hex grid on explored land, and soft dashed gold zone borders.
 

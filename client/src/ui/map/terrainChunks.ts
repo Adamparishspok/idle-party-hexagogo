@@ -1,5 +1,5 @@
 import { HEX_SIZE } from '@idle-party-rpg/shared';
-import { paintTerrain, paintFingerprint, type FogState, type PaintTile } from './terrainPainter';
+import { paintTerrain, paintFingerprint, type FogState, type PaintOptions, type PaintTile } from './terrainPainter';
 
 /** Chunk edge in world units (≈ 8 × 7 hexes). */
 export const CHUNK_SIZE = 512;
@@ -131,7 +131,7 @@ export function bakeChunk(
   cx: number,
   cy: number,
   scale: number,
-  getArt: (tile: PaintTile) => CanvasImageSource | null,
+  art: Pick<PaintOptions, 'getArt' | 'getPropArt'>,
 ): boolean {
   const { minX, minY, size } = chunkBounds(cx, cy);
   const px = Math.max(1, Math.ceil(size * scale));
@@ -146,7 +146,8 @@ export function bakeChunk(
   paintTerrain(ctx, index.tilesForChunk(cx, cy), {
     scale: s,
     getTile: (k) => index.getTile(k),
-    getArt,
+    getArt: art.getArt,
+    getPropArt: art.getPropArt,
   });
   return true;
 }

@@ -59,6 +59,7 @@ export interface LayerView {
 
 export interface LayerOptions {
   getArt: (tile: PaintTile) => CanvasImageSource | null;
+  getPropArt?: (tile: PaintTile) => CanvasImageSource | null;
   /** Called when what the chunks show changed — a bake landed or a reveal faded a step (caller re-renders). */
   onBaked: () => void;
 }
@@ -203,7 +204,7 @@ export class ChunkedMapLayer {
     let rc = this.resident.get(key);
     const fadeOut = rc?.reveal && rc.mesh.visible && !prefersReducedMotion();
     const canvas = rc && !fadeOut ? rc.canvas : document.createElement('canvas');
-    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts.getArt)) return;
+    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts)) return;
     const px = canvas.width;
 
     if (!rc) {

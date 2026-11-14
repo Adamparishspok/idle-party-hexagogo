@@ -1,6 +1,7 @@
 import { HEX_SIZE, getHexCorners } from '@idle-party-rpg/shared';
-import type { WorldTileDefinition } from '@idle-party-rpg/shared';
+import type { MapPropId, WorldTileDefinition } from '@idle-party-rpg/shared';
 import { artworkUrl } from '../assets';
+import type { RoomBuilding } from './terrainPainter';
 
 interface CachedImage {
   img: HTMLImageElement;
@@ -13,6 +14,20 @@ export function tileArtUrls(room: Pick<WorldTileDefinition, 'id' | 'type'>): str
   if (room.id) urls.push(artworkUrl('tile', room.id));
   urls.push(artworkUrl('tile-type', room.type));
   return urls;
+}
+
+const LANDMARK_PROPS: Record<RoomBuilding, MapPropId> = {
+  town: 'building-inn',
+  shop: 'building-merchant',
+  cave: 'building-dungeon',
+  npc: 'building-tavern',
+  bank: 'building-bank',
+  houses: 'building-estate',
+  home: 'building-home',
+};
+
+export function landmarkArtUrl(building: RoomBuilding): string {
+  return artworkUrl('map-prop', LANDMARK_PROPS[building]);
 }
 
 /**
@@ -33,12 +48,19 @@ export class TileArtCache {
   /** The first of `urls` that has loaded, as a hex sprite; null while loading or when none exist. */
   get(urls: readonly string[], tileKey: string): CanvasImageSource | null {
     for (const url of urls) {
-      const img = this.load(url);
+      const img = this.image(url, tileKey);
       if (img) return this.sprite(url, img);
-      let w = this.waiters.get(url);
-      if (!w) { w = new Set(); this.waiters.set(url, w); }
-      w.add(tileKey);
     }
+    return null;
+  }
+
+  /** The image itself, unclipped; null while loading or missing. */
+  image(url: string, tileKey: string): HTMLImageElement | null {
+    const img = this.load(url);
+    if (img) return img;
+    let w = this.waiters.get(url);
+    if (!w) { w = new Set(); this.waiters.set(url, w); }
+    w.add(tileKey);
     return null;
   }
 

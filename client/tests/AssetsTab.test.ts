@@ -62,7 +62,7 @@ describe('AssetsTab helpers', () => {
   });
 
   it('covers every fixed-id kind no other tab can upload', () => {
-    expect(ASSET_GROUPS.map(g => g.kind).sort()).toEqual(['class', 'class-icon', 'logo', 'nav-icon', 'sfx', 'slot-icon', 'ui']);
+    expect(ASSET_GROUPS.map(g => g.kind).sort()).toEqual(['class', 'class-icon', 'logo', 'map-prop', 'nav-icon', 'sfx', 'slot-icon', 'ui']);
   });
 });
 
