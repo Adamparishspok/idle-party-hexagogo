@@ -7,6 +7,7 @@ Player state is periodically saved (every 30s) and on graceful shutdown via `Gam
 Saved state per player (`PlayerSaveData`):
 - `username`, `battleCount`, `combatLog` (last 1000 entries), `unlockedKeys`, `position`, `mapId` (which map the party is on; absent on legacy saves → defaults to the world's default map on restore), `target`, `movementQueue`
 - `character` (className, level, xp, inventory, equipment, skillLoadout, `bags`) — optional; `bags` is the equipped bag per bag slot, restored through `normalizeBagSlots` (absent → 4 empty slots); old saves or saves with invalid/legacy classes get `character = null` on load, forcing class re-selection. Within `skillLoadout`, only `equippedSkills` is authoritative — `unlockedSkills` is derived and recomputed from level + skill content on every restore (`reconcileSkillLoadout` also clears slots whose skill no longer exists or lost availability). Legacy `skillPoints` is ignored on load.
+- `followTarget` (optional): the player this party is following (see `docs/architecture/social.md` -> Follow a player)
 - `friends`, `outgoingFriendRequests`, `blockedUsers` — optional; default to empty
 - `guildId`, `partyId`, `partyRole`, `partyGridPosition` — party state survives server restarts for multi-player parties
 - `chatHistory` (last 1000 messages), `chatSendChannel`, `chatDmTarget`

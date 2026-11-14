@@ -301,6 +301,14 @@ export class GameClient {
     this.sendRaw({ type: 'move', col, row });
   }
 
+  sendFollowPlayer(username: string): void {
+    this.sendRaw({ type: 'follow_player', username });
+  }
+
+  sendStopFollowing(): void {
+    this.sendRaw({ type: 'stop_following' });
+  }
+
   sendRun(): void {
     this.sendRaw({ type: 'run' });
   }

@@ -323,6 +323,22 @@ export class SocialScreen implements Screen {
     }
     actions.push(act('gift', 'Send Gift'));
     if (entry?.hasHouse) actions.push(act('visit_home', 'Visit Home', 'steel'));
+
+    if (!isPartyMember) {
+      const selfMember = social.party?.members.find(m => m.username === selfUsername);
+      const canMoveParty = selfMember?.role === 'owner' || selfMember?.role === 'leader';
+      if (this.lastState?.following === username) {
+        actions.push(act('stop_follow', 'Stop Following', 'steel'));
+      } else if (!canMoveParty) {
+        actions.push(off('Follow'));
+        reasons.push('Only the party owner or a leader can follow a player.');
+      } else if (!isOnline) {
+        actions.push(off('Follow'));
+        reasons.push('Offline players cannot be followed.');
+      } else {
+        actions.push(act('follow', 'Follow', 'steel'));
+      }
+    }
     actions.push(isBlocked ? act('unblock', 'Unblock', 'steel') : act('block', 'Block', 'red'));
 
     const modal = openSocModal({
@@ -365,6 +381,8 @@ export class SocialScreen implements Screen {
         case 'unblock': this.gameClient.sendUnblockUser(username); break;
         case 'trade': this.openTradeModal(username); break;
         case 'gift': this.openGiftModal(username); break;
+        case 'follow': this.gameClient.sendFollowPlayer(username); break;
+        case 'stop_follow': this.gameClient.sendStopFollowing(); break;
         case 'visit_home':
           if (this.onVisitHome) this.onVisitHome(username);
           else this.gameClient.sendEnterHome(username);

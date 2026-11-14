@@ -432,6 +432,46 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
   }
 }
 
+/* "Following X — Stop" chip on the XP bar. */
+.follow-chip {
+  position: relative;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 55%;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 2px solid var(--ink-900);
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, #2f7a74, #17423f);
+  font-family: var(--ui-font);
+  font-weight: 600;
+  font-size: var(--t-caption);
+  line-height: 1;
+  color: #fff;
+  text-shadow: var(--text-stroke-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.follow-chip[hidden] {
+  display: none;
+}
+.follow-chip::before {
+  content: '';
+  position: absolute;
+  inset: -20px -8px -6px;
+}
+.follow-chip:active {
+  transform: translateY(1px);
+}
+.follow-chip:focus-visible {
+  outline: 3px solid var(--gold-300);
+  outline-offset: 2px;
+}
+
 /* Level badge on the bar's left end, overlapping the portrait's base. */
 .xpbar-level {
   position: absolute;

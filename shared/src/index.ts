@@ -254,6 +254,8 @@ export type {
   CombatLogEntry,
   ServerStateMessage,
   ClientMoveMessage,
+  ClientFollowPlayerMessage,
+  ClientStopFollowingMessage,
   ClientRequestStateMessage,
   ClientEquipItemMessage,
   ClientUnequipItemMessage,

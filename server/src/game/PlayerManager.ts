@@ -23,6 +23,7 @@ import { PartyBattleManager } from './PartyBattleManager.js';
 import { HousingService } from './housing/HousingService.js';
 import { BankService } from './bank/BankService.js';
 import { WorldBossSystem } from './WorldBossSystem.js';
+import { FollowSystem } from './social/FollowSystem.js';
 import type { ContentStore } from './ContentStore.js';
 import type { AccountStore } from '../auth/AccountStore.js';
 
@@ -47,6 +48,7 @@ export class PlayerManager {
   readonly bank: BankService;
   readonly economy = new EconomyLedger();
   readonly worldBosses: WorldBossSystem;
+  readonly follow: FollowSystem;
   private getAllUsernames: () => string[];
   private readonly serverVersion = Date.now().toString();
 
@@ -82,6 +84,7 @@ export class PlayerManager {
       (members) => {
         this.cancelInvitesOnMove(members);
         this.housing.onMembersMoved(members);
+        this.follow.onPartyMoved(members);
       },
     );
     this.partyBattles.setHenchmenCallbacks(
@@ -98,6 +101,31 @@ export class PlayerManager {
       isBlocked: (a, b) => this.isTradeBlocked(a, b),
       pushState: (username) => this.sendStateToPlayer(username),
       notify: (username, eventKey, message) => this.notify.notify(username, eventKey, message),
+    });
+    this.follow = new FollowSystem({
+      isOnline: (username) => (this.playerConnections.get(username)?.size ?? 0) > 0,
+      canMoveParty: (username) => {
+        const partyId = this.sessions.get(username)?.getPartyId();
+        const role = partyId ? this.parties.getParty(partyId)?.members.find(m => m.username === username)?.role : undefined;
+        return role !== undefined && canMove(role);
+      },
+      location: (username) => {
+        const session = this.sessions.get(username);
+        const partyId = session?.getPartyId();
+        const position = partyId ? this.partyBattles.getPosition(partyId) : null;
+        const mapId = partyId ? this.partyBattles.getMapId(partyId) : null;
+        if (!session || !partyId || !position || !mapId) return null;
+        const sealed = this.partyBattles.getDungeonRunInfo(partyId) !== null || this.housing.getHomeView(username) !== undefined;
+        return { partyId, mapId, col: position.col, row: position.row, sealed };
+      },
+      isDiscovered: (follower, target) => {
+        const partyId = this.sessions.get(target)?.getPartyId();
+        const tile = partyId ? this.partyBattles.getTile(partyId) : null;
+        return !!tile && !!this.sessions.get(follower)?.isTileUnlocked(tile);
+      },
+      moveParty: (partyId, col, row) => this.partyBattles.handleMove(partyId, col, row),
+      tell: (username, message) => this.sendErrorToPlayer(username, message),
+      pushState: (username) => this.sendStateToPlayer(username),
     });
     this.bank = new BankService({
       getSession: (username) => this.sessions.get(username),
@@ -189,6 +217,7 @@ export class PlayerManager {
       if (initialMailbox.length > 0) this.mailboxes.setMailbox(username, initialMailbox);
       const initialNotifications = session.consumeInitialNotifications();
       if (initialNotifications.length > 0) this.notifications.setInbox(username, initialNotifications);
+      this.follow.restore(username, session.consumeInitialFollowTarget());
       this.wireCallbacks(session);
       if (session.hasCharacter()) {
         this.ensureParty(username);
@@ -215,6 +244,7 @@ export class PlayerManager {
         // Trades are async — they persist across disconnect. Nothing to cancel here.
         this.sessions.get(username)?.captureAwaySnapshot(now);
         this.housing.handleDisconnect(username, now);
+        this.follow.stopFollowing(username);
       }
     }
 
@@ -291,6 +321,7 @@ export class PlayerManager {
 
     // Remove from friends system
     this.friends.removePlayer(username);
+    this.follow.forget(username);
 
     // Remove session from memory (stops battles, removes from map/player lists)
     this.sessions.delete(username);
@@ -328,6 +359,7 @@ export class PlayerManager {
     if (!session) return false;
 
     this.housing.handleDisconnect(oldUsername);
+    this.follow.rename(oldUsername, newUsername);
     this.sessions.delete(oldUsername);
     session.username = newUsername;
     this.sessions.set(newUsername, session);
@@ -528,6 +560,7 @@ export class PlayerManager {
   /** Wire all callbacks onto a session (social state, battle state, position). */
   private wireCallbacks(session: PlayerSession): void {
     session.getSocialState = () => this.getSocialState(session.username);
+    session.getFollowTarget = () => this.follow.getTarget(session.username);
     session.getMailbox = () => this.mailboxes.getMailbox(session.username);
     session.getNotifications = () => this.notifications.getInbox(session.username);
     session.getBattleState = () => {
@@ -624,6 +657,7 @@ export class PlayerManager {
     const joiner = this.sessions.get(username);
     const tile = this.partyBattles.getTile(partyId);
     if (joiner && tile) joiner.switchMapGrid(tile);
+    this.follow.reconcileParties();
   }
 
   /** Handle a player leaving/being kicked from a party. Creates new solo party at current position. */
@@ -697,6 +731,12 @@ export class PlayerManager {
     const partyId = session.getPartyId();
     if (!partyId) return { success: false, error: 'No party.' };
     return this.partyBattles.enterTransition(partyId, targetTileId);
+  }
+
+  /** A manual party move overrides any follow held by a member. */
+  stopFollowingForParty(partyId: string): void {
+    const members = this.parties.getParty(partyId)?.members ?? [];
+    this.follow.stopForUsers(members.map(m => m.username));
   }
 
   /** Check if two players are on the same tile (uses party positions). */
@@ -845,6 +885,7 @@ export class PlayerManager {
         if (initialMailbox.length > 0) this.mailboxes.setMailbox(data.username, initialMailbox);
         const initialNotifications = session.consumeInitialNotifications();
         if (initialNotifications.length > 0) this.notifications.setInbox(data.username, initialNotifications);
+        this.follow.restore(data.username, session.consumeInitialFollowTarget());
         this.wireCallbacks(session);
         validSaves.push(data);
         console.log(`[PlayerManager] Restored session for "${data.username}"`);

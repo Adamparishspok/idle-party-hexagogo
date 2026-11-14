@@ -28,6 +28,7 @@ import { installGearErrorToasts } from './ui/GameToast';
 import { installItemTooltips } from './ui/ItemStats';
 import { derivedInputFromState, isKnownClass } from './ui/GearModel';
 import { WellRestedChip } from './ui/WellRestedChip';
+import { FollowChip } from './ui/FollowChip';
 import { WelcomeBackModal } from './ui/WelcomeBackModal';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 import { wireGameSounds } from './audio/SoundEvents';
@@ -517,6 +518,7 @@ export class App {
     hud.setSettingsActive(savedScreen === 'settings');
     new PersistentXpBar(this.gameClient, () => goToRoot('items'));
     new WellRestedChip(this.gameClient, this.xpBarEl);
+    new FollowChip(this.gameClient, this.xpBarEl);
 
     // Wire popout → nav so closing the popout from its own button clears the
     // overlay-active state, and unread mail lights up the Chat tab badge.

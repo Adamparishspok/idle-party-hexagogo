@@ -350,13 +350,26 @@ wss.on('connection', (ws) => {
         }
 
         const moveResult = playerManager.partyBattles.handleMove(partyId, msg.col, msg.row);
-        if (!moveResult.success) {
+        if (moveResult.success) {
+          playerManager.stopFollowingForParty(partyId);
+        } else {
           if (moveResult.blocked) {
             ws.send(JSON.stringify(toMoveBlockedMessage(moveResult.blocked)));
           } else {
             ws.send(JSON.stringify({ type: 'error', message: 'Invalid move' }));
           }
         }
+        return;
+      }
+
+      if (msg.type === 'follow_player' && typeof msg.username === 'string') {
+        const error = playerManager.follow.start(username, msg.username);
+        if (error) ws.send(JSON.stringify({ type: 'error', message: error }));
+        return;
+      }
+
+      if (msg.type === 'stop_following') {
+        playerManager.follow.stop(username);
         return;
       }
 
@@ -414,6 +427,8 @@ wss.on('connection', (ws) => {
         const error = playerManager.handleEnterDungeon(username, msg.col, msg.row, msg.dungeonId);
         if (error) {
           ws.send(JSON.stringify({ type: 'error', message: error }));
+        } else {
+          playerManager.stopFollowingForParty(partyId);
         }
         return;
       }
@@ -442,7 +457,9 @@ wss.on('connection', (ws) => {
         }
 
         const transitionResult = playerManager.handleEnterTransition(username, msg.tileId);
-        if (!transitionResult.success) {
+        if (transitionResult.success) {
+          playerManager.stopFollowingForParty(partyId);
+        } else {
           // An unmet gate reuses move_blocked so it surfaces in the same toast
           // as a blocked move; structural failures stay on the error channel.
           if (transitionResult.blocked) {
