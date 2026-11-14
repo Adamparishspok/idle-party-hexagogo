@@ -218,7 +218,8 @@ Items have no per-copy instances, so sockets bind to the **equipment slot**, not
 - Stats: `computeDerivedStats({ socketedJewels })` adds jewel attributes and legacy attack/armor/resist like gear (`activeJewelIds` clips each slot to its socket count). `compareEquip` drops a slot's jewels when the previewed item replaces it.
 - Persisted as `PlayerSaveData.character.socketedJewels` (`normalizeSocketedJewels` on load). Sent as `ClientCharacterState.socketedJewels`, and the jewel defs ride in `itemDefinitions`.
 - Client: the gear picker (tap an equipment slot) lists sockets under the worn item, with Remove and Socket buttons. Item stat blocks show "N sockets" / "Jewel (socketable)".
-- Known gap: socketed jewels do not count for quest "have item" checks (they live outside `inventory`/`equipment`).
+- Quest "have item" (collect) objectives count socketed jewels (`PlayerSession.getQuestItemCount`); a hand-in spends backpack copies only (`consumeQuestItems`) and keeps socketed jewels.
+- The same socket list and buttons render in the backpack item popup when the opened item is the one worn in a slot (`ui/SocketsSection.ts`, shared with the gear picker; hand-in closes the popup).
 
 ### Random stat rolls (`ItemRolls.ts`)
 
@@ -231,7 +232,8 @@ Items stay keyed by id everywhere (`inventory`, `equipment`, bank, house storage
 - Template identity: sets, room gates and dungeon "equipped" checks compare template ids. `getEquippedItemIds` / `getOwnedItemIds` add each rolled item's template id, `getSetsForItem` and the client set badge use `templateIdOf`, and item artwork resolves by template id.
 - Stacking: different rolls are different ids, so each takes its own backpack/bank slot (identical seeds stack, harmlessly). Capacity math is unchanged.
 - Sell price is the template `value`. The stat block shows "Quality N%".
-- Known gaps: recipe ingredients, quest "have/deliver item" objectives, consumed dungeon keys and the unequipped-inventory half of a non-consumed dungeon key match exact ids, so a rolled copy does not satisfy a template-id requirement there. Do not put a rollable item in those roles.
+- Template requirements: a rolled copy satisfies every exact-id requirement by template: recipe ingredients, quest collect objectives, consumed and non-consumed dungeon keys, and room gates. One helper set in `InventoryView.ts` does it: `countByTemplate`, `pickForConsumption` (plain id first, then rolled copies lowest quality first) and `consumeByTemplate`, used by `canQueueRecipe`/`enqueueRecipe`, `PlayerSession.consumeByTemplate`/`getInventoryTemplateCount` and the dungeon entry check. Equipped and socketed items are never consumed. A cancelled craft refunds the plain template id.
+- Loot, quest, dungeon, world-boss and combat-log messages name the rolled copy ("Found Superior Rusty Dagger"): `receiveItems` returns the delivered ids. The welcome-back summary already keys by rolled id.
 
 ## 4. Bank (`BankTypes.ts`)
 
