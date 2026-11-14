@@ -17,6 +17,7 @@ import { DraftEditor, toRecord } from '../game/DraftEditor.js';
 import { AssetValidationError, MAX_ASSET_BYTES } from '../game/AssetStore.js';
 import type { AssetStore } from '../game/AssetStore.js';
 import { registerAssetRoutes, assetUploadErrorHandler } from './assetRoutes.js';
+import { registerSimulatorRoutes } from './simulatorRoutes.js';
 
 /**
  * Coerce an untrusted room/transition entry gate from a request body, dropping
@@ -677,6 +678,7 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
   // Every kind of artwork the game serves lives under `/api/admin/assets`,
   // described by the shared ASSET_KIND_INFO registry. See assetRoutes.ts.
   registerAssetRoutes(router, { contentStore: getContentStore, assetStore });
+  registerSimulatorRoutes(router, { playerManager: getPlayerManager, contentStore: getContentStore });
 
   /**
    * Deprecated aliases for the pre-registry artwork endpoints. The admin UI

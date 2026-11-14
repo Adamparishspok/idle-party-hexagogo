@@ -340,6 +340,7 @@ export const adminSwaggerSpec = {
     { name: 'Skills', description: 'Skill definition CRUD and per-class slot schedules' },
     { name: 'World', description: 'World map tile CRUD' },
     { name: 'Assets', description: 'Game imagery — kind registry, coverage audit, and PNG upload/delete. The `set` kind exists in the game but is not managed here yet; GET /api/admin/assets lists them under `deferred` with the reason. Assets are live and unversioned: they are not part of ContentSnapshot, so uploads bypass the draft/publish/deploy flow and take effect immediately.' },
+    { name: 'Simulator', description: 'Headless balance simulation on the real combat engine. Uses live content; touches no player, party, world boss, ledger or save.' },
     { name: 'Versions', description: 'Content versioning' },
     { name: 'Players', description: 'Player management' },
   ],
@@ -670,6 +671,37 @@ export const adminSwaggerSpec = {
         responses: {
           200: { description: 'Zone deleted, returns all zones' },
           400: { description: 'Zone referenced by a tile or not found' },
+        },
+      },
+    },
+
+    // ── Simulator ──
+    '/api/admin/simulator/parties': {
+      get: {
+        tags: ['Simulator'],
+        summary: 'Loaded player parties available to copy',
+        responses: { 200: { description: 'Parties with member class/level, plus the party-size and battle-count caps' } },
+      },
+    },
+    '/api/admin/simulator/run': {
+      post: {
+        tags: ['Simulator'],
+        summary: 'Simulate N battles of a party against an opponent',
+        description: 'One run at a time (429 otherwise). `party` is either `{ copyFrom: username }` (that player\'s party as it is now, henchmen included) or `{ members: [{ className, level, equipment: { slot: itemId }, skillIds?, gridPosition? }], henchmanIds? }` (skills auto-fill from the class tree when omitted). `opponent.type` is `encounter`, `zone` (its encounter pool), `dungeon` (a full run) or `worldBoss` (one attempt from full HP). `battles` is capped at 1000; a fixed `seed` reproduces the run.',
+        requestBody: { required: true, content: { 'application/json': { schema: {
+          type: 'object',
+          required: ['party', 'opponent', 'battles'],
+          properties: {
+            party: { type: 'object' },
+            opponent: { type: 'object', properties: { type: { type: 'string', enum: ['encounter', 'zone', 'dungeon', 'worldBoss'] }, id: { type: 'string' } } },
+            battles: { type: 'integer', minimum: 1, maximum: 1000 },
+            seed: { type: 'integer' },
+          },
+        } } } },
+        responses: {
+          200: { description: 'Win rate, ticks (avg/median/p90), deaths, per-member damage, XP and gold per hour, and world boss damage when relevant' },
+          400: { description: 'Invalid party, opponent or battle count' },
+          429: { description: 'A simulation is already running' },
         },
       },
     },

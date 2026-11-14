@@ -126,6 +126,7 @@ export type TabId =
   | 'henchmen'
   | 'houses'
   | 'world-bosses'
+  | 'simulator'
   | 'recipes'
   | 'npcs'
   | 'quests'
@@ -161,6 +162,7 @@ export const TABS: TabDef[] = [
   { id: 'henchmen',   label: 'Henchmen',   icon: '♟' },
   { id: 'houses',     label: 'Houses',     icon: '⌂' },
   { id: 'world-bosses', label: 'World Bosses', icon: '♛' },
+  { id: 'simulator', label: 'Simulator', icon: '∑' },
   { id: 'recipes',    label: 'Recipes',    icon: '⚒' },
   { id: 'npcs',       label: 'NPCs',       icon: '☺' },
   { id: 'quests',     label: 'Quests',     icon: '!' },
