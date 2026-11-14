@@ -784,7 +784,7 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
 
 /* Scroll regions get room to scroll their last rows clear of the perch. */
 .screen-scroll {
-  padding-bottom: var(--perch-height);
+  padding-bottom: calc(var(--perch-height) + var(--tutorial-reserve, 0px));
 }
 
 /* ── Social fly-out submenu ──────────────────────────────── */

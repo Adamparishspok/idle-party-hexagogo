@@ -327,6 +327,13 @@ function collectProblems(snapshot: ContentSnapshot): string[] {
       && t.col === snapshot.world.startTile.col
       && t.row === snapshot.world.startTile.row,
   );
+  if (defaultMapTile) {
+    for (const boss of snapshot.worldBosses ?? []) {
+      if ((boss.tileIds ?? []).includes(defaultMapTile.id)) {
+        problems.push(`Warning: world boss '${boss.id}' is placed in the new-player start room '${defaultMapTile.id}', which stalls the tutorial's win-battles step.`);
+      }
+    }
+  }
   if (!defaultMapTile) {
     problems.push(
       `World start tile (${snapshot.world.startTile.col}, ${snapshot.world.startTile.row}) on default map '${snapshot.world.defaultMapId}' does not resolve to any room.`,
