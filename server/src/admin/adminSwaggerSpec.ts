@@ -727,6 +727,29 @@ export const adminSwaggerSpec = {
       },
     },
 
+    '/api/admin/import-seed-defaults': {
+      post: {
+        tags: ['Content'],
+        summary: 'Add seed defaults missing by id (never overwrites)',
+        parameters: [{ name: 'versionId', in: 'query', required: false, schema: { type: 'string' } }],
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object', properties: { kinds: { type: 'array', items: { type: 'string', enum: ['tutorial', 'items'] } } } } } },
+        },
+        responses: { 200: { description: 'Counts of added entries per kind' }, 400: { description: 'Unknown kind or published version' } },
+      },
+    },
+    '/api/admin/players/{username}/tutorial': {
+      post: {
+        tags: ['Players'],
+        summary: "Reset or complete a loaded player's tutorial",
+        parameters: [{ name: 'username', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object', properties: { action: { type: 'string', enum: ['reset', 'complete'] } }, required: ['action'] } } },
+        },
+        responses: { 200: { description: 'Tutorial updated' }, 404: { description: 'Player session not loaded' } },
+      },
+    },
+
     // ── World bosses ──
     '/api/admin/world-bosses': {
       get: {
