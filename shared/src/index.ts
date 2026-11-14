@@ -766,10 +766,12 @@ export {
   runBattleSimulation,
   buildSimCombatant,
   autoSkillLoadout,
+  simSlotChoices,
+  sanitizeSkillLoadout,
   createSeededRng,
   SIM_MAX_BATTLES,
   SIM_MAX_TICKS,
   BATTLE_OVERHEAD_MS,
   EFFECTS_BUCKET,
 } from './systems/BattleSimulator.js';
-export type { SimContent, SimOpponent, SimMemberSpec, SimInput, SimReport, SimStats, SimMemberReport } from './systems/BattleSimulator.js';
+export type { SimContent, SimOpponent, SimMemberSpec, SimInput, SimReport, SimStats, SimMemberReport, SimDrop, SimSlotChoice } from './systems/BattleSimulator.js';

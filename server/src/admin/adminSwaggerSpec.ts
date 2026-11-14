@@ -691,8 +691,8 @@ export const adminSwaggerSpec = {
     '/api/admin/simulator/run': {
       post: {
         tags: ['Simulator'],
-        summary: 'Simulate N battles of a party against an opponent',
-        description: 'One run at a time (429 otherwise). `party` is either `{ copyFrom: username }` (that player\'s party as it is now, henchmen included) or `{ members: [{ className, level, equipment: { slot: itemId }, skillIds?, gridPosition? }], henchmanIds? }` (skills auto-fill from the class tree when omitted). `opponent.type` is `encounter`, `zone` (its encounter pool), `dungeon` (a full run) or `worldBoss` (one attempt from full HP). `battles` is capped at 1000; a fixed `seed` reproduces the run.',
+        summary: 'Start a simulation of N battles of a party against an opponent',
+        description: 'Returns once the run has started; poll `GET /simulator/status` and stop it with `POST /simulator/cancel`. One run at a time (429 otherwise). Optional `versionId` simulates a draft\'s content instead of live. `party` is either `{ copyFrom: username }` (that player\'s party as it is now, henchmen included) or `{ members: [{ className, level, equipment: { slot: itemId }, skillIds?, gridPosition? }], henchmanIds? }` (skills auto-fill from the class tree when omitted). `opponent.type` is `encounter`, `zone` (its encounter pool), `dungeon` (a full run) or `worldBoss` (one attempt from full HP). `battles` is capped at 1000; a fixed `seed` reproduces the run.',
         requestBody: { required: true, content: { 'application/json': { schema: {
           type: 'object',
           required: ['party', 'opponent', 'battles'],
@@ -701,13 +701,29 @@ export const adminSwaggerSpec = {
             opponent: { type: 'object', properties: { type: { type: 'string', enum: ['encounter', 'zone', 'dungeon', 'worldBoss'] }, id: { type: 'string' } } },
             battles: { type: 'integer', minimum: 1, maximum: 1000 },
             seed: { type: 'integer' },
+            versionId: { type: 'string' },
           },
         } } } },
         responses: {
-          200: { description: 'Win rate, ticks (avg/median/p90), deaths, per-member damage, XP and gold per hour, and world boss damage when relevant' },
+          200: { description: 'Run started, returns { total }' },
           400: { description: 'Invalid party, opponent or battle count' },
           429: { description: 'A simulation is already running' },
         },
+      },
+    },
+
+    '/api/admin/simulator/status': {
+      get: {
+        tags: ['Simulator'],
+        summary: 'Progress of the current or last simulation',
+        responses: { 200: { description: '{ state: idle|running|done|cancelled|error, completed, total, report?, error? }. The report has win rate, ticks, deaths, per-member damage, XP, gold and item drops per hour, and world boss damage when relevant' } },
+      },
+    },
+    '/api/admin/simulator/cancel': {
+      post: {
+        tags: ['Simulator'],
+        summary: 'Cancel the running simulation',
+        responses: { 200: { description: 'Cancel requested' } },
       },
     },
 

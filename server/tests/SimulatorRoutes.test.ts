@@ -18,15 +18,31 @@ function setup() {
     getAllWorldBosses: () => ({}),
     getAllItems: () => ({}),
     getAllSets: () => ({}),
-    getHenchman: () => undefined,
+    getAllHenchmen: () => ({}),
   };
-  registerSimulatorRoutes(router as never, { playerManager: () => ({}) as never, contentStore: () => store as never });
+  const draftMonster = { id: 'rat', name: 'Rat', level: 1, hp: 20, damage: 2, damageType: 'physical', xp: 5, goldMin: 1, goldMax: 1 };
+  const versions = {
+    get: (id: string) => (id === 'd1' ? { id } : undefined),
+    loadSnapshot: async () => ({
+      monsters: [draftMonster], items: [], zones: [],
+      encounters: [{ id: 'draft_only', name: 'Draft Only', type: 'explicit', placements: [{ monsterId: 'rat', gridPosition: 4 }] }],
+    }),
+  };
+  registerSimulatorRoutes(router as never, { playerManager: () => ({}) as never, contentStore: () => store as never, versionStore: () => versions as never });
   const call = async (key: string, body: unknown) => {
     const res: FakeRes = { code: 200, body: undefined, status(c) { this.code = c; return this; }, json(b) { this.body = b; } };
     await routes[key]({ body }, res);
     return res;
   };
   return { call };
+}
+
+async function finished(call: (key: string, body: unknown) => Promise<FakeRes>): Promise<{ state: string }> {
+  for (;;) {
+    const status = (await call('GET /simulator/status', undefined)).body as { state: string };
+    if (status.state !== 'running') return status;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
 }
 
 describe('simulator route', () => {
@@ -37,7 +53,23 @@ describe('simulator route', () => {
       opponent: { type: 'encounter', id: 'rats' }, battles: 10, seed: 1,
     });
     expect(res.code).toBe(200);
-    expect(res.body).toMatchObject({ battles: 10, winRate: 1 });
+    expect(await finished(call)).toMatchObject({ state: 'done', report: { battles: 10, winRate: 1 } });
+  });
+
+  it('simulates the selected draft instead of live content', async () => {
+    const { call } = setup();
+    const body = { party: { members: [{ className: 'Knight', level: 5, equipment: {} }] }, opponent: { type: 'encounter', id: 'draft_only' }, battles: 3 };
+    expect((await call('POST /simulator/run', body)).code).toBe(400);
+    expect((await call('POST /simulator/run', { ...body, versionId: 'd1' })).code).toBe(200);
+    expect(await finished(call)).toMatchObject({ state: 'done', report: { opponent: 'encounter: Draft Only' } });
+    expect((await call('POST /simulator/run', { ...body, versionId: 'missing' })).code).toBe(400);
+  });
+
+  it('cancels a running simulation', async () => {
+    const { call } = setup();
+    await call('POST /simulator/run', { party: { members: [{ className: 'Knight', level: 5, equipment: {} }] }, opponent: { type: 'encounter', id: 'rats' }, battles: 1000 });
+    await call('POST /simulator/cancel', {});
+    expect(await finished(call)).toMatchObject({ state: 'cancelled' });
   });
 
   it('rejects a bad opponent, an unknown item and a missing party', async () => {

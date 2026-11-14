@@ -692,7 +692,7 @@ export function createAdminRoutes({ maintenance, onMaintenanceChange, playerMana
   // Every kind of artwork the game serves lives under `/api/admin/assets`,
   // described by the shared ASSET_KIND_INFO registry. See assetRoutes.ts.
   registerAssetRoutes(router, { contentStore: getContentStore, assetStore });
-  registerSimulatorRoutes(router, { playerManager: getPlayerManager, contentStore: getContentStore });
+  registerSimulatorRoutes(router, { playerManager: getPlayerManager, contentStore: getContentStore, versionStore: getVersionStore });
 
   /**
    * Deprecated aliases for the pre-registry artwork endpoints. The admin UI
