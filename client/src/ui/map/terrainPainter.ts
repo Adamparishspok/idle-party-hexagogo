@@ -250,7 +250,7 @@ export function paintTerrain(ctx: CanvasRenderingContext2D, tiles: PaintTile[], 
   //    blobs don't stack darker where they overlap.
   const visible = ordered.filter(t => t.type !== 'void');
   fillBlobs(ctx, visible.filter(t => t.fog === 'open' && t.dimmed), 1.08, 5, 'rgba(14,16,28,0.28)');
-  fillBlobs(ctx, visible.filter(t => t.fog === 'haze'), 1.3, 10, 'rgba(28,33,51,0.5)');
+  fillBlobs(ctx, visible.filter(t => t.fog === 'haze'), 1.12, 6, 'rgba(28,33,51,0.14)');
   const fogged = visible.filter(t => t.fog === 'fog');
   fillBlobs(ctx, fogged, 1.3, 10, 'rgba(28,33,51,0.88)');
   if (detail) for (const t of fogged) fogPuffs(ctx, t);

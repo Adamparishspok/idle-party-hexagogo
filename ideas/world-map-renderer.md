@@ -57,6 +57,12 @@ with world size, and a 1000-zone world would blow past mobile GPU limits.
   (unlocks, zone change, an artwork image finishing loading), only chunks whose
   margin touches a changed tile are marked dirty; they re-bake in place, keeping
   their old texture on screen until the new one is ready.
+- **Zone reveal:** when a zone opens (its first room is explored), every tile
+  that leaves full fog marks its chunks for a *reveal* re-bake: the old texture
+  stays on a mesh above the new one and fades out (900 ms, staggered 180 ms per
+  chunk of distance from the view center). Reduced motion swaps instantly.
+  Purely visual — the server's per-room unlocks are untouched, and room details
+  (names, markers, landmarks, grid) still need the room itself explored.
 
 ### Painted look (per chunk, in pass order)
 
@@ -69,8 +75,8 @@ with world size, and a 1000-zone world would blow past mobile GPU limits.
    when present, it replaces procedural props for that tile.
 5. Procedural props, depth-sorted: pines, peaks with snow, houses, dunes,
    lava cracks, volcano glow, hedges, cave mouths, grass tufts.
-6. Fog clouds over unexplored tiles; haze over explored-zone-but-locked tiles;
-   soft dimming outside the current zone.
+6. Fog clouds over never-entered zones; a faint veil (terrain visible) over
+   unexplored rooms in entered zones; soft dimming outside the current zone.
 7. Faint hex grid on explored land only; soft dashed gold zone borders.
 
 ## Phase 2 — streaming (not built yet)

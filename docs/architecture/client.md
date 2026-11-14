@@ -80,6 +80,7 @@ The WebGL canvas holds two static layers:
   - **Which chunks:** only visible chunks plus one ring of prefetch are wanted. They bake nearest-first, time-sliced to about 8 ms per frame.
   - **Memory:** a byte budget (96 MB desktop, 48 MB touch) evicts the farthest unwanted chunks.
   - **Invalidation:** each tile carries a visual fingerprint (type, fog, zone-dim, zone). `syncTerrain()` runs on unlock and zone changes, and only chunks touching changed tiles re-bake. Late-loading tile art re-bakes only the tiles that asked for it.
+  - **Zone reveal:** entering a zone for the first time lifts the fog off the whole zone's land at once — every tile that leaves full fog is a reveal tile (`revealedTiles` in `map/terrainChunks.ts`). Only chunks touching those tiles re-bake; each keeps its pre-reveal texture on a mesh above the fresh bake and fades it out over 900 ms, staggered outward from the view center by 180 ms per chunk, so the clouds roll back across the zone. Reduced motion swaps instantly. This is visual only: unexplored rooms in a revealed zone show their terrain under a faint veil, but their names, markers, landmarks and hex grid still wait until the room is explored, and the server's room unlock and movement rules are unchanged.
   - **Seams:** painting is deterministic (seeded by tile key and world-position noise), runs in one global draw order per pass, and bakes with a 2 px overlap. Adjacent chunks therefore agree at their seams.
 
 The **painter** draws its passes in this order:
@@ -88,7 +89,7 @@ The **painter** draws its passes in this order:
 3. Lakes.
 4. Uploaded `tile` / `tile-type` art, clipped to the tile. It replaces the procedural props for that tile.
 5. Depth-sorted procedural props: pines, peaks, houses, dunes, lava cracks, volcano, hedges, cave mouths, tufts. Unknown types fall back to their emoji.
-6. Fog clouds over unexplored tiles, haze over explored-zone-but-locked tiles, and dimming outside the current zone.
+6. Fog clouds over tiles in zones you have never entered, a faint veil over unexplored rooms in zones you have entered, and dimming outside the current zone.
 7. A faint hex grid on explored land, and soft dashed gold zone borders.
 
 The **`.wm-overlay` HTML layer** sits on top of the canvas and holds every dynamic element: markers, hover highlight, path preview. It carries a single `transform: translate(W/2, H/2) scale(zoom) translate(-camX, -camY)` mirroring the three.js camera, so one style update moves every child together. Children are absolutely positioned in world coords and centered via `translate(-50%, -50%)`.
