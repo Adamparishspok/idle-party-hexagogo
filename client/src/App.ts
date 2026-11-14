@@ -1,4 +1,4 @@
-import { GameClient } from './network/GameClient';
+import { GameClient, MAINTENANCE_ERROR } from './network/GameClient';
 import { WorldCache } from './network/WorldCache';
 import { getSession, loginWithEmail, verifyToken, pollLoginStatus, setUsername } from './network/AuthClient';
 import { ScreenManager } from './screens/ScreenManager';
@@ -29,6 +29,7 @@ import { installItemTooltips } from './ui/ItemStats';
 import { derivedInputFromState, isKnownClass } from './ui/GearModel';
 import { WellRestedChip } from './ui/WellRestedChip';
 import { FollowChip } from './ui/FollowChip';
+import { showReloadPrompt } from './ui/ReloadPrompt';
 import { WelcomeBackModal } from './ui/WelcomeBackModal';
 import { chatFocusTracker } from './network/ChatFocusTracker';
 import { wireGameSounds } from './audio/SoundEvents';
@@ -279,12 +280,19 @@ export class App {
       this.showSuspensionScreen();
     });
 
+    this.gameClient.onMaintenance((msg) => {
+      this.showMaintenanceScreen(msg.message, msg.eta);
+    });
+    this.gameClient.onVersionMismatch(showReloadPrompt);
+
     // Connect WS first (creates PlayerSession server-side), then load world data
     // (world endpoint requires the player session to exist)
     const connectResult = await this.gameClient.connect();
 
     if (!connectResult.success) {
+      if (connectResult.error === MAINTENANCE_ERROR) return;
       if (connectResult.error === CONNECTION_ERROR) {
+        this.offlineScreen.showUnavailable();
         this.screenManager.switchTo('offline');
         return;
       }
@@ -362,6 +370,14 @@ export class App {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+  }
+
+  private showMaintenanceScreen(message: string, eta: string | null): void {
+    this.offlineScreen.showMaintenance(message, eta);
+    this.navEl.style.display = 'none';
+    this.xpBarEl.style.display = 'none';
+    this.hudEl.style.display = 'none';
+    this.screenManager.switchTo('offline');
   }
 
   private showSuspensionScreen(email?: string): void {

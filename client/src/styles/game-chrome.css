@@ -836,3 +836,23 @@ body[data-nav-depth]:not([data-nav-depth="1"]) .notif-bell-btn {
     animation: none;
   }
 }
+
+/* New-version banner (build differs from the server's). */
+.reload-prompt {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + var(--s-3));
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  max-width: calc(100vw - 32px);
+  padding: var(--s-2) var(--s-3);
+  transform: translateX(-50%);
+  border: 2px solid var(--gold-700);
+  border-radius: var(--r-md);
+  background: rgba(20, 14, 8, 0.95);
+  font-family: var(--ui-font);
+  font-size: var(--t-small);
+  color: var(--gold-300);
+}

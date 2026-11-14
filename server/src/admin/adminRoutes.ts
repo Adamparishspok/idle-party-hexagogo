@@ -16,6 +16,7 @@ import { grantedAdminRole, isAdminRole, isEnvSuperAdmin } from '../auth/AdminRol
 import { DraftEditor, toRecord } from '../game/DraftEditor.js';
 import { AssetValidationError, MAX_ASSET_BYTES } from '../game/AssetStore.js';
 import type { AssetStore } from '../game/AssetStore.js';
+import type { MaintenanceMode } from '../game/MaintenanceMode.js';
 import { registerAssetRoutes, assetUploadErrorHandler } from './assetRoutes.js';
 
 /**
@@ -40,6 +41,8 @@ function normalizeRoomRequirements(raw: unknown): RoomEntryRequirements | undefi
 const artworkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ASSET_BYTES } });
 
 interface AdminRouteOptions {
+  maintenance: MaintenanceMode;
+  onMaintenanceChange: () => void;
   playerManager: () => PlayerManager;
   accountStore: AccountStore;
   inviteListStore: InviteListStore;
@@ -81,7 +84,7 @@ function parseExpiry(raw: unknown): { ok: true; value: string | null } | { ok: f
   return { ok: true, value: new Date(parsed).toISOString() };
 }
 
-export function createAdminRoutes({ playerManager: getPlayerManager, accountStore, inviteListStore, apiTokenStore, adminAuth, contentStore: getContentStore, versionStore: getVersionStore, assetStore, rebuildGrid, deployVersion }: AdminRouteOptions): Router {
+export function createAdminRoutes({ maintenance, onMaintenanceChange, playerManager: getPlayerManager, accountStore, inviteListStore, apiTokenStore, adminAuth, contentStore: getContentStore, versionStore: getVersionStore, assetStore, rebuildGrid, deployVersion }: AdminRouteOptions): Router {
   const router = Router();
   router.use(adminAuth.requireAdmin);
   const draftEditor = new DraftEditor(getVersionStore(), getContentStore);
@@ -195,6 +198,16 @@ export function createAdminRoutes({ playerManager: getPlayerManager, accountStor
       totalAccounts: accountStore.getAllAccounts().length,
       uptime: Math.floor(process.uptime()),
     });
+  });
+
+  router.get('/maintenance', (_req, res) => {
+    res.json(maintenance.get());
+  });
+
+  router.put('/maintenance', async (req: Request, res: Response) => {
+    const state = await maintenance.set(req.body);
+    onMaintenanceChange();
+    res.json(state);
   });
 
   router.get('/economy', (req, res) => {

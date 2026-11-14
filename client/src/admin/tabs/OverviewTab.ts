@@ -1,6 +1,8 @@
 import type { Tab } from './Tab';
 import type { AdminContext } from '../AdminContext';
-import { fetchAdmin } from '../api';
+import { fetchAdmin, putAdmin } from '../api';
+
+interface MaintenanceData { enabled: boolean; message: string; eta: string | null }
 
 interface EconomyData { sources: Record<string, { earned: number; spent: number }> }
 
@@ -48,6 +50,16 @@ export class OverviewTab implements Tab {
         </div>
 
         <div class="admin-page-section">
+          <h3>Maintenance mode</h3>
+          <div data-maintenance>
+            <label><input type="checkbox" data-maint-enabled> Down for maintenance (admins can still play)</label>
+            <p><input type="text" data-maint-message maxlength="500" placeholder="Message shown to players" style="width:100%"></p>
+            <p><label>Estimated back <input type="datetime-local" data-maint-eta></label>
+              <button type="button" data-maint-save>Save</button> <span data-maint-status></span></p>
+          </div>
+        </div>
+
+        <div class="admin-page-section">
           <h3>Gold economy
             <select data-economy-window>
               ${ECONOMY_WINDOWS.map(([label, days]) => `<option value="${days}">${label}</option>`).join('')}
@@ -70,6 +82,8 @@ export class OverviewTab implements Tab {
       </div>
     `;
 
+    this.wireMaintenance(container);
+
     const select = container.querySelector<HTMLSelectElement>('[data-economy-window]')!;
     const table = container.querySelector<HTMLElement>('[data-economy-table]')!;
     const load = async (): Promise<void> => {
@@ -82,6 +96,33 @@ export class OverviewTab implements Tab {
     };
     select.addEventListener('change', () => { void load(); });
     void load();
+  }
+
+  private wireMaintenance(container: HTMLElement): void {
+    const enabled = container.querySelector<HTMLInputElement>('[data-maint-enabled]')!;
+    const message = container.querySelector<HTMLInputElement>('[data-maint-message]')!;
+    const eta = container.querySelector<HTMLInputElement>('[data-maint-eta]')!;
+    const status = container.querySelector<HTMLElement>('[data-maint-status]')!;
+    const apply = (m: MaintenanceData): void => {
+      enabled.checked = m.enabled;
+      message.value = m.message;
+      eta.value = m.eta ? toLocalInput(m.eta) : '';
+    };
+    void fetchAdmin<MaintenanceData>('/api/admin/maintenance').then(apply).catch(() => { status.textContent = 'Failed to load.'; });
+    container.querySelector('[data-maint-save]')!.addEventListener('click', async () => {
+      if (enabled.checked && !confirm('Turn maintenance ON? Every connected non-admin player is switched to the maintenance screen.')) return;
+      try {
+        const saved = await putAdmin<MaintenanceData>('/api/admin/maintenance', {
+          enabled: enabled.checked,
+          message: message.value,
+          eta: eta.value ? new Date(eta.value).toISOString() : null,
+        });
+        apply(saved);
+        status.textContent = saved.enabled ? 'Maintenance is ON.' : 'Maintenance is off.';
+      } catch (err) {
+        status.textContent = err instanceof Error ? err.message : 'Save failed.';
+      }
+    });
   }
 
   private renderEconomy(data: EconomyData): string {
@@ -112,4 +153,11 @@ export class OverviewTab implements Tab {
       </div>
     `;
   }
+}
+
+/** ISO timestamp to the `YYYY-MM-DDTHH:mm` local value a datetime-local input expects. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

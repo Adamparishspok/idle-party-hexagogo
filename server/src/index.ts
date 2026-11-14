@@ -33,10 +33,12 @@ import type { ClassName, ClientBankMessage, ClientHousingMessage, ClientInventor
 import { HOUSING_MESSAGE_TYPES } from './game/housing/HousingService.js';
 import { INVENTORY_ERROR_MESSAGES, INVENTORY_MESSAGE_TYPES } from './game/InventoryErrors.js';
 import { BANK_MESSAGE_TYPES } from './game/bank/BankService.js';
-import { ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
+import { GAME_VERSION, ALL_CLASS_NAMES, EQUIP_SLOTS, RUN_AVAILABLE_ROUNDS, getEquippedItemIds, setAppliesToClass, ASSET_KINDS, ASSET_KIND_INFO, toShopSummary } from '@idle-party-rpg/shared';
 import { canMove } from './game/social/PartySystem.js';
 import { getVapidPublicKey } from './game/social/BrowserPushNotificationDriver.js';
 import { isEmailConfigured } from './auth/EmailService.js';
+import { resolveAdminRole } from './auth/AdminRoles.js';
+import { MaintenanceMode, JsonMaintenanceStore, versionMismatch } from './game/MaintenanceMode.js';
 
 /**
  * Render an unmet room entry requirement as the wire message. Item gates keep
@@ -66,6 +68,7 @@ const tokenStore = new TokenStore();
 const inviteListStore = new InviteListStore();
 const apiTokenStore = new ApiTokenStore();
 const assetStore = new AssetStore();
+const maintenance = new MaintenanceMode(new JsonMaintenanceStore());
 const gameLoop = new GameLoop(store);
 // playerManager is set during init(), use gameLoop.playerManager after init
 let playerManager: typeof gameLoop.playerManager;
@@ -191,7 +194,15 @@ app.get('/api/notifications/email-configured', requireAuth, (_req, res) => {
   res.json({ configured: isEmailConfigured() });
 });
 
+// Public so the offline screen can show the notice without a game connection
+app.get('/api/maintenance', (_req, res) => {
+  const { enabled, message, eta } = maintenance.get();
+  res.json({ enabled, message, eta });
+});
+
 app.use('/api/admin', createAdminRoutes({
+  maintenance,
+  onMaintenanceChange: ejectNonAdmins,
   playerManager: () => playerManager,
   accountStore,
   inviteListStore,
@@ -258,6 +269,23 @@ function getSessionUsername(req: IncomingMessage): Promise<string | null> {
   });
 }
 
+const MAINTENANCE_CLOSE_CODE = 4503;
+
+function isAdminUser(username: string): boolean {
+  return resolveAdminRole(accountStore.findByUsername(username)?.email, accountStore) !== null;
+}
+
+/** Switch every connected non-admin to the maintenance screen; admins keep playing. */
+function ejectNonAdmins(): void {
+  for (const ws of wss.clients) {
+    const username: string | undefined = (ws as any)._username;
+    const refusal = username ? maintenance.gate(isAdminUser(username)) : null;
+    if (!refusal) continue;
+    ws.send(JSON.stringify(refusal));
+    ws.close(MAINTENANCE_CLOSE_CODE, 'Maintenance');
+  }
+}
+
 server.on('upgrade', async (req, socket, head) => {
   const username = await getSessionUsername(req);
 
@@ -275,8 +303,16 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
 
+  const refusal = maintenance.gate(isAdminUser(username));
+
   wss.handleUpgrade(req, socket, head, (ws) => {
+    if (refusal) {
+      ws.send(JSON.stringify(refusal));
+      ws.close(MAINTENANCE_CLOSE_CODE, 'Maintenance');
+      return;
+    }
     (ws as any)._username = username;
+    (ws as any)._clientVersion = new URL(req.url ?? '/', 'http://localhost').searchParams.get('v');
     wss.emit('connection', ws, req);
   });
 });
@@ -301,6 +337,9 @@ function syncFriendState(a: string, b: string): void {
 wss.on('connection', (ws) => {
   const username: string = (ws as any)._username;
   console.log(`WebSocket connected for "${username}"`);
+
+  const mismatch = versionMismatch((ws as any)._clientVersion, GAME_VERSION);
+  if (mismatch) ws.send(JSON.stringify(mismatch));
 
   // Register the connection and send initial state
   playerManager.login(ws, username).then(() => {
@@ -1919,6 +1958,7 @@ async function start() {
   console.log(`[Startup] AccountStore loaded in ${(performance.now() - t0).toFixed(1)}ms`);
 
   await inviteListStore.load();
+  await maintenance.load();
   await apiTokenStore.load();
 
   tokenStore.start();

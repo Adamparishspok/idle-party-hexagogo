@@ -457,6 +457,19 @@ export interface ClientEnterTransitionMessage {
   tileId: string;
 }
 
+/** Sent to a non-admin the server is turning away (or kicking) during maintenance. */
+export interface ServerMaintenanceMessage {
+  type: 'maintenance';
+  message: string;
+  eta: string | null;
+}
+
+/** Sent when the client's reported build differs from the server's GAME_VERSION. */
+export interface ServerVersionMismatchMessage {
+  type: 'version_mismatch';
+  serverVersion: string;
+}
+
 export interface ClientFollowPlayerMessage {
   type: 'follow_player';
   username: string;
