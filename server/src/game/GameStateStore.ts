@@ -91,6 +91,8 @@ export interface PlayerSaveData {
   house?: PlayerHouse;
   /** Epoch ms the Well Rested bonus lasts until. */
   wellRestedUntil?: number;
+  /** Player this party is following; re-validated on the target's next move. */
+  followTarget?: string;
   /** Lost & Found pouch: loot that arrived while the backpack was full. */
   lostAndFound?: Record<string, number>;
   /** The one-time starter bag was given. Absent → grant on load. */

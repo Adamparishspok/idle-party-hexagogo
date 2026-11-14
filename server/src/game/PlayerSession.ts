@@ -148,6 +148,8 @@ export class PlayerSession {
   private craftQueue: CraftQueueState = emptyCraftQueue();
   /** Initial mailbox snapshot from save data; live state lives in MailboxSystem. */
   private initialMailbox: MailboxEntry[] = [];
+  private initialFollowTarget: string | null = null;
+  getFollowTarget?: () => string | null;
   /** Callback to fetch the player's live mailbox from MailboxSystem. */
   getMailbox?: () => MailboxEntry[];
   /** Initial notification inbox snapshot from save data; live state lives in NotificationSystem. */
@@ -834,6 +836,7 @@ export class PlayerSession {
       dungeon: this.getDungeonState?.() ?? undefined,
       bank: this.getBankState(),
       worldBosses: this.getWorldBosses?.(),
+      following: this.getFollowTarget?.() ?? undefined,
     };
   }
 
@@ -981,6 +984,13 @@ export class PlayerSession {
     const m = this.initialMailbox;
     this.initialMailbox = [];
     return m;
+  }
+
+  /** Saved follow target — handed to FollowSystem once at session creation. */
+  consumeInitialFollowTarget(): string | null {
+    const t = this.initialFollowTarget;
+    this.initialFollowTarget = null;
+    return t;
   }
 
   /** Notification inbox snapshot from save data — used once at startup to populate NotificationSystem. */
@@ -1482,6 +1492,7 @@ export class PlayerSession {
       awaySnapshot: this.awaySnapshot ? { ...this.awaySnapshot, inventory: { ...this.awaySnapshot.inventory } } : undefined,
       house: this.house ? { ...this.house, storage: { ...this.house.storage }, displays: [...this.house.displays] } : undefined,
       wellRestedUntil: this.wellRestedUntil,
+      followTarget: (this.getFollowTarget ? this.getFollowTarget() : this.initialFollowTarget) ?? undefined,
       lostAndFound: { ...this.lostAndFound },
       starterBagGranted: this.starterBagGranted,
       worldBossCooldowns: { ...this.worldBossCooldowns },
@@ -1587,6 +1598,7 @@ export class PlayerSession {
     session['chatSendChannel'] = (data.chatSendChannel as ChatChannelType) ?? 'zone';
     session['chatDmTarget'] = data.chatDmTarget ?? '';
     session['initialMailbox'] = data.mailbox ? [...data.mailbox] : [];
+    session['initialFollowTarget'] = data.followTarget ?? null;
     session['initialNotifications'] = data.notifications ? [...data.notifications] : [];
     session['notificationPreferences'] = data.notificationPreferences ?? emptyNotificationPreferences();
     session['pushSubscriptions'] = data.pushSubscriptions ? [...data.pushSubscriptions] : [];

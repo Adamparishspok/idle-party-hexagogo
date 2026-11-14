@@ -226,6 +226,8 @@ export interface ServerStateMessage {
   bank?: ClientBankState;
   /** Every live world boss, with this player's retry cooldown. */
   worldBosses?: ClientWorldBoss[];
+  /** Player this player's party is following, if any. */
+  following?: string;
   /** Server version identifier — changes on restart/deploy, triggers client reload on mismatch. */
   serverVersion: string;
 }
@@ -459,8 +461,32 @@ export interface ClientEnterTransitionMessage {
   tileId: string;
 }
 
+/** Sent to a non-admin the server is turning away (or kicking) during maintenance. */
+export interface ServerMaintenanceMessage {
+  type: 'maintenance';
+  message: string;
+  eta: string | null;
+}
+
+/** Sent when the client's reported build differs from the server's GAME_VERSION. */
+export interface ServerVersionMismatchMessage {
+  type: 'version_mismatch';
+  serverVersion: string;
+}
+
+export interface ClientFollowPlayerMessage {
+  type: 'follow_player';
+  username: string;
+}
+
+export interface ClientStopFollowingMessage {
+  type: 'stop_following';
+}
+
 export type ClientMessage =
   | ClientMoveMessage
+  | ClientFollowPlayerMessage
+  | ClientStopFollowingMessage
   | ClientRequestStateMessage
   | ClientEquipItemMessage
   | ClientUnequipItemMessage
