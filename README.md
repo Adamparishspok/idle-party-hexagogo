@@ -298,6 +298,7 @@ Real-time auto-battle with tick-based damage (1s per tick), HP tracked for both 
 - [x] Content-driven new-player tutorial that unlocks nav tabs step by step (skippable; existing players unaffected)
 - [x] WorldQuest-style rebuild of every screen and popup on the component kit (combat, character, map chrome + rooms, social, craft, chat, notifications, settings, title flow)
 - [ ] Painted world map (still hex-based underneath) — see `ideas/ui-revamp-worldquest.md`
+  - [x] Zone-wide fog reveal on first entry, gliding party markers, painted landmark buildings (`map-prop` art)
 - [ ] Painted art for the `ui` chrome kind and nav icons
 - [x] Sound effects (combat, buttons, rewards, alerts) with synthesized placeholders, volume/mute in Settings; real files drop into `data/sfx/{id}.ogg`
 - [ ] Real recorded sound effects for every `SFX_IDS` entry — see `ideas/ui-revamp-worldquest.md`

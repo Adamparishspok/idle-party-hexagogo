@@ -57,6 +57,12 @@ with world size, and a 1000-zone world would blow past mobile GPU limits.
   (unlocks, zone change, an artwork image finishing loading), only chunks whose
   margin touches a changed tile are marked dirty; they re-bake in place, keeping
   their old texture on screen until the new one is ready.
+- **Zone reveal:** when a zone opens (its first room is explored), every tile
+  that leaves full fog marks its chunks for a *reveal* re-bake: the old texture
+  stays on a mesh above the new one and fades out (900 ms, staggered 180 ms per
+  chunk of distance from the view center). Reduced motion swaps instantly.
+  Purely visual — the server's per-room unlocks are untouched, and room details
+  (names, markers, landmarks, grid) still need the room itself explored.
 
 ### Painted look (per chunk, in pass order)
 
@@ -69,9 +75,18 @@ with world size, and a 1000-zone world would blow past mobile GPU limits.
    when present, it replaces procedural props for that tile.
 5. Procedural props, depth-sorted: pines, peaks with snow, houses, dunes,
    lava cracks, volcano glow, hedges, cave mouths, grass tufts.
-6. Fog clouds over unexplored tiles; haze over explored-zone-but-locked tiles;
-   soft dimming outside the current zone.
+6. Fog clouds over never-entered zones; a faint veil (terrain visible) over
+   unexplored rooms in entered zones; soft dimming outside the current zone.
 7. Faint hex grid on explored land only; soft dashed gold zone borders.
+
+## Smooth walking
+
+The server moves a party one room per battle cycle, then waits
+`MOVE_DURATION` before the next fight. The client glides each marker across
+that window: `MarkerGlide` (`map/markerMotion.ts`) derives the position from
+the hop's start (when the push arrived) and the two room centers, so nothing
+extra goes over the wire. Anything that isn't a live one-room hop (reconnect,
+tab resume, map switch, teleport) snaps. Reduced motion always snaps.
 
 ## Phase 2 — streaming (not built yet)
 
@@ -96,7 +111,11 @@ already pure (tiles + rect + scale in, pixels out) so it moves as-is.
 ## Art hooks
 
 - `tile` / `tile-type` art: drawn clipped into the tile blob (props skipped).
-- Map props from the user's other projects are staged in `server/data/map-props/`
-  (e.g. 64px inn/tavern/merchant/dungeon buildings) — a later step can let the
-  painter place them on town/dungeon tiles instead of procedural houses.
+- **Landmarks** (built): explored rooms with a dungeon, your home, a shop
+  (bank / estate agent / merchant), an NPC, or a town get one painted building.
+  Art comes from the `map-prop` asset kind (`data/map-props/`, served at
+  `/map-prop-artwork/{id}.png`, fixed ids in `MAP_PROP_IDS`), so the staged
+  64px buildings in `server/data/map-props/` serve as-is under their file
+  names. Missing props fall back to procedural buildings. The staged arena,
+  raid and trainer props have no landmark yet.
 - Per-map sea/backdrop art via the existing `parchment` kind.

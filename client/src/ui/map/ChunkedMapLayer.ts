@@ -11,7 +11,8 @@
 
 import * as THREE from 'three';
 import type { PaintTile } from './terrainPainter';
-import { CHUNK_SIZE, TerrainTileIndex, bakeChunk, chunkBounds, chunkKey, lodScale } from './terrainChunks';
+import { CHUNK_SIZE, TerrainTileIndex, bakeChunk, chunkBounds, chunkKey, lodScale, revealedTiles } from './terrainChunks';
+import { prefersReducedMotion } from './markerMotion';
 
 export { CHUNK_SIZE, lodScale };
 
@@ -19,6 +20,11 @@ export { CHUNK_SIZE, lodScale };
 const FRAME_BUDGET_MS = 8;
 /** Mesh z — above the sea backdrop, below nothing (markers are DOM). */
 const CHUNK_Z = 2;
+/** The pre-reveal texture fades out on top of the fresh bake. */
+const FADE_Z = 2.5;
+const REVEAL_FADE_MS = 900;
+/** Per chunk of distance from the view center, so the clouds roll outward. */
+const REVEAL_STAGGER_MS = 180;
 
 interface ResidentChunk {
   key: string;
@@ -31,6 +37,14 @@ interface ResidentChunk {
   bytes: number;
   /** State changed since this bake; re-bake when next wanted. */
   dirty: boolean;
+  /** Fog lifted on a tile here: cross-fade the next bake in. */
+  reveal: boolean;
+}
+
+interface RevealFade {
+  mesh: THREE.Mesh;
+  canvas: HTMLCanvasElement;
+  start: number;
 }
 
 export interface LayerView {
@@ -45,7 +59,8 @@ export interface LayerView {
 
 export interface LayerOptions {
   getArt: (tile: PaintTile) => CanvasImageSource | null;
-  /** Called when background baking finishes a chunk (caller re-renders). */
+  getPropArt?: (tile: PaintTile) => CanvasImageSource | null;
+  /** Called when what the chunks show changed — a bake landed or a reveal faded a step (caller re-renders). */
   onBaked: () => void;
 }
 
@@ -61,6 +76,8 @@ export class ChunkedMapLayer {
   /** Chunks wanted by the last update, nearest first, with their target LOD. */
   private queue: { key: string; cx: number; cy: number; scale: number }[] = [];
   private bakeRaf: number | null = null;
+  private fades: RevealFade[] = [];
+  private fadeRaf: number | null = null;
   private budgetBytes = isTouchDevice() ? 48 * 1024 * 1024 : 96 * 1024 * 1024;
   private lastView: LayerView | null = null;
   private disposed = false;
@@ -78,7 +95,15 @@ export class ChunkedMapLayer {
    */
   setTiles(tiles: PaintTile[], reset = false): void {
     if (reset) this.clear();
-    this.markTilesDirty(this.index.setTiles(tiles));
+    const revealed = revealedTiles(k => this.index.getTile(k)?.fog, tiles);
+    const changed = this.index.setTiles(tiles);
+    for (const t of revealed) {
+      for (const { cx, cy } of this.index.chunksTouching(t)) {
+        const rc = this.resident.get(chunkKey(cx, cy));
+        if (rc) rc.reveal = true;
+      }
+    }
+    this.markTilesDirty(changed);
   }
 
   /** Mark every chunk a set of tiles can paint into as needing a re-bake. */
@@ -150,6 +175,8 @@ export class ChunkedMapLayer {
   dispose(): void {
     this.disposed = true;
     if (this.bakeRaf !== null) cancelAnimationFrame(this.bakeRaf);
+    if (this.fadeRaf !== null) cancelAnimationFrame(this.fadeRaf);
+    this.fadeRaf = null;
     this.clear();
   }
 
@@ -175,38 +202,76 @@ export class ChunkedMapLayer {
     const key = chunkKey(cx, cy);
     const { minX, minY, size } = chunkBounds(cx, cy);
     let rc = this.resident.get(key);
-    const canvas = rc?.canvas ?? document.createElement('canvas');
-    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts.getArt)) return;
+    const fadeOut = rc?.reveal && rc.mesh.visible && !prefersReducedMotion();
+    const canvas = rc && !fadeOut ? rc.canvas : document.createElement('canvas');
+    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts)) return;
     const px = canvas.width;
 
     if (!rc) {
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.minFilter = THREE.LinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.generateMipmaps = false;
+      const texture = chunkTexture(canvas);
       const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
       // World Y is flipped for three.js (positive world-Y reads as down).
       mesh.position.set(minX + size / 2, -(minY + size / 2), CHUNK_Z);
       this.scene.add(mesh);
-      rc = { key, cx, cy, scale, canvas, texture, mesh, bytes: 0, dirty: false };
+      rc = { key, cx, cy, scale, canvas, texture, mesh, bytes: 0, dirty: false, reveal: false };
       this.resident.set(key, rc);
     } else {
-      rc.texture.dispose();
-      rc.texture = new THREE.CanvasTexture(canvas);
-      rc.texture.colorSpace = THREE.SRGBColorSpace;
-      rc.texture.minFilter = THREE.LinearFilter;
-      rc.texture.magFilter = THREE.LinearFilter;
-      rc.texture.generateMipmaps = false;
+      if (fadeOut) this.startFade(rc);
+      else rc.texture.dispose();
+      rc.canvas = canvas;
+      rc.texture = chunkTexture(canvas);
       (rc.mesh.material as THREE.MeshBasicMaterial).map = rc.texture;
       (rc.mesh.material as THREE.MeshBasicMaterial).needsUpdate = true;
     }
     rc.scale = scale;
     rc.dirty = false;
+    rc.reveal = false;
     // Canvas backing store + GPU copy.
     rc.bytes = px * px * 4 * 2;
     rc.mesh.visible = true;
+  }
+
+  /** Keep the chunk's pre-reveal texture on top and fade it out, nearer chunks first. */
+  private startFade(rc: ResidentChunk): void {
+    const { minX, minY, size } = chunkBounds(rc.cx, rc.cy);
+    const material = new THREE.MeshBasicMaterial({ map: rc.texture, transparent: true, depthWrite: false });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
+    mesh.position.set(minX + size / 2, -(minY + size / 2), FADE_Z);
+    this.scene.add(mesh);
+    const view = this.lastView;
+    const chunksAway = view
+      ? Math.hypot((rc.cx + 0.5) * CHUNK_SIZE - view.camX, (rc.cy + 0.5) * CHUNK_SIZE - view.camY) / CHUNK_SIZE
+      : 0;
+    this.fades.push({ mesh, canvas: rc.canvas, start: performance.now() + chunksAway * REVEAL_STAGGER_MS });
+    this.runFades();
+  }
+
+  private runFades(): void {
+    if (this.fadeRaf !== null || this.disposed) return;
+    this.fadeRaf = requestAnimationFrame(() => {
+      this.fadeRaf = null;
+      const now = performance.now();
+      this.fades = this.fades.filter(f => {
+        const t = (now - f.start) / REVEAL_FADE_MS;
+        if (t >= 1) { this.endFade(f); return false; }
+        const u = Math.max(0, t);
+        (f.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - u * u * (3 - 2 * u);
+        return true;
+      });
+      this.opts.onBaked();
+      if (this.fades.length > 0) this.runFades();
+    });
+  }
+
+  private endFade(f: RevealFade): void {
+    this.scene.remove(f.mesh);
+    f.mesh.geometry.dispose();
+    const material = f.mesh.material as THREE.MeshBasicMaterial;
+    material.map?.dispose();
+    material.dispose();
+    f.canvas.width = 0;
+    f.canvas.height = 0;
   }
 
   /** Drop the farthest non-wanted chunks until resident memory fits the budget. */
@@ -242,8 +307,19 @@ export class ChunkedMapLayer {
   }
 
   private clear(): void {
+    for (const f of this.fades) this.endFade(f);
+    this.fades = [];
     for (const rc of [...this.resident.values()]) this.destroyChunk(rc);
     this.queue = [];
     this.index.clear();
   }
+}
+
+function chunkTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  return texture;
 }

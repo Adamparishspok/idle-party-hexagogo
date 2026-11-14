@@ -1,5 +1,13 @@
 export const PATCH_NOTES: { version: string; notes: string[] }[] = [
   {
+    version: '2026.11.13.2',
+    notes: [
+      'When you first step into a new zone, the clouds roll back across the whole zone so you can see the land ahead. Each room still keeps its secrets until you visit it.',
+      'Parties now walk smoothly from room to room on the map instead of jumping.',
+      'Dungeons, shops, banks, homes and other places now show a building on their room, so you can spot them at a glance.',
+    ],
+  },
+  {
     version: '2026.11.13.1',
     notes: [
       'World bosses! Mighty bosses now appear in certain rooms on the map, marked with 👹. Their health carries over between fights, so every party that takes them on wears them down a little more.',

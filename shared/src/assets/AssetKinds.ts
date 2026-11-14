@@ -38,6 +38,7 @@ export const ASSET_KINDS = [
   'skill',
   'ui',
   'sfx',
+  'map-prop',
 ] as const;
 
 export type AssetKind= (typeof ASSET_KINDS)[number];
@@ -99,6 +100,19 @@ export const SFX_IDS = [
 ] as const;
 
 export type SfxId = (typeof SFX_IDS)[number];
+
+/** Painted landmark props the world map stands on rooms, one per landmark kind. */
+export const MAP_PROP_IDS = [
+  'building-inn',
+  'building-merchant',
+  'building-dungeon',
+  'building-tavern',
+  'building-bank',
+  'building-estate',
+  'building-home',
+] as const;
+
+export type MapPropId = (typeof MAP_PROP_IDS)[number];
 
 /**
  * File format a kind is stored and served as. Everything was PNG until sound
@@ -417,6 +431,19 @@ export const ASSET_KIND_INFO: Record<AssetKind, AssetKindInfo> = {
     shape: 'any',
     formats: ['ogg', 'mp3'],
   },
+  'map-prop': {
+    label: 'Map landmark',
+    description:
+      'Painted building props the world map stands on explored rooms: inn (town rooms), merchant (shops), dungeon '
+      + '(dungeon entrances), tavern (NPCs), bank, estate (house sellers) and home (your house). '
+      + 'A missing prop falls back to a procedural painted building.',
+    dir: 'data/map-props',
+    mount: '/map-prop-artwork',
+    idSource: 'fixed',
+    idFormat: 'Fixed landmark id (MAP_PROP_IDS)',
+    fixedIds: MAP_PROP_IDS,
+    shape: 'square',
+  },
 };
 
 /**
@@ -450,6 +477,7 @@ export const MANAGED_ASSET_KINDS = [
   'skill',
   'ui',
   'sfx',
+  'map-prop',
 ] as const;
 
 export type ManagedAssetKind = (typeof MANAGED_ASSET_KINDS)[number];

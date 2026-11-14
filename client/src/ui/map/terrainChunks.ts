@@ -1,5 +1,5 @@
 import { HEX_SIZE } from '@idle-party-rpg/shared';
-import { paintTerrain, paintFingerprint, type PaintTile } from './terrainPainter';
+import { paintTerrain, paintFingerprint, type FogState, type PaintOptions, type PaintTile } from './terrainPainter';
 
 /** Chunk edge in world units (≈ 8 × 7 hexes). */
 export const CHUNK_SIZE = 512;
@@ -29,6 +29,11 @@ export function chunkBounds(cx: number, cy: number): { minX: number; minY: numbe
     minY: cy * CHUNK_SIZE - SEAM_OVERLAP,
     size: CHUNK_SIZE + SEAM_OVERLAP * 2,
   };
+}
+
+/** Tiles that were under full fog and no longer are: their zone just opened up. */
+export function revealedTiles(prevFog: (key: string) => FogState | undefined, next: readonly PaintTile[]): PaintTile[] {
+  return next.filter(t => t.fog !== 'fog' && prevFog(t.key) === 'fog');
 }
 
 /** Paint tiles bucketed by chunk, with per-tile fingerprints to find what a re-sync changed. */
@@ -126,7 +131,7 @@ export function bakeChunk(
   cx: number,
   cy: number,
   scale: number,
-  getArt: (tile: PaintTile) => CanvasImageSource | null,
+  art: Pick<PaintOptions, 'getArt' | 'getPropArt'>,
 ): boolean {
   const { minX, minY, size } = chunkBounds(cx, cy);
   const px = Math.max(1, Math.ceil(size * scale));
@@ -141,7 +146,8 @@ export function bakeChunk(
   paintTerrain(ctx, index.tilesForChunk(cx, cy), {
     scale: s,
     getTile: (k) => index.getTile(k),
-    getArt,
+    getArt: art.getArt,
+    getPropArt: art.getPropArt,
   });
   return true;
 }

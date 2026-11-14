@@ -80,6 +80,7 @@ The WebGL canvas holds two static layers:
   - **Which chunks:** only visible chunks plus one ring of prefetch are wanted. They bake nearest-first, time-sliced to about 8 ms per frame.
   - **Memory:** a byte budget (96 MB desktop, 48 MB touch) evicts the farthest unwanted chunks.
   - **Invalidation:** each tile carries a visual fingerprint (type, fog, zone-dim, zone). `syncTerrain()` runs on unlock and zone changes, and only chunks touching changed tiles re-bake. Late-loading tile art re-bakes only the tiles that asked for it.
+  - **Zone reveal:** entering a zone for the first time lifts the fog off the whole zone's land at once — every tile that leaves full fog is a reveal tile (`revealedTiles` in `map/terrainChunks.ts`). Only chunks touching those tiles re-bake; each keeps its pre-reveal texture on a mesh above the fresh bake and fades it out over 900 ms, staggered outward from the view center by 180 ms per chunk, so the clouds roll back across the zone. Reduced motion swaps instantly. This is visual only: unexplored rooms in a revealed zone show their terrain under a faint veil, but their names, markers, landmarks and hex grid still wait until the room is explored, and the server's room unlock and movement rules are unchanged.
   - **Seams:** painting is deterministic (seeded by tile key and world-position noise), runs in one global draw order per pass, and bakes with a 2 px overlap. Adjacent chunks therefore agree at their seams.
 
 The **painter** draws its passes in this order:
@@ -87,15 +88,17 @@ The **painter** draws its passes in this order:
 2. Terrain fills in layer order, with feathered borders and brush dabs.
 3. Lakes.
 4. Uploaded `tile` / `tile-type` art, clipped to the tile. It replaces the procedural props for that tile.
-5. Depth-sorted procedural props: pines, peaks, houses, dunes, lava cracks, volcano, hedges, cave mouths, tufts. Unknown types fall back to their emoji.
-6. Fog clouds over unexplored tiles, haze over explored-zone-but-locked tiles, and dimming outside the current zone.
+5. Depth-sorted props: pines, peaks, houses, dunes, lava cracks, volcano, hedges, cave mouths, tufts. Unknown types fall back to their emoji. **Landmarks** replace a room's tall props on explored rooms only: `roomBuilding` (`map/paintTiles.ts`) picks one per room — dungeon `cave`, your `home`, then the shop's `bank` / `houses` / `shop`, an `npc`, and finally `town` for town-type rooms. Each draws its `map-prop` art (`landmarkArtUrl` in `map/tileArt.ts`: inn, merchant, dungeon, tavern, bank, estate, home) bottom-anchored on the room, crisp when magnified. Without art it falls back to a procedural building (cave mouth, bank hall, estate, market stall, quest hut, cottage; a town keeps its houses). Art that lands late re-bakes only the tiles that asked for it.
+6. Fog clouds over tiles in zones you have never entered, a faint veil over unexplored rooms in zones you have entered, and dimming outside the current zone.
 7. A faint hex grid on explored land, and soft dashed gold zone borders.
 
 The **`.wm-overlay` HTML layer** sits on top of the canvas and holds every dynamic element: markers, hover highlight, path preview. It carries a single `transform: translate(W/2, H/2) scale(zoom) translate(-camX, -camY)` mirroring the three.js camera, so one style update moves every child together. Children are absolutely positioned in world coords and centered via `translate(-50%, -50%)`.
 
 The **tooltip** is a separate cursor-positioned `.canvas-map-tooltip` element, with no map transform.
 
-**Render-on-demand.** There's no always-on RAF loop. `requestRender()` schedules one render on the next animation frame, coalescing multiple state pushes. The chunk layer schedules its own time-sliced bake frames and calls back to re-render as chunks land. An animation loop runs only while the spring-back is active. Party movement and the party pulse live in CSS. An idle map costs effectively zero.
+**Render-on-demand.** There's no always-on RAF loop. `requestRender()` schedules one render on the next animation frame, coalescing multiple state pushes. The chunk layer schedules its own time-sliced bake frames and calls back to re-render as chunks land. An animation loop runs only while the spring-back is active. The party pulse lives in CSS. An idle map costs effectively zero.
+
+**Smooth walking.** Party markers — yours and every other party's — glide between rooms instead of jumping. `map/markerMotion.ts` holds `MarkerGlide`, whose position is a pure function of the last move: it starts where the marker was drawn when the new room arrived in a state push and lands on that room `MOVE_DURATION` (400 ms, the server's move window in `ServerBattleTimer`) later, eased in and out. No extra network traffic: the start time is the push's arrival. Only a live single-room hop glides (`isSingleHop`); a snap push (first state, reconnect, Map tab re-entry), a map switch, a push that arrives while the tab is hidden, or a jump of more than one room snaps straight to the room. Reduced motion always snaps. Other parties' markers carry `data-lead` (their lead player's name) so their glide follows the player, not the room. A short RAF loop runs only while a marker is mid-glide and only writes overlay `left`/`top`; it never re-renders the WebGL scene.
 
 ## Room actions
 

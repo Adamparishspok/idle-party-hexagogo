@@ -18,19 +18,27 @@ export interface PaintTileInput {
 export interface RoomBuildingLookups {
   getShop(id: string): ShopSummary | undefined;
   getDungeon(id: string): unknown;
+  getNpc(id: string): unknown;
 }
 
-/** The landmark a room's contents earn it on the map: a dungeon's cave, then its shop's building. */
+/**
+ * The landmark a room's contents earn it on the map, most important first:
+ * dungeon cave, your home, the shop's building, an NPC, then a town's inn.
+ */
 export function roomBuilding(
-  room: Pick<WorldTileDefinition, 'shopId' | 'dungeonId'>,
+  room: Partial<Pick<WorldTileDefinition, 'id' | 'type' | 'shopId' | 'dungeonId' | 'npcId'>>,
   lookups: RoomBuildingLookups,
+  homeTileId?: string,
 ): RoomBuilding | undefined {
   if (room.dungeonId && lookups.getDungeon(room.dungeonId)) return 'cave';
+  if (homeTileId && room.id === homeTileId) return 'home';
   const shop = room.shopId ? lookups.getShop(room.shopId) : undefined;
-  if (!shop) return undefined;
-  if (shop.isBanker) return 'bank';
-  if (shop.sellsHouses) return 'houses';
-  return 'shop';
+  if (shop?.isBanker) return 'bank';
+  if (shop?.sellsHouses) return 'houses';
+  if (shop) return 'shop';
+  if (room.npcId && lookups.getNpc(room.npcId)) return 'npc';
+  if (room.type === 'town') return 'town';
+  return undefined;
 }
 
 /** Turn rooms on one map into painter tiles; void rooms are dropped and fog defaults to open. */

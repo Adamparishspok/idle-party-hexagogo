@@ -234,6 +234,7 @@ Every kind of image the game serves is declared once in `ASSET_KIND_INFO` (`shar
 | `slot-icon` | Equipment-slot dogear glyphs | `EquipSlot` id | square |
 | `nav-icon` | Bottom-nav button glyphs | Nav destination id | square |
 | `ui` | Painted shell chrome (nav bar, nav button frame, active-tab banner, XP bar housing, HUD pill), layered over CSS fallbacks in `game-chrome.css` | fixed ids in `UI_CHROME_IDS` | any |
+| `map-prop` | Painted landmark buildings on explored world-map rooms, served from `data/map-props/` at `/map-prop-artwork/{id}.png`; a missing prop falls back to a procedural painted building (see [`client.md`](client.md) → World map) | fixed ids in `MAP_PROP_IDS` | square |
 | `sfx` | Sound effects (not images) — served from `data/sfx/` at `/sfx/{id}.ogg` (preferred) or `/sfx/{id}.mp3`, each over a synthesized placeholder in `client/src/audio/SfxSynth.ts` | fixed sound-event ids in `SFX_IDS` | any (n/a) |
 
 `shape: 'square'` rejects non-square uploads; `'any'` accepts any aspect ratio (the wide backdrops and the logo). NPCs and henchmen may skip the folder entirely by pointing `NpcDefinition.artworkUrl` / `HenchmanDefinition.artworkUrl` at any URL.

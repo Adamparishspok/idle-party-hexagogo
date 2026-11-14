@@ -139,7 +139,7 @@ export class CanvasTerrainLayer {
     const key = chunkKey(cx, cy);
     const existing = this.chunks.get(key);
     const canvas = existing?.canvas ?? document.createElement('canvas');
-    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts.getArt)) return;
+    if (!bakeChunk(canvas, this.index, cx, cy, scale, this.opts)) return;
     this.chunks.set(key, { key, cx, cy, scale, canvas, dirty: false, lastUsed: this.frame });
   }
 
